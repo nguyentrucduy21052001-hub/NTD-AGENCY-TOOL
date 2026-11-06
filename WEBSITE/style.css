@@ -1,0 +1,205 @@
+html.ntd-dark-theme,html.ntd-dark-theme body,body.ntd-dark-theme{background-color:#070b14!important;background:#070b14!important;color:#f8fafc!important;color-scheme:dark!important}html.ntd-dark-theme .grid section,body.ntd-dark-theme .grid section{background:#0f172a!important;border-color:rgba(255,255,255,0.08)!important;color:#f8fafc!important}*{box-sizing:border-box}body{margin:0;background:#f3f5fa;color:#172338;font:15px/1.6 system-ui,sans-serif}main{max-width:1160px;margin:36px auto;padding:0 24px}header{display:flex;align-items:center;gap:18px;margin-bottom:24px}header span{background:#ed6b22;color:white;border-radius:16px;padding:15px;font-weight:800;font-size:26px}h1{margin:0;font-size:29px}header p{margin:0;color:#68758b}header b{margin-left:auto;color:#68758b;font-size:11px}.notice{background:#fff4e6;border:1px solid #ffdbac;padding:16px 22px;border-radius:12px;margin-bottom:22px}.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:22px}.grid section{background:white;border:1px solid #e2e7ee;padding:26px;border-radius:18px}h2{font-size:18px;margin:0 0 18px}h2:not(:first-child){margin-top:28px}label{display:block;font-weight:600;margin-bottom:18px}input,textarea,select{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid #cdd5e1;border-radius:9px;font:inherit;background:#fff}textarea{resize:vertical}button{padding:11px 17px;border:0;border-radius:9px;background:#ec6b25;color:white;font:600 14px system-ui;cursor:pointer}button:disabled{opacity:.45;cursor:default}.light{background:#edf1f7;color:#253958}.danger{background:#ffe7e5;color:#a12e27}.actions{display:flex;flex-wrap:wrap;gap:9px}p,footer{color:#657186}.small,footer{font-size:12px}#message{color:#b34317;white-space:pre-wrap}li{padding:9px 0;border-bottom:1px solid #edf0f5;overflow-wrap:anywhere}li small{display:block}footer{text-align:center;padding:24px}@media(max-width:800px){.grid{grid-template-columns:1fr}header b{display:none}}
+
+/* ── NTD Theme Toggle Button (Nút chuyển chế độ Ban ngày / Ban đêm góc trên bên phải) ── */
+.ntd-theme-toggle-btn {
+  position: fixed !important;
+  top: 16px !important;
+  right: 20px !important;
+  z-index: 99999 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 38px !important;
+  padding: 4px 12px 4px 6px !important;
+  border-radius: 9999px !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.2px !important;
+  border: 1px solid rgba(203, 213, 225, 0.9) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #1e293b !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+}
+
+.ntd-theme-toggle-btn:hover {
+  transform: translateY(-1.5px) !important;
+  border-color: rgba(245, 158, 11, 0.55) !important;
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.22), 0 0 12px rgba(245, 158, 11, 0.15) !important;
+}
+
+.ntd-theme-toggle-btn:active {
+  transform: translateY(0) scale(0.97) !important;
+}
+
+/* Biểu tượng mặt trời / mặt trăng */
+.ntd-theme-toggle-btn .ntd-tt-icon-wrap {
+  position: relative !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+  color: #d97706 !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
+  flex-shrink: 0 !important;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+.ntd-theme-toggle-btn .ntd-tt-icon {
+  width: 16px !important;
+  height: 16px !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  margin-top: -8px !important;
+  margin-left: -8px !important;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease !important;
+}
+
+/* Ban ngày: icon mặt trời hiện, icon mặt trăng xoay ẩn */
+.ntd-theme-toggle-btn .ntd-tt-icon-sun {
+  opacity: 1 !important;
+  transform: rotate(0deg) scale(1) !important;
+}
+.ntd-theme-toggle-btn .ntd-tt-icon-moon {
+  opacity: 0 !important;
+  transform: rotate(90deg) scale(0.2) !important;
+}
+
+.ntd-theme-toggle-btn .ntd-tt-label {
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #1e293b !important;
+  transition: color 0.2s ease !important;
+}
+
+/* Mini switch slider */
+.ntd-theme-toggle-btn .ntd-tt-switch {
+  width: 28px !important;
+  height: 16px !important;
+  border-radius: 20px !important;
+  background: #e2e8f0 !important;
+  position: relative !important;
+  transition: background 0.25s ease !important;
+  flex-shrink: 0 !important;
+}
+
+.ntd-theme-toggle-btn .ntd-tt-switch-thumb {
+  position: absolute !important;
+  top: 2px !important;
+  left: 2px !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  background: #f59e0b !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease !important;
+}
+
+/* ── KHI Ở CHẾ ĐỘ BAN ĐÊM (DARK THEME) ── */
+.ntd-dark-theme .ntd-theme-toggle-btn,
+.ntd-theme-toggle-btn.is-dark {
+  background: rgba(15, 23, 42, 0.85) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn:hover,
+.ntd-theme-toggle-btn.is-dark:hover {
+  border-color: rgba(96, 165, 250, 0.55) !important;
+  box-shadow: 0 6px 24px rgba(37, 99, 235, 0.35), 0 0 16px rgba(96, 165, 250, 0.3) !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-icon-wrap,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-icon-wrap {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
+  color: #93c5fd !important;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.45) !important;
+}
+
+/* Ban đêm: icon mặt trời xoay ẩn, icon mặt trăng hiện */
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-icon-sun,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-icon-sun {
+  opacity: 0 !important;
+  transform: rotate(-90deg) scale(0.2) !important;
+}
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-icon-moon,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-icon-moon {
+  opacity: 1 !important;
+  transform: rotate(0deg) scale(1) !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-label,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-label {
+  color: #f1f5f9 !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-switch,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-switch {
+  background: #1e293b !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-switch-thumb,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-switch-thumb {
+  background: #3b82f6 !important;
+  box-shadow: 0 1px 5px rgba(59, 130, 246, 0.7) !important;
+  transform: translateX(12px) !important;
+}
+
+/* Tooltip nổi khi rê chuột */
+.ntd-theme-toggle-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 6px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: all 0.18s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  z-index: 100001;
+  letter-spacing: 0.1px;
+}
+
+.ntd-theme-toggle-btn:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Responsive trên màn hình hẹp */
+@media (max-width: 640px) {
+  .ntd-theme-toggle-btn {
+    top: 10px !important;
+    right: 12px !important;
+    padding: 3px 8px 3px 5px !important;
+    gap: 6px !important;
+    height: 34px !important;
+  }
+  .ntd-theme-toggle-btn .ntd-tt-switch {
+    display: none !important;
+  }
+}
+

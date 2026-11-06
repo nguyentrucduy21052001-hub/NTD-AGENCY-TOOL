@@ -1,0 +1,13 @@
+{
+  "name": "ntd-agency-web",
+  "version": "1.0.0",
+  "description": "NTD Agency Web Platform - Marketing & Facebook Group Automation",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test tests/*.test.js"
+  }
+}

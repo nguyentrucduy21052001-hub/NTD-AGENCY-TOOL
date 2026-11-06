@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>Quản trị Hệ thống &amp; Phân quyền – NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function () {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    :root {
+      --primary: #ed6b22;
+      --primary-hover: #d55a14;
+      --primary-gradient: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      --bg-page: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+    }
+
+    html:not(.ntd-dark-theme) {
+      --bg-page: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-sub: #64748b;
+    }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px 20px 80px;
+    }
+
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+    }
+
+    .admin-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .admin-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .admin-logo-badge {
+      background: var(--primary-gradient);
+      color: #fff;
+      border-radius: 12px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);
+    }
+
+    .admin-badge-tag {
+      background: rgba(234, 88, 12, 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(234, 88, 12, 0.3);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    /* Tab switcher */
+    .admin-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 10px;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-sub);
+      font-weight: 700;
+      font-size: 13.5px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .tab-btn.active {
+      color: #fff;
+      background: var(--primary-gradient);
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .card h2 {
+      color: var(--primary);
+      margin: 0 0 8px;
+      font-size: 17px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card p.sub {
+      font-size: 13px;
+      color: var(--text-sub);
+      margin: 0 0 18px;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      color: var(--text-sub);
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="date"],
+    select,
+    textarea {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px 14px;
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text-main);
+      font: 14px system-ui, sans-serif;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color .2s;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--primary);
+    }
+
+    .btn-primary {
+      background: var(--primary-gradient);
+      color: #fff;
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 18px;
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+      transition: transform .1s, filter .15s;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      padding: 10px 16px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background .15s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 700px) {
+      .row-2,
+      .row-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .msg-box {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+      line-height: 1.5;
+    }
+
+    .msg-box.ok {
+      display: block;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .msg-box.err {
+      display: block;
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .msg-box.info {
+      display: block;
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+    }
+
+    /* User Table */
+    .user-table-wrap {
+      overflow-x: auto;
+      margin-top: 14px;
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+    }
+
+    table.user-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      text-align: left;
+    }
+
+    table.user-table th {
+      background: rgba(0, 0, 0, 0.25);
+      color: var(--primary);
+      padding: 12px 14px;
+      font-weight: 700;
+      border-bottom: 1px solid var(--card-border);
+      white-space: nowrap;
+    }
+
+    table.user-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--card-border);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    table.user-table tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge-role-admin {
+      background: #ea580c;
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-role-member {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-sub);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .badge-active {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-expired {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-locked {
+      color: #cbd5e1;
+      background: rgba(100, 116, 139, 0.3);
+      border: 1px solid #475569;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* SQL Code Box */
+    .sql-code-box {
+      background: #020617;
+      color: #cbd5e1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      overflow-x: auto;
+      max-height: 280px;
+      line-height: 1.5;
+      margin-top: 10px;
+    }
+
+    .action-btn-sm {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 5px;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: opacity 0.15s;
+    }
+
+    .action-btn-sm:hover {
+      opacity: 0.85;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <!-- Header -->
+    <header class="admin-header">
+      <div class="admin-title-wrap">
+        <div class="admin-logo-badge">⚡</div>
+        <div>
+          <h1 style="margin:0;font-size:20px;font-weight:800">Quản trị Hệ thống &amp; Phân quyền</h1>
+          <p style="margin:2px 0 0;font-size:13px;color:var(--text-sub)">
+            Quản lý tài khoản, phân quyền Admin/Member và đồng bộ cơ sở dữ liệu Supabase.
+          </p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="admin-badge-tag">👑 Quyền Quản trị viên (Admin)</span>
+        <a href="panel.html" class="btn-secondary" style="font-size:12px;padding:6px 12px">← Quay lại Đăng bài</a>
+      </div>
+    </header>
+
+    <!-- Error Alert if Non-Admin accesses directly -->
+    <div id="unauthorizedAlert" class="msg-box err" style="display:none;margin-bottom:20px">
+      ⚠️ <b>Quyền truy cập bị từ chối!</b> Trang Quản trị & Phân quyền chỉ dành riêng cho tài khoản Quản trị viên (Admin). Bạn sẽ được chuyển hướng về trang chủ sau 2 giây...
+    </div>
+
+    <!-- Admin Content Container -->
+    <div id="adminMainContent">
+      <!-- Tabs -->
+      <nav class="admin-tabs" role="tablist">
+        <button type="button" class="tab-btn active" id="tabBtnUsers" data-tab="tabUsers">
+          👥 Phân quyền &amp; Người dùng
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnSupabase" data-tab="tabSupabase">
+          ⚡ Cơ sở dữ liệu Supabase
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnSheets" data-tab="tabSheets">
+          📊 Dự phòng Google Sheets
+        </button>
+      </nav>
+
+      <!-- TAB 1: PHÂN QUYỀN & NGƯỜI DÙNG -->
+      <section id="tabUsers" class="tab-pane">
+        <!-- 1. Tạo tài khoản mới kèm Phân quyền -->
+        <div class="card">
+          <h2>1. Thêm tài khoản mới &amp; Phân quyền</h2>
+          <p class="sub">Tạo tài khoản mới và chọn ngay vai trò: Thành viên (Member) hoặc Quản trị viên (Admin).</p>
+
+          <div class="row-3">
+            <label>Tên tài khoản
+              <input id="newUsername" type="text" placeholder="VD: nam_marketing, admin2…">
+            </label>
+            <label>Mật khẩu đăng nhập
+              <input id="newPassword" type="text" placeholder="Nhập mật khẩu cấp cho khách…">
+            </label>
+            <label>Vai trò phân quyền
+              <select id="newRoleSelect" style="font-weight:700">
+                <option value="member" selected>👤 Thành viên (Member)</option>
+                <option value="admin">⭐ Quản trị viên (Admin)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row-2">
+            <label>Thời hạn sử dụng
+              <select id="quickDaysSelect">
+                <option value="30" selected>30 ngày (1 tháng)</option>
+                <option value="60">60 ngày (2 tháng)</option>
+                <option value="90">90 ngày (3 tháng)</option>
+                <option value="180">180 ngày (6 tháng)</option>
+                <option value="365">1 năm</option>
+                <option value="3650">Vĩnh viễn (10 năm)</option>
+                <option value="custom">Chọn ngày cụ thể…</option>
+              </select>
+            </label>
+            <div id="customDateWrap" style="display:none">
+              <label>Ngày hết hạn cụ thể
+                <input id="newExpiryDate" type="date">
+              </label>
+            </div>
+            <label>Ghi chú khách hàng
+              <input id="newNote" type="text" placeholder="VD: Anh Nam - 0988xxx - Gói Pro">
+            </label>
+          </div>
+
+          <div style="display:flex;gap:12px;margin-top:6px">
+            <button id="createUserBtn" class="btn-primary" style="flex:1">
+              <span>➕ Lưu tài khoản vào Cơ sở dữ liệu</span>
+            </button>
+          </div>
+          <div id="createUserMsg" class="msg-box"></div>
+        </div>
+
+        <!-- 2. Danh sách tài khoản & Phân quyền -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+            <div>
+              <h2 style="margin:0 0 4px">2. Danh sách tài khoản &amp; Bảng Phân quyền</h2>
+              <span id="dbSourceBadge" style="font-size:12px;color:var(--text-sub)">Nguồn dữ liệu: Đang kết nối…</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button id="refreshUsersBtn" class="btn-secondary" style="padding:7px 14px;font-size:12px">
+                🔄 Tải lại danh sách
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Filter by Role -->
+          <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+            <span style="font-size:12.5px;color:var(--text-sub);font-weight:600">Lọc vai trò:</span>
+            <button type="button" class="btn-secondary role-filter-btn active" data-filter="all" style="padding:4px 10px;font-size:11.5px">Tất cả</button>
+            <button type="button" class="btn-secondary role-filter-btn" data-filter="admin" style="padding:4px 10px;font-size:11.5px">⭐ Chỉ Admin</button>
+            <button type="button" class="btn-secondary role-filter-btn" data-filter="member" style="padding:4px 10px;font-size:11.5px">👤 Chỉ Thành viên</button>
+          </div>
+
+          <div id="userListContainer" class="user-table-wrap">
+            <p style="padding:20px;text-align:center;color:var(--text-sub)">Đang tải danh sách người dùng...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: CẤU HÌNH SUPABASE -->
+      <section id="tabSupabase" class="tab-pane" style="display:none">
+        <div class="card">
+          <h2>⚡ Cấu hình Cơ sở dữ liệu Supabase (PostgreSQL)</h2>
+          <p class="sub">
+            Kết nối với Supabase để lưu trữ dữ liệu tập trung, hỗ trợ phân quyền Admin/Member với cơ chế bảo mật Row Level Security (RLS).
+          </p>
+
+          <div class="row-2">
+            <label>Supabase Project URL
+              <input id="sbUrlInput" type="text" placeholder="https://your-project.supabase.co">
+            </label>
+            <label>Supabase Anon Public API Key
+              <input id="sbKeyInput" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+            </label>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <button id="saveSupabaseBtn" class="btn-primary">💾 Lưu cấu hình Supabase</button>
+            <button id="testSupabaseBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
+            <button id="copySqlBtn" class="btn-secondary" style="border-color:#ea580c;color:var(--primary)">📋 Sao chép mã SQL tạo bảng (1-Chạm)</button>
+          </div>
+          <div id="sbConfigMsg" class="msg-box"></div>
+
+          <div style="margin-top:20px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+              <span>Đoạn mã SQL cấu hình bảng và phân quyền trên Supabase:</span>
+              <span id="copySqlNotify" style="font-size:11.5px;color:#34d399;display:none">Đã sao chép vào bộ nhớ tạm!</span>
+            </div>
+            <pre id="sqlCodeDisplay" class="sql-code-box"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: DỰ PHÒNG GOOGLE SHEETS -->
+      <section id="tabSheets" class="tab-pane" style="display:none">
+        <div class="card">
+          <h2>📊 Cấu hình Google Sheets (Kênh dự phòng)</h2>
+          <p class="sub">
+            Nếu bạn chưa triển khai Supabase, hệ thống có thể sử dụng Google Sheets qua Google Apps Script để quản lý tài khoản.
+          </p>
+
+          <label>URL Google Apps Script Web App
+            <input id="scriptUrlInput" type="text" placeholder="https://script.google.com/macros/s/.../exec">
+          </label>
+
+          <div style="display:flex;gap:10px;margin-top:8px">
+            <button id="saveScriptUrlBtn" class="btn-primary">💾 Lưu URL Google Sheets</button>
+            <button id="testConnectionBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
+            <button id="copyScriptCodeBtn" class="btn-secondary">📋 Sao chép code Apps Script</button>
+          </div>
+          <div id="configMsg" class="msg-box"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="manage.js"></script>
+  <script type="module" src="sidebar.js"></script>
+</body>
+
+</html>

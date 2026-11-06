@@ -1,0 +1,2969 @@
+/* ── NTD Agency: Navigation Sidebar (Thanh menu bên trái) ── */
+:root {
+  --sb-width-expanded: 250px;
+  --sb-width-collapsed: 68px;
+  --sb-accent: #ed6b22;
+  --sb-accent-gradient: linear-gradient(135deg, #ed6b22 0%, #f59332 100%);
+  --sb-accent-glow: rgba(237, 107, 34, 0.25);
+  
+  /* Light theme tokens */
+  --sb-bg: rgba(255, 255, 255, 0.94);
+  --sb-border: rgba(226, 232, 240, 0.9);
+  --sb-shadow: 4px 0 24px rgba(15, 23, 42, 0.06);
+  --sb-text: #0f172a;
+  --sb-text-muted: #64748b;
+  --sb-item-hover: rgba(241, 245, 249, 0.85);
+  --sb-item-active-bg: linear-gradient(135deg, rgba(237, 107, 34, 0.12) 0%, rgba(245, 147, 50, 0.05) 100%);
+  --sb-item-active-border: #ed6b22;
+  --sb-badge-bg: #e2e8f0;
+  --sb-badge-text: #334155;
+  --sb-footer-border: #f1f5f9;
+}
+
+/* Dark theme overrides (Cyber Glassmorphism & Electric Blue) */
+#ntdRightSidebar.theme-dark,
+#ntdSidebar.theme-dark,
+.ntd-dark-theme #ntdRightSidebar,
+.ntd-dark-theme #ntdSidebar,
+body.ntd-dark-theme #ntdRightSidebar,
+body.ntd-dark-theme #ntdSidebar {
+  --sb-bg: rgba(9, 14, 26, 0.88) !important;
+  --sb-border: rgba(255, 255, 255, 0.08) !important;
+  --sb-shadow: 8px 0 36px rgba(0, 0, 0, 0.65) !important;
+  --sb-text: #f8fafc !important;
+  --sb-text-muted: #94a3b8 !important;
+  --sb-item-hover: rgba(255, 255, 255, 0.06) !important;
+  --sb-item-active-bg: linear-gradient(135deg, rgba(37, 99, 235, 0.24) 0%, rgba(59, 130, 246, 0.09) 100%) !important;
+  --sb-item-active-border: #3b82f6 !important;
+  --sb-badge-bg: rgba(30, 58, 138, 0.45) !important;
+  --sb-badge-text: #93c5fd !important;
+  --sb-footer-border: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Body layout adjustment when sidebar is present */
+body.has-right-sidebar,
+body.has-left-sidebar,
+body.has-sidebar {
+  padding-left: var(--sb-width-expanded) !important;
+  padding-right: 0 !important;
+  transition: padding-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+}
+
+body.has-right-sidebar.sidebar-collapsed,
+body.has-left-sidebar.sidebar-collapsed,
+body.has-sidebar.sidebar-collapsed {
+  padding-left: var(--sb-width-collapsed) !important;
+  padding-right: 0 !important;
+}
+
+/* Sidebar Container */
+#ntdSidebar,
+#ntdRightSidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: 0;
+  width: var(--sb-width-expanded);
+  height: 100vh;
+  height: 100dvh;
+  z-index: 9999;
+  background: var(--sb-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid var(--sb-border);
+  border-left: none;
+  box-shadow: var(--sb-shadow);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), transform 0.28s ease, background 0.2s ease, border-color 0.2s ease;
+  user-select: none;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  box-sizing: border-box;
+}
+
+#ntdSidebar *,
+#ntdRightSidebar * {
+  box-sizing: border-box;
+}
+
+/* Sidebar Collapsed State */
+body.sidebar-collapsed #ntdSidebar,
+body.sidebar-collapsed #ntdRightSidebar {
+  width: var(--sb-width-collapsed);
+}
+
+/* ── Header ── */
+.ntd-sb-header {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--sb-border);
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.ntd-sb-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  transition: opacity 0.2s ease;
+}
+
+.ntd-sb-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--sb-accent-gradient);
+  color: #fff;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px var(--sb-accent-glow);
+}
+
+.ntd-sb-brand-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.ntd-sb-brand-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--sb-text);
+  line-height: 1.2;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+}
+
+.ntd-sb-brand-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--sb-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 1px;
+}
+
+/* Toggle Collapse Button */
+.ntd-sb-toggle-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--sb-border);
+  color: var(--sb-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.ntd-sb-toggle-btn:hover {
+  background: var(--sb-item-hover);
+  color: var(--sb-accent);
+  border-color: var(--sb-accent);
+}
+
+.ntd-sb-toggle-icon {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.sidebar-collapsed .ntd-sb-toggle-icon {
+  transform: rotate(180deg);
+}
+
+body.sidebar-collapsed .ntd-sb-brand-info {
+  opacity: 0;
+  transform: translateX(-10px);
+  pointer-events: none;
+  width: 0;
+  overflow: hidden;
+}
+
+body.sidebar-collapsed .ntd-sb-header {
+  padding: 0;
+  justify-content: center;
+}
+
+body.sidebar-collapsed .ntd-sb-header .ntd-sb-brand {
+  display: none;
+}
+
+body.sidebar-collapsed .ntd-sb-header .ntd-sb-toggle-btn {
+  margin: 0 auto;
+}
+
+/* ── Menu Section Label ── */
+.ntd-sb-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sb-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 18px 18px 8px;
+  margin: 0;
+  white-space: nowrap;
+  transition: opacity 0.2s ease;
+}
+
+body.sidebar-collapsed .ntd-sb-section-label {
+  opacity: 0;
+  height: 12px;
+  padding: 6px 0;
+  overflow: hidden;
+}
+
+/* ── Navigation List ── */
+.ntd-sb-nav {
+  flex: 1;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Sidebar Nav Item Link */
+.ntd-sb-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: var(--sb-text);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  outline: none;
+}
+
+.ntd-sb-item:hover {
+  background: var(--sb-item-hover);
+  color: var(--sb-accent);
+  transform: translateX(2px);
+}
+
+/* Active Item Style */
+.ntd-sb-item.active {
+  background: var(--sb-item-active-bg);
+  border-color: rgba(237, 107, 34, 0.35);
+  border-left: 3.5px solid var(--sb-item-active-border);
+  color: var(--sb-accent);
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(237, 107, 34, 0.08);
+}
+
+.ntd-sb-item.active .ntd-sb-item-icon {
+  color: var(--sb-accent);
+  transform: scale(1.08);
+}
+
+.ntd-sb-item.active .ntd-sb-item-desc {
+  color: var(--sb-accent);
+  opacity: 0.85;
+}
+
+/* Item Icon */
+.ntd-sb-item-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--sb-text-muted);
+  transition: all 0.2s ease;
+}
+
+.ntd-sb-item:hover .ntd-sb-item-icon {
+  color: var(--sb-accent);
+}
+
+.ntd-sb-item-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.1;
+}
+
+/* Item Content (Title + Subtitle) */
+.ntd-sb-item-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.ntd-sb-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ntd-sb-item-desc {
+  font-size: 10.5px;
+  color: var(--sb-text-muted);
+  line-height: 1.25;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+}
+
+/* Item Badge (Counters / Running status) */
+.ntd-sb-item-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--sb-badge-bg);
+  color: var(--sb-badge-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.ntd-sb-item.active .ntd-sb-item-badge {
+  background: rgba(237, 107, 34, 0.18);
+  color: #c95500;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-item.active .ntd-sb-item-badge {
+  background: rgba(237, 107, 34, 0.3);
+  color: #ff9858;
+}
+
+/* Pulse Dot for Active Campaign */
+.ntd-sb-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: ntdPulse 1.8s infinite;
+  display: inline-block;
+}
+
+@keyframes ntdPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+/* ── Collapsed Mode Item Adjustments (Căn giữa hoàn hảo icon các tab khi thu gọn) ── */
+body.sidebar-collapsed .ntd-sb-nav {
+  padding: 8px 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  padding: 0 !important;
+  margin: 0 auto 6px auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  border-radius: 12px !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  position: relative !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item:hover {
+  transform: none !important;
+  background: var(--sb-item-hover) !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item.active {
+  border: 1.5px solid var(--sb-item-active-border) !important;
+  border-left: 1.5px solid var(--sb-item-active-border) !important;
+  background: var(--sb-item-active-bg) !important;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+
+body.sidebar-collapsed #ntdRightSidebar:not(.theme-dark) .ntd-sb-item.active,
+body.sidebar-collapsed #ntdSidebar:not(.theme-dark) .ntd-sb-item.active {
+  border: 1.5px solid var(--sb-item-active-border) !important;
+  border-left: 1.5px solid var(--sb-item-active-border) !important;
+  box-shadow: 0 2px 10px rgba(237, 107, 34, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item-icon {
+  width: 24px !important;
+  height: 24px !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  transform: none !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item.active .ntd-sb-item-icon {
+  transform: scale(1.05) !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item-icon svg {
+  width: 20px !important;
+  height: 20px !important;
+  display: block !important;
+  margin: auto !important;
+}
+
+body.sidebar-collapsed .ntd-sb-item-content,
+body.sidebar-collapsed .ntd-sb-item-badge,
+body.sidebar-collapsed .ntd-sb-item-desc,
+body.sidebar-collapsed .ntd-sb-item-title {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── Floating Tooltip khi hover vào nút ── */
+.ntd-sb-floating-tooltip {
+  position: fixed;
+  z-index: 100000;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  transform: translateY(-50%) translateX(-6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  letter-spacing: 0.1px;
+  line-height: 1.3;
+}
+
+.ntd-sb-floating-tooltip::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 5px 6px 5px 0;
+  border-style: solid;
+  border-color: transparent #0f172a transparent transparent;
+}
+
+.ntd-sb-floating-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Ẩn pseudo-element tooltip cũ để tránh hiển thị đúp */
+body.sidebar-collapsed .ntd-sb-item::after,
+body.sidebar-collapsed .ntd-sb-item::before {
+  display: none !important;
+}
+
+/* ── Account & License Section (Ghim cố định ở góc dưới thanh menu) ── */
+.ntd-sb-account-box {
+  padding: 10px 12px 10px;
+  border-top: 1px solid var(--sb-border);
+  background: rgba(237, 107, 34, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-account-box,
+#ntdSidebar.theme-dark .ntd-sb-account-box {
+  background: rgba(9, 14, 26, 0.75);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* User Card */
+.ntd-sb-user-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  background: var(--sb-bg);
+  border: 1px solid var(--sb-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  min-width: 0;
+  cursor: default;
+  transition: all 0.18s ease;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-user-card,
+#ntdSidebar.theme-dark .ntd-sb-user-card {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  border-radius: 14px !important;
+}
+
+.ntd-sb-user-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.25);
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-user-avatar,
+#ntdSidebar.theme-dark .ntd-sb-user-avatar {
+  background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%) !important;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.4) !important;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-logo,
+#ntdSidebar.theme-dark .ntd-sb-logo {
+  background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-brand-tag,
+#ntdSidebar.theme-dark .ntd-sb-brand-tag {
+  color: #60a5fa !important;
+}
+
+.ntd-sb-user-avatar svg {
+  width: 16px;
+  height: 16px;
+  stroke: #ffffff;
+}
+
+.ntd-sb-user-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.ntd-sb-user-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--sb-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.ntd-sb-user-expiry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--sb-text-muted);
+  line-height: 1.2;
+}
+
+.ntd-sb-expiry-date {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ntd-sb-days-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #dcfce7;
+  color: #15803d;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ntd-sb-days-pill.warning {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-days-pill {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-days-pill.warning {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+/* Logout Button (Dưới phần tên tài khoản và hạn sử dụng) */
+.ntd-sb-logout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6.5px 12px;
+  background: transparent;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  outline: none;
+}
+
+.ntd-sb-logout-btn:hover {
+  background: #fef2f2;
+  border-color: #ef4444;
+  color: #b91c1c;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.12);
+}
+
+.ntd-sb-logout-btn:active {
+  transform: scale(0.98);
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-logout-btn,
+#ntdSidebar.theme-dark .ntd-sb-logout-btn {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+#ntdRightSidebar.theme-dark .ntd-sb-logout-btn:hover,
+#ntdSidebar.theme-dark .ntd-sb-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+.ntd-sb-logout-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ── Khi Sidebar Thu Gọn (Collapsed Mode) ── */
+body.sidebar-collapsed .ntd-sb-account-box {
+  padding: 8px 6px;
+  align-items: center;
+}
+
+body.sidebar-collapsed .ntd-sb-user-card {
+  padding: 6px 0;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+body.sidebar-collapsed .ntd-sb-user-avatar {
+  margin: 0 auto;
+}
+
+body.sidebar-collapsed .ntd-sb-user-info {
+  display: none !important;
+}
+
+body.sidebar-collapsed .ntd-sb-logout-btn {
+  padding: 6px 0;
+  width: 36px;
+  height: 32px;
+  border-radius: 8px;
+  justify-content: center;
+}
+
+body.sidebar-collapsed .ntd-sb-logout-text {
+  display: none !important;
+}
+
+/* ── Footer ── */
+.ntd-sb-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--sb-footer-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.01);
+  overflow: hidden;
+}
+
+.ntd-sb-version {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sb-text-muted);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.ntd-sb-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #10b981;
+}
+
+body.sidebar-collapsed .ntd-sb-footer {
+  padding: 12px 0;
+  justify-content: center;
+}
+
+body.sidebar-collapsed .ntd-sb-footer .ntd-sb-version,
+body.sidebar-collapsed .ntd-sb-footer .ntd-sb-status-text {
+  display: none;
+}
+
+/* ── Mobile & Narrow Screens (<= 920px) ── */
+@media (max-width: 920px) {
+  body.has-right-sidebar,
+  body.has-left-sidebar,
+  body.has-sidebar {
+    padding-left: var(--sb-width-collapsed) !important;
+    padding-right: 0 !important;
+  }
+  
+  body.has-sidebar:not(.sidebar-mobile-open) #ntdSidebar,
+  body.has-right-sidebar:not(.sidebar-mobile-open) #ntdRightSidebar {
+    width: var(--sb-width-collapsed);
+  }
+
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-nav,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-nav {
+    padding: 8px 0 !important;
+    align-items: center !important;
+    width: 100% !important;
+  }
+
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    max-width: 44px !important;
+    padding: 0 !important;
+    margin: 0 auto 6px auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+  }
+
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item.active,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item.active {
+    border: 1.5px solid var(--sb-item-active-border) !important;
+    border-left: 1.5px solid var(--sb-item-active-border) !important;
+  }
+
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-icon,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-icon {
+    width: 24px !important;
+    height: 24px !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+    transform: none !important;
+  }
+
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-icon svg,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-icon svg {
+    width: 20px !important;
+    height: 20px !important;
+    display: block !important;
+    margin: auto !important;
+  }
+
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-brand-info,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-brand-info,
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-content,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-content,
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-badge,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-badge,
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-desc,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-desc,
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-title,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-item-title,
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-section-label,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-section-label,
+  body.has-sidebar:not(.sidebar-mobile-open) .ntd-sb-version,
+  body.has-right-sidebar:not(.sidebar-mobile-open) .ntd-sb-version {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CHẾ ĐỘ BAN ĐÊM CYBER GLASSMORPHISM & ELECTRIC BLUE CAO CẤP (FINTECH/WEB3 STYLE)
+   - Nền: Deep Space Obsidian (#070b14) kèm hiệu ứng ánh sáng toả tròn (Radial Ambient Glow)
+   - Khung thẻ (Cards): Kính mờ cao cấp (Glassmorphism), bo góc 20px, viền kính siêu mỏng
+   - Màu chủ đạo (Accent): Xanh Điện tử (Electric / Cyber Blue #2563eb - #3b82f6) phát sáng neon
+   - Chữ: Trắng tinh khiết (#f8fafc) & Xám bạc phụ trợ (#94a3b8)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* 1. Biến CSS & Nền Dark Glassmorphism Chuẩn Fintech / Web3 */
+html.ntd-dark-theme,
+body.ntd-dark-theme,
+:root.ntd-dark-theme {
+  --bg: #070b14 !important;
+  --surface: rgba(13, 20, 36, 0.75) !important;
+  --surface-card: linear-gradient(145deg, rgba(16, 24, 40, 0.72) 0%, rgba(11, 17, 30, 0.84) 100%) !important;
+  --surface-glow: linear-gradient(135deg, rgba(30, 58, 138, 0.45) 0%, rgba(15, 23, 42, 0.8) 60%, rgba(11, 16, 28, 0.95) 100%) !important;
+  --border: rgba(255, 255, 255, 0.08) !important;
+  --border-glow: rgba(59, 130, 246, 0.35) !important;
+  --accent: #2563eb !important;
+  --accent-light: #3b82f6 !important;
+  --accent-hover: #1d4ed8 !important;
+  --accent-glow: rgba(37, 99, 235, 0.45) !important;
+  --text: #f8fafc !important;
+  --text-muted: #94a3b8 !important;
+  --text-sub: #64748b !important;
+  --success: #34d399 !important;
+  --danger: #f87171 !important;
+  --warn: #fbbf24 !important;
+  --info: #60a5fa !important;
+  --primary-soft: rgba(37, 99, 235, 0.16) !important;
+  background-color: #070b14 !important;
+  background: radial-gradient(ellipse 90% 60% at 50% -20%, rgba(37, 99, 235, 0.15), transparent 70%),
+              radial-gradient(circle at 10% 25%, rgba(29, 78, 216, 0.08), transparent 45%),
+              radial-gradient(circle at 90% 80%, rgba(30, 58, 138, 0.08), transparent 50%),
+              #070b14 !important;
+  background-attachment: fixed !important;
+  color: #f8fafc !important;
+  color-scheme: dark;
+}
+
+/* 2. Hệ Thống Chữ (Typography): Trắng Tinh Khiết Sắc Nét */
+body.ntd-dark-theme,
+body.ntd-dark-theme h1,
+body.ntd-dark-theme h2,
+body.ntd-dark-theme h3,
+body.ntd-dark-theme h4,
+body.ntd-dark-theme h5,
+body.ntd-dark-theme h6,
+body.ntd-dark-theme p,
+body.ntd-dark-theme label,
+body.ntd-dark-theme label span,
+body.ntd-dark-theme .checkbox-label,
+body.ntd-dark-theme .checkbox-label span,
+body.ntd-dark-theme .checkbox-label b,
+body.ntd-dark-theme #zaloSubOptions,
+body.ntd-dark-theme #zaloSubOptions label,
+body.ntd-dark-theme #zaloSubOptions span,
+body.ntd-dark-theme #zaloSubOptions b,
+body.ntd-dark-theme details.guide-box,
+body.ntd-dark-theme details.guide-box summary,
+body.ntd-dark-theme details.guide-box ol,
+body.ntd-dark-theme details.guide-box li,
+body.ntd-dark-theme .settings-title h1,
+body.ntd-dark-theme .settings-title p,
+body.ntd-dark-theme .setting-header-text h3,
+body.ntd-dark-theme .setting-header-text p,
+body.ntd-dark-theme .maps-title h1,
+body.ntd-dark-theme .card-title,
+body.ntd-dark-theme .info-val,
+body.ntd-dark-theme .metric-val,
+body.ntd-dark-theme .as-title-text,
+body.ntd-dark-theme .as-item-title,
+body.ntd-dark-theme .as-hint,
+body.ntd-dark-theme .asc-name,
+body.ntd-dark-theme .asc-prog,
+body.ntd-dark-theme .asc-jobs ol,
+body.ntd-dark-theme .asc-jobs li,
+body.ntd-dark-theme .theme-choice-title,
+body.ntd-dark-theme .theme-choice-desc,
+body.ntd-dark-theme #displayCount,
+body.ntd-dark-theme td,
+body.ntd-dark-theme th,
+body.ntd-dark-theme li,
+body.ntd-dark-theme .acc-name,
+body.ntd-dark-theme .prog-acc-name,
+body.ntd-dark-theme .cfg-acc-name,
+body.ntd-dark-theme .acc-assign-name,
+body.ntd-dark-theme .cat-name,
+body.ntd-dark-theme .stat-val,
+body.ntd-dark-theme .post-tab-title {
+  color: #f8fafc !important;
+}
+
+body.ntd-dark-theme .text-muted,
+body.ntd-dark-theme .stat-label,
+body.ntd-dark-theme .metric-label,
+body.ntd-dark-theme .info-label,
+body.ntd-dark-theme .acc-meta,
+body.ntd-dark-theme .prog-bar-meta,
+body.ntd-dark-theme .cat-meta,
+body.ntd-dark-theme .stat-lbl,
+body.ntd-dark-theme .kpi-lbl,
+body.ntd-dark-theme .cfg-acc-sub {
+  color: #94a3b8 !important;
+}
+
+/* 3. Khung Chứa & Thẻ Kính Mờ (Glassmorphism Cards, Bo góc 20px) */
+body.ntd-dark-theme .card,
+body.ntd-dark-theme .setting-card,
+body.ntd-dark-theme .metric-card,
+body.ntd-dark-theme .grid section,
+body.ntd-dark-theme .query-preview-box,
+body.ntd-dark-theme .table-container,
+body.ntd-dark-theme details.guide-box,
+body.ntd-dark-theme .info-item,
+body.ntd-dark-theme .geo-picker-card,
+body.ntd-dark-theme .account-card,
+body.ntd-dark-theme .acc-card,
+body.ntd-dark-theme .prog-acc-item,
+body.ntd-dark-theme .report-kpi-card,
+body.ntd-dark-theme .report-table-wrap,
+body.ntd-dark-theme .group-card,
+body.ntd-dark-theme .modal-content,
+body.ntd-dark-theme .anti-spam-card,
+body.ntd-dark-theme .as-body,
+body.ntd-dark-theme .report-section,
+body.ntd-dark-theme .acc-status-card,
+body.ntd-dark-theme .acc-assign-card,
+body.ntd-dark-theme .stat-card,
+body.ntd-dark-theme .cat-item,
+body.ntd-dark-theme .cfg-acc-item,
+body.ntd-dark-theme .prog-master-bar,
+body.ntd-dark-theme .cfg-toolbar,
+body.ntd-dark-theme .dash-kpi-card,
+body.ntd-dark-theme .empty-state,
+body.ntd-dark-theme .no-accounts-notice,
+body.ntd-dark-theme #tokenInfoBox,
+body.ntd-dark-theme .login-progress,
+body.ntd-dark-theme .acc-edit-box,
+body.ntd-dark-theme .phone-type-card,
+body.ntd-dark-theme .scanner-hero {
+  background: linear-gradient(145deg, rgba(16, 24, 40, 0.72) 0%, rgba(11, 17, 30, 0.84) 100%) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  transition: all 0.22s ease !important;
+}
+
+body.ntd-dark-theme .card:hover,
+body.ntd-dark-theme .metric-card:hover,
+body.ntd-dark-theme .prog-acc-item:hover,
+body.ntd-dark-theme .stat-card:hover,
+body.ntd-dark-theme .report-kpi-card:hover {
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  box-shadow: 0 20px 48px -10px rgba(0, 0, 0, 0.75), 0 0 22px rgba(37, 99, 235, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Thẻ chỉ số nổi bật đặc biệt (Glow Card phong cách biểu đồ Dashboard) */
+body.ntd-dark-theme .stats-grid .stat-card:first-child,
+body.ntd-dark-theme .metrics-grid .metric-card:first-child,
+body.ntd-dark-theme #dashKpiCardTotal {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.5) 0%, rgba(15, 23, 42, 0.8) 60%, rgba(11, 16, 28, 0.95) 100%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+  box-shadow: 0 16px 45px -8px rgba(37, 99, 235, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.16) !important;
+}
+
+/* Xử lý các khối màu trắng inline trong trang */
+body.ntd-dark-theme div[style*="background:#fff"],
+body.ntd-dark-theme div[style*="background: #fff"],
+body.ntd-dark-theme div[style*="background:white"],
+body.ntd-dark-theme div[style*="background: white"],
+body.ntd-dark-theme div[style*="background: rgb(255, 255, 255)"] {
+  background: rgba(14, 22, 38, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.ntd-dark-theme *[style*="color:#0f172a"],
+body.ntd-dark-theme *[style*="color: #0f172a"],
+body.ntd-dark-theme *[style*="color:#334155"],
+body.ntd-dark-theme *[style*="color: #334155"],
+body.ntd-dark-theme *[style*="color:#475569"],
+body.ntd-dark-theme *[style*="color: #475569"] {
+  color: #f8fafc !important;
+}
+
+/* 4. Thẻ Cài Đặt (Accordion Settings Cards) */
+body.ntd-dark-theme .setting-card-header {
+  border-radius: 20px !important;
+  transition: all 0.2s ease !important;
+}
+body.ntd-dark-theme .setting-card-header:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+body.ntd-dark-theme .setting-card.open {
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  box-shadow: 0 14px 40px -5px rgba(0, 0, 0, 0.65), 0 0 24px rgba(37, 99, 235, 0.2) !important;
+}
+body.ntd-dark-theme .setting-card.open .setting-card-header {
+  background: rgba(30, 58, 138, 0.18) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+body.ntd-dark-theme .setting-card.open .setting-chevron {
+  color: #60a5fa !important;
+}
+
+/* 5. Nút Bấm Chính: Xanh Điện Tử (Electric / Cyber Blue) Phát Sáng Neon */
+body.ntd-dark-theme .btn-primary,
+body.ntd-dark-theme #startAllBtn,
+body.ntd-dark-theme .btn-start-one,
+body.ntd-dark-theme #exportBackupBtn,
+body.ntd-dark-theme #saveSafetyBtn,
+body.ntd-dark-theme #pairZalo,
+body.ntd-dark-theme .btn-submit,
+body.ntd-dark-theme #loginBtn,
+body.ntd-dark-theme #addCookieBtn,
+body.ntd-dark-theme #fetchTokenCookieBtn,
+body.ntd-dark-theme #startPostingBtn,
+body.ntd-dark-theme #btnStartWarmup,
+body.ntd-dark-theme #startScanBtn,
+body.ntd-dark-theme #saveNewCatBtn,
+body.ntd-dark-theme #addManualPageBtn,
+body.ntd-dark-theme #start,
+body.ntd-dark-theme #phones,
+body.ntd-dark-theme .btn-primary-big,
+body.ntd-dark-theme #saveScriptUrlBtn,
+body.ntd-dark-theme #createUserBtn,
+body.ntd-dark-theme #renewBtn,
+body.ntd-dark-theme #copyScriptCodeBtn {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(147, 197, 253, 0.35) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 6px 24px rgba(37, 99, 235, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+  font-weight: 700 !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+body.ntd-dark-theme .btn-primary:hover:not(:disabled),
+body.ntd-dark-theme #startAllBtn:hover:not(:disabled),
+body.ntd-dark-theme .btn-start-one:hover:not(:disabled),
+body.ntd-dark-theme #btnStartWarmup:hover:not(:disabled),
+body.ntd-dark-theme #startPostingBtn:hover:not(:disabled),
+body.ntd-dark-theme #startScanBtn:hover:not(:disabled),
+body.ntd-dark-theme .btn-primary-big:hover:not(:disabled),
+body.ntd-dark-theme #saveNewCatBtn:hover:not(:disabled),
+body.ntd-dark-theme #addManualPageBtn:hover:not(:disabled),
+body.ntd-dark-theme #loginBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%) !important;
+  box-shadow: 0 8px 32px rgba(37, 99, 235, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+  transform: translateY(-2px) !important;
+}
+
+/* 6. Nút Bấm Phụ: Kính Mờ Tinh Tế (Dark Glass Pill Buttons) */
+body.ntd-dark-theme .btn-secondary,
+body.ntd-dark-theme .asc-btn,
+body.ntd-dark-theme .as-toggle-btn,
+body.ntd-dark-theme .manage-btn,
+body.ntd-dark-theme .report-btn.outline,
+body.ntd-dark-theme #saveZalo,
+body.ntd-dark-theme #testZalo,
+body.ntd-dark-theme #importBackupBtn,
+body.ntd-dark-theme #show,
+body.ntd-dark-theme #backup,
+body.ntd-dark-theme #resume,
+body.ntd-dark-theme .btn-sm-text,
+body.ntd-dark-theme .cfg-action-btn,
+body.ntd-dark-theme .act-btn,
+body.ntd-dark-theme .icon-btn,
+body.ntd-dark-theme #btnFocusFbTab,
+body.ntd-dark-theme .copy-btn-sm,
+body.ntd-dark-theme #refreshUsersBtn,
+body.ntd-dark-theme #testConnectionBtn,
+body.ntd-dark-theme #resetMidBtn {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f1f5f9 !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(10px) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.ntd-dark-theme .btn-secondary:hover:not(:disabled),
+body.ntd-dark-theme .asc-btn:hover:not(:disabled),
+body.ntd-dark-theme .manage-btn:hover:not(:disabled),
+body.ntd-dark-theme .btn-sm-text:hover,
+body.ntd-dark-theme .act-btn:hover,
+body.ntd-dark-theme .copy-btn-sm:hover,
+body.ntd-dark-theme #refreshUsersBtn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Nút Cảnh Báo / Dừng (Glass Red) */
+body.ntd-dark-theme .btn-danger,
+body.ntd-dark-theme .asc-btn.danger,
+body.ntd-dark-theme .report-btn.danger,
+body.ntd-dark-theme #stopAllBtn,
+body.ntd-dark-theme #forgetZalo,
+body.ntd-dark-theme #stop,
+body.ntd-dark-theme #clear,
+body.ntd-dark-theme #stopScanBtn,
+body.ntd-dark-theme #btnStopWarmup,
+body.ntd-dark-theme .btn-danger-outline,
+body.ntd-dark-theme .icon-btn.del {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+  color: #fca5a5 !important;
+  border-radius: 12px !important;
+  transition: all 0.2s ease !important;
+}
+body.ntd-dark-theme .btn-danger:hover:not(:disabled),
+body.ntd-dark-theme #stopAllBtn:hover:not(:disabled),
+body.ntd-dark-theme #btnStopWarmup:hover:not(:disabled),
+body.ntd-dark-theme .icon-btn.del:hover {
+  background: rgba(239, 68, 68, 0.24) !important;
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.35) !important;
+}
+
+/* Nút Thành Công (Emerald Neon) */
+body.ntd-dark-theme .btn-success,
+body.ntd-dark-theme #csv,
+body.ntd-dark-theme .report-btn.success {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+  border: 1px solid rgba(52, 211, 153, 0.4) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.35) !important;
+  border-radius: 12px !important;
+}
+body.ntd-dark-theme .btn-success:hover,
+body.ntd-dark-theme #csv:hover {
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%) !important;
+  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.5) !important;
+  transform: translateY(-1.5px) !important;
+}
+
+/* 7. Các Thẻ Pill & Tabs Con Dạng Viên Thuốc (Pill Tabs) */
+body.ntd-dark-theme .cfg-filter-pill,
+body.ntd-dark-theme .prog-filter-pill,
+body.ntd-dark-theme .filter-pill,
+body.ntd-dark-theme .filter-pill-btn,
+body.ntd-dark-theme .kw-chip,
+body.ntd-dark-theme .tag-item,
+body.ntd-dark-theme .quick-chip,
+body.ntd-dark-theme .scan-pill,
+body.ntd-dark-theme .cat-pill {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #cbd5e1 !important;
+  border-radius: 9999px !important;
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease !important;
+}
+
+body.ntd-dark-theme .cfg-filter-pill:hover,
+body.ntd-dark-theme .prog-filter-pill:hover,
+body.ntd-dark-theme .filter-pill:hover,
+body.ntd-dark-theme .filter-pill-btn:hover,
+body.ntd-dark-theme .kw-chip:hover,
+body.ntd-dark-theme .tag-item:hover,
+body.ntd-dark-theme .quick-chip:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme .cfg-filter-pill.active,
+body.ntd-dark-theme .prog-filter-pill.active,
+body.ntd-dark-theme .filter-pill.active,
+body.ntd-dark-theme .filter-pill-btn.active,
+body.ntd-dark-theme .quick-chip.active,
+body.ntd-dark-theme #tabModeShared.active,
+body.ntd-dark-theme #tabModeCategories.active,
+body.ntd-dark-theme .tab-btn.active,
+body.ntd-dark-theme .method-tab.active,
+body.ntd-dark-theme .cat-pill.checked {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45) !important;
+}
+
+/* Post Tabs (Bài 1, Bài 2, Bài 3) */
+body.ntd-dark-theme .post-tab-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  color: #cbd5e1 !important;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+body.ntd-dark-theme .post-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(96, 165, 250, 0.3) !important;
+}
+body.ntd-dark-theme .post-tab-btn.active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.3) 0%, rgba(37, 99, 235, 0.15) 100%) !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+body.ntd-dark-theme .post-tab-btn.active .post-tab-title {
+  color: #60a5fa !important;
+}
+
+/* 8. Ô Nhập Liệu, Textarea & Form Controls */
+body.ntd-dark-theme input,
+body.ntd-dark-theme textarea,
+body.ntd-dark-theme select,
+body.ntd-dark-theme .log-box,
+body.ntd-dark-theme .query-preview-list,
+body.ntd-dark-theme .geo-dropdown-list,
+body.ntd-dark-theme .cfg-search-input,
+body.ntd-dark-theme #reportSearchInput,
+body.ntd-dark-theme .table-search-box input,
+body.ntd-dark-theme .table-filter-select,
+body.ntd-dark-theme .search-box input,
+body.ntd-dark-theme .form-control,
+body.ntd-dark-theme .range-input {
+  background: rgba(10, 16, 30, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f8fafc !important;
+  border-radius: 12px !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(10px) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.ntd-dark-theme input::placeholder,
+body.ntd-dark-theme textarea::placeholder {
+  color: #64748b !important;
+}
+
+body.ntd-dark-theme input:focus,
+body.ntd-dark-theme textarea:focus,
+body.ntd-dark-theme select:focus,
+body.ntd-dark-theme .form-control:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25), 0 0 18px rgba(59, 130, 246, 0.25), inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  outline: none !important;
+}
+
+body.ntd-dark-theme input[type=checkbox] {
+  accent-color: #2563eb !important;
+}
+
+/* Code Snippets */
+body.ntd-dark-theme code,
+body.ntd-dark-theme .acc-id-code,
+body.ntd-dark-theme .acc-meta code,
+body.ntd-dark-theme #tokenInfoBox code,
+body.ntd-dark-theme .hint code {
+  background: rgba(15, 23, 42, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #93c5fd !important;
+  border-radius: 6px !important;
+}
+
+/* 9. Chỉ Số Đo Lường & Badges Trạng Thái Phát Sáng (Metrics & Glow Pills) */
+body.ntd-dark-theme .metric-val,
+body.ntd-dark-theme .kpi-val,
+body.ntd-dark-theme .stat-val {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.5px !important;
+}
+
+body.ntd-dark-theme .metric-val.green,
+body.ntd-dark-theme .stat-val.accent,
+body.ntd-dark-theme .kpi-val.success,
+body.ntd-dark-theme .prog-daily-tag {
+  color: #34d399 !important;
+  text-shadow: 0 0 14px rgba(52, 211, 153, 0.4) !important;
+}
+
+body.ntd-dark-theme .metric-val.blue {
+  color: #60a5fa !important;
+  text-shadow: 0 0 14px rgba(96, 165, 250, 0.4) !important;
+}
+
+body.ntd-dark-theme .badge-ok,
+body.ntd-dark-theme .badge-done,
+body.ntd-dark-theme .prog-pill-done {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  border-radius: 9999px !important;
+}
+
+body.ntd-dark-theme .badge-run,
+body.ntd-dark-theme .badge-running,
+body.ntd-dark-theme .prog-pill-running {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.45) !important;
+  border-radius: 9999px !important;
+}
+
+body.ntd-dark-theme .badge-warn,
+body.ntd-dark-theme .badge-waiting,
+body.ntd-dark-theme .prog-pill-waiting {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  border-radius: 9999px !important;
+}
+
+body.ntd-dark-theme .badge-error,
+body.ntd-dark-theme .badge-danger,
+body.ntd-dark-theme .prog-pill-error {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+  border-radius: 9999px !important;
+}
+
+body.ntd-dark-theme .badge-pass,
+body.ntd-dark-theme .badge-limit {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fcd34d !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  border-radius: 9999px !important;
+}
+
+body.ntd-dark-theme .prog-pill-none,
+body.ntd-dark-theme .badge-parent,
+body.ntd-dark-theme .badge-none {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #cbd5e1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 9999px !important;
+}
+
+body.ntd-dark-theme .prog-pill-paused {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  border-radius: 9999px !important;
+}
+
+/* Các loại Badge số lượng & Phân loại tài khoản/nhóm */
+body.ntd-dark-theme .count-badge,
+body.ntd-dark-theme .acc-count,
+body.ntd-dark-theme .cat-badge,
+body.ntd-dark-theme .cfg-type-badge,
+body.ntd-dark-theme .badge-page,
+body.ntd-dark-theme .prog-post-badge {
+  border-radius: 9999px !important;
+  font-weight: 700 !important;
+}
+
+body.ntd-dark-theme .count-badge,
+body.ntd-dark-theme .acc-count,
+body.ntd-dark-theme .cat-badge,
+body.ntd-dark-theme .cfg-type-badge {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+body.ntd-dark-theme .badge-page,
+body.ntd-dark-theme span[class*="prog-post-badge"][style*="#fee2e2"] {
+  background: rgba(239, 68, 68, 0.22) !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
+}
+
+body.ntd-dark-theme .prog-post-badge {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+/* Badge số bài đã soạn ("Đã soạn 0/3 bài") */
+body.ntd-dark-theme #postSetupCountBadge {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+}
+
+/* Badge trạng thái tab bài viết ("Chưa soạn" / "Đã soạn") */
+body.ntd-dark-theme .post-tab-status {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #cbd5e1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+body.ntd-dark-theme .post-tab-status.ready {
+  background: rgba(16, 185, 129, 0.22) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+}
+
+/* Badge "Hôm nay: 0/20 bài" */
+body.ntd-dark-theme .prog-daily-tag {
+  background: rgba(16, 185, 129, 0.16) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+body.ntd-dark-theme .prog-daily-tag.limit-hit {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+}
+
+/* Badge tóm tắt chống spam */
+body.ntd-dark-theme .as-summary-badge {
+  background: rgba(16, 185, 129, 0.16) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+/* Badge cài đặt trên sidebar */
+body.ntd-dark-theme #sbBadgeSettings {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+
+/* 10. Bảng Dữ Liệu Kính Mờ (Glass Data Tables) */
+body.ntd-dark-theme .table-container,
+body.ntd-dark-theme .report-table-wrap,
+body.ntd-dark-theme .results-table-container {
+  background: rgba(11, 17, 30, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden !important;
+}
+
+body.ntd-dark-theme table.data-table th,
+body.ntd-dark-theme .report-table thead th,
+body.ntd-dark-theme .results-table th,
+body.ntd-dark-theme table.acc-table th,
+body.ntd-dark-theme table.user-table th {
+  background: rgba(16, 24, 40, 0.85) !important;
+  color: #94a3b8 !important;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  text-transform: uppercase !important;
+  font-size: 11.5px !important;
+}
+
+body.ntd-dark-theme table.data-table td,
+body.ntd-dark-theme .report-table tbody td,
+body.ntd-dark-theme .results-table td,
+body.ntd-dark-theme table.acc-table td,
+body.ntd-dark-theme table.user-table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: #f1f5f9 !important;
+  background: transparent !important;
+}
+
+body.ntd-dark-theme table.data-table tbody tr:hover td,
+body.ntd-dark-theme .report-table tbody tr:hover td,
+body.ntd-dark-theme .results-table tr:hover td,
+body.ntd-dark-theme table.acc-table tbody tr:hover td,
+body.ntd-dark-theme table.user-table tr:hover td {
+  background: rgba(37, 99, 235, 0.08) !important;
+}
+
+body.ntd-dark-theme .phone-cell {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #34d399 !important;
+  border-radius: 8px !important;
+}
+
+/* 11. Thẻ Lựa Chọn Theme (Theme Choice Cards trong Cài Đặt) */
+body.ntd-dark-theme .theme-choice-card {
+  background: rgba(16, 24, 40, 0.6) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+}
+body.ntd-dark-theme .theme-choice-card:hover {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+body.ntd-dark-theme .theme-choice-card.active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.25) 0%, rgba(37, 99, 235, 0.1) 100%) !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 24px rgba(37, 99, 235, 0.25) !important;
+}
+body.ntd-dark-theme .theme-check-badge {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb) !important;
+  border: 1px solid rgba(147, 197, 253, 0.4) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4) !important;
+  border-radius: 9999px !important;
+}
+
+/* 12. Hộp Thông Báo & Mẹo (Glass Notification Boxes) */
+body.ntd-dark-theme #zaloStatus,
+body.ntd-dark-theme .status-box {
+  background: rgba(16, 24, 40, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .status-box.info {
+  background: rgba(30, 58, 138, 0.25) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+}
+body.ntd-dark-theme .status-box.success {
+  background: rgba(6, 78, 59, 0.25) !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  color: #6ee7b7 !important;
+}
+body.ntd-dark-theme .status-box.warning {
+  background: rgba(120, 53, 15, 0.25) !important;
+  border-color: rgba(245, 158, 11, 0.45) !important;
+  color: #fcd34d !important;
+}
+body.ntd-dark-theme .status-box.danger {
+  background: rgba(127, 29, 29, 0.25) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #fca5a5 !important;
+}
+body.ntd-dark-theme .tip-box {
+  background: rgba(16, 24, 40, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .tip-box.orange {
+  background: rgba(37, 99, 235, 0.14) !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+/* 13. Thanh Cuộn Phát Sáng (Cyber Scrollbar) */
+body.ntd-dark-theme ::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+body.ntd-dark-theme ::-webkit-scrollbar-track {
+  background: rgba(7, 11, 20, 0.7);
+}
+body.ntd-dark-theme ::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.25);
+  border-radius: 9999px;
+  border: 1px solid rgba(7, 11, 20, 0.7);
+}
+body.ntd-dark-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+/* 14. Icon Header & Logo Phát Sáng (Cyber Blue Brand Icons) */
+body.ntd-dark-theme .settings-header-icon,
+body.ntd-dark-theme .maps-header-icon,
+body.ntd-dark-theme .header-icon,
+body.ntd-dark-theme header span,
+body.ntd-dark-theme .logo,
+body.ntd-dark-theme .pg-icon {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45) !important;
+  border: 1px solid rgba(147, 197, 253, 0.3) !important;
+}
+
+body.ntd-dark-theme .setting-item-icon {
+  background: rgba(37, 99, 235, 0.16) !important;
+  color: #60a5fa !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+body.ntd-dark-theme .metric-icon-wrap {
+  background: rgba(37, 99, 235, 0.15) !important;
+  color: #60a5fa !important;
+  border: 1px solid rgba(59, 130, 246, 0.25) !important;
+}
+body.ntd-dark-theme .metric-icon-wrap.green {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  border-color: rgba(16, 185, 129, 0.25) !important;
+}
+
+/* 15. Thanh Tìm Kiếm Dạng Viên Thuốc Bo Tròn (Capsule Search Pills) */
+body.ntd-dark-theme .search-box input,
+body.ntd-dark-theme .cfg-search-input,
+body.ntd-dark-theme .table-search-box input,
+body.ntd-dark-theme #reportSearchInput {
+  border-radius: 9999px !important;
+  padding-left: 36px !important;
+  background-color: rgba(10, 16, 30, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 16. Hộp Thông Báo & Thẻ Trạng Thái Hệ Thống */
+body.ntd-dark-theme .notice,
+body.ntd-dark-theme .no-accounts-notice {
+  background: rgba(30, 58, 138, 0.22) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+  color: #93c5fd !important;
+  border-radius: 14px !important;
+}
+body.ntd-dark-theme .no-accounts-notice a {
+  color: #60a5fa !important;
+}
+
+body.ntd-dark-theme .acc-status-card {
+  background: linear-gradient(145deg, rgba(16, 24, 40, 0.72) 0%, rgba(11, 17, 30, 0.84) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+}
+body.ntd-dark-theme .acc-status-card.running {
+  border-left: 3px solid #3b82f6 !important;
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.2) !important;
+}
+
+body.ntd-dark-theme .as-check-label.compact,
+body.ntd-dark-theme .as-check-label.as-highlight-check {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+}
+
+body.ntd-dark-theme .report-kpi-card.active-kpi {
+  border-color: #3b82f6 !important;
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.35) 0%, rgba(37, 99, 235, 0.18) 100%) !important;
+  box-shadow: 0 0 20px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 17. Khắc Phục Triệt Để Các Khối Trắng & Nút Bấm Sáng (Dark Containers & Buttons Fix) */
+
+/* A. Khung chọn danh mục trong Phần 2 Đăng bài (Ảnh 1) */
+body.ntd-dark-theme #paneSharedLinks > div[style*="background"] {
+  background: rgba(16, 24, 40, 0.72) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+}
+body.ntd-dark-theme #paneSharedLinks span {
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme #applyCategoryBtn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #f1f5f9 !important;
+}
+body.ntd-dark-theme #applyCategoryBtn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+}
+
+/* B. Thẻ tiến trình tài khoản trong Phần 4 Đăng bài - Khử dải trắng ở đáy (Ảnh 2) */
+body.ntd-dark-theme .prog-acc-item {
+  background: linear-gradient(145deg, rgba(16, 24, 40, 0.78) 0%, rgba(11, 17, 30, 0.9) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+}
+body.ntd-dark-theme .prog-actions-row {
+  background: rgba(10, 16, 30, 0.65) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+body.ntd-dark-theme .prog-action-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f1f5f9 !important;
+  border-radius: 8px !important;
+}
+body.ntd-dark-theme .prog-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+}
+body.ntd-dark-theme .prog-action-btn.primary,
+body.ntd-dark-theme .prog-action-btn.btn-start-one {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(147, 197, 253, 0.35) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4) !important;
+}
+body.ntd-dark-theme .prog-bar-track {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+body.ntd-dark-theme .prog-job-drawer {
+  background: rgba(10, 16, 30, 0.75) !important;
+  color: #cbd5e1 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+body.ntd-dark-theme .prog-job-drawer li {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* C. Banner chống spam khi thu gọn trong Phần 3 (Ảnh 2) */
+body.ntd-dark-theme .anti-spam-card {
+  background: linear-gradient(145deg, rgba(16, 24, 40, 0.75) 0%, rgba(11, 17, 30, 0.88) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-left: 3.5px solid #10b981 !important;
+  border-radius: 14px !important;
+}
+body.ntd-dark-theme .as-header {
+  background: transparent !important;
+}
+body.ntd-dark-theme .as-header:hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* D. Banner Tự động cập nhật cookie trong accounts.html (Ảnh 3) */
+body.ntd-dark-theme .auto-sync-banner {
+  background: rgba(6, 78, 59, 0.28) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  border-radius: 14px !important;
+}
+body.ntd-dark-theme .auto-sync-banner div {
+  color: #a7f3d0 !important;
+}
+body.ntd-dark-theme .auto-sync-banner div > div:first-child {
+  color: #34d399 !important;
+}
+body.ntd-dark-theme #forceSyncAllBtn {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  color: #34d399 !important;
+  border-radius: 8px !important;
+}
+body.ntd-dark-theme #forceSyncAllBtn:hover {
+  background: rgba(16, 185, 129, 0.3) !important;
+  color: #ffffff !important;
+}
+
+/* E. Nút Đồng bộ cookie và các nút dạng .btn-light (Ảnh 3 & 4) */
+body.ntd-dark-theme .btn-light,
+body.ntd-dark-theme button.light,
+body.ntd-dark-theme #save.light,
+body.ntd-dark-theme #clearPassFormBtn,
+body.ntd-dark-theme #clearCookieFormBtn,
+body.ntd-dark-theme #clearManualPageBtn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f1f5f9 !important;
+  border-radius: 9px !important;
+}
+body.ntd-dark-theme .btn-light:hover,
+body.ntd-dark-theme button.light:hover,
+body.ntd-dark-theme #save.light:hover,
+body.ntd-dark-theme #clearPassFormBtn:hover,
+body.ntd-dark-theme #clearCookieFormBtn:hover,
+body.ntd-dark-theme #clearManualPageBtn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme .sync-page-cookie-btn,
+body.ntd-dark-theme .sync-cookie-btn {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+  border-radius: 8px !important;
+}
+body.ntd-dark-theme .sync-page-cookie-btn:hover,
+body.ntd-dark-theme .sync-cookie-btn:hover {
+  background: rgba(16, 185, 129, 0.28) !important;
+  color: #ffffff !important;
+}
+
+/* F. Khung hiển thị nhóm URL trong groups.html (.cat-preview) (Ảnh 5) */
+body.ntd-dark-theme .cat-preview {
+  background: rgba(10, 16, 30, 0.78) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #93c5fd !important;
+  border-radius: 9px !important;
+}
+
+body.ntd-dark-theme .chip-btn,
+body.ntd-dark-theme .act-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f1f5f9 !important;
+  border-radius: 8px !important;
+}
+body.ntd-dark-theme .chip-btn:hover,
+body.ntd-dark-theme .act-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .act-btn.primary {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+}
+body.ntd-dark-theme .act-btn.danger {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #fca5a5 !important;
+}
+
+body.ntd-dark-theme #editorPostHeading,
+body.ntd-dark-theme #editorImgHeading {
+  color: #60a5fa !important;
+}
+
+/* 18. Khắc Phục Hiển Thị Cho Khung Tỉnh / Thành Phố & Loại Số Điện Thoại Quét Maps */
+
+/* A. Khung Loại số điện thoại cần quét (Phone Type Chips) */
+body.ntd-dark-theme .phone-type-card {
+  background: linear-gradient(145deg, rgba(16, 24, 40, 0.75) 0%, rgba(11, 17, 30, 0.88) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
+}
+
+body.ntd-dark-theme .phone-type-title {
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .phone-type-title svg {
+  color: #60a5fa !important;
+}
+
+body.ntd-dark-theme .phone-type-chip {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.1) !important;
+  color: #cbd5e1 !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  transition: all .18s ease !important;
+}
+
+body.ntd-dark-theme .phone-type-chip span {
+  color: #cbd5e1 !important;
+}
+
+body.ntd-dark-theme .phone-type-chip:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme .phone-type-chip:hover span {
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme .phone-type-chip.checked {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.35) 0%, rgba(37, 99, 235, 0.18) 100%) !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+body.ntd-dark-theme .phone-type-chip.checked span {
+  color: #93c5fd !important;
+  font-weight: 700 !important;
+}
+
+body.ntd-dark-theme .phone-type-chip input[type="checkbox"] {
+  accent-color: #2563eb !important;
+}
+
+/* B. Khung chọn Tỉnh / Thành phố & Xã Phường (Geo Picker) */
+body.ntd-dark-theme .geo-picker-card {
+  background: linear-gradient(145deg, rgba(16, 24, 40, 0.78) 0%, rgba(11, 17, 30, 0.9) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+}
+
+body.ntd-dark-theme .geo-search-wrap {
+  background: rgba(10, 16, 30, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 10px !important;
+}
+
+body.ntd-dark-theme .geo-search-input {
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .geo-search-input::placeholder {
+  color: #64748b !important;
+}
+
+body.ntd-dark-theme .geo-search-icon,
+body.ntd-dark-theme .geo-dropdown-toggle {
+  color: #94a3b8 !important;
+}
+body.ntd-dark-theme .geo-dropdown-toggle:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+/* Tag tỉnh/thành đã chọn ("Hà Nội x") */
+body.ntd-dark-theme .geo-chip {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border: 1px solid rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+  border-radius: 8px !important;
+}
+
+body.ntd-dark-theme .geo-chip-remove {
+  color: #93c5fd !important;
+}
+body.ntd-dark-theme .geo-chip-remove:hover {
+  color: #ffffff !important;
+}
+
+/* Danh sách Tỉnh / Thành phố cuộn chọn */
+body.ntd-dark-theme .geo-dropdown-list {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+body.ntd-dark-theme .geo-item {
+  color: #f1f5f9 !important;
+  transition: all .15s ease !important;
+}
+body.ntd-dark-theme .geo-item span {
+  color: #f1f5f9 !important;
+}
+
+body.ntd-dark-theme .geo-item:hover {
+  background: rgba(37, 99, 235, 0.16) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .geo-item:hover span {
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme .geo-item.selected {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.3) 0%, rgba(37, 99, 235, 0.15) 100%) !important;
+  color: #60a5fa !important;
+}
+body.ntd-dark-theme .geo-item.selected span {
+  color: #60a5fa !important;
+}
+
+/* Badge số lượng xã/phường trên từng dòng (ví dụ: "38 xã/phường") */
+body.ntd-dark-theme .geo-item-badge.count {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+  border-radius: 6px !important;
+}
+
+body.ntd-dark-theme .geo-item-badge.ward {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+}
+body.ntd-dark-theme .geo-item-badge.commune {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+body.ntd-dark-theme .geo-item-badge.special {
+  background: rgba(168, 85, 247, 0.2) !important;
+  color: #c084fc !important;
+  border: 1px solid rgba(168, 85, 247, 0.35) !important;
+}
+
+/* Các chip chọn nhanh đô thị lớn (Hà Nội, TP.HCM,...) */
+body.ntd-dark-theme .geo-quick-picks {
+  border-top: 1px dashed rgba(255, 255, 255, 0.08) !important;
+}
+body.ntd-dark-theme .quick-chip {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #cbd5e1 !important;
+  border-radius: 9999px !important;
+}
+body.ntd-dark-theme .quick-chip:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .quick-chip.active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4) !important;
+}
+
+/* Nút xóa chọn & nhập tay */
+body.ntd-dark-theme .geo-text-btn {
+  color: #94a3b8 !important;
+}
+body.ntd-dark-theme .geo-text-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+body.ntd-dark-theme .geo-text-btn.highlight {
+  color: #60a5fa !important;
+  background: rgba(37, 99, 235, 0.18) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+}
+
+/* 19. Khắc Phục Hiện Tượng Giật Trắng Khi Chuyển Tab (Smooth Tab & Page Transitions) */
+
+/* A. Hiệu ứng chuyển trang mượt mà không chớp sáng */
+:is(html, body).ntd-dark-theme main,
+.ntd-dark-theme main,
+body.ntd-dark-theme main {
+  animation: ntdPageFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  will-change: opacity, transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+@keyframes ntdPageFadeIn {
+  0% {
+    opacity: 0.92;
+    transform: translateY(2px) translateZ(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) translateZ(0);
+  }
+}
+
+/* B. Thanh chọn phân loại Tài khoản cá nhân vs Fanpage ở Phần 2 Đăng bài (.cfg-type-btn) */
+:is(html, body).ntd-dark-theme .cfg-type-selector-bar {
+  background: rgba(10, 16, 30, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-btn {
+  color: #94a3b8 !important;
+  background: transparent !important;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #ffffff !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-btn.active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.45) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+  color: #60a5fa !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-btn[data-type="fanpage"].active {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.35) 0%, rgba(239, 68, 68, 0.2) 100%) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-btn[data-type="all"].active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.45) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+  color: #93c5fd !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-badge {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #94a3b8 !important;
+  border: none !important;
+  transition: color 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .cfg-type-btn.active .cfg-type-badge {
+  background: rgba(37, 99, 235, 0.35) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+/* C. Tabs chọn chế độ nhóm "Dùng chung nhóm" vs "Theo Danh mục nhóm" */
+:is(html, body).ntd-dark-theme .mode-tab-bar,
+:is(html, body).ntd-dark-theme div[style*="border:1px solid #cbd5e1"] {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(10, 16, 30, 0.6) !important;
+}
+:is(html, body).ntd-dark-theme #tabModeShared,
+:is(html, body).ntd-dark-theme #tabModeCategories {
+  transition: color 0.15s ease, box-shadow 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme #tabModeShared:not(.active),
+:is(html, body).ntd-dark-theme #tabModeCategories:not(.active) {
+  background: transparent !important;
+  color: #94a3b8 !important;
+}
+:is(html, body).ntd-dark-theme #tabModeShared.active,
+:is(html, body).ntd-dark-theme #tabModeCategories.active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45) !important;
+}
+
+/* D. Tabs phương thức đăng nhập accounts.html (.method-tabs) */
+:is(html, body).ntd-dark-theme .method-tabs {
+  background: rgba(10, 16, 30, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+:is(html, body).ntd-dark-theme .method-tab {
+  background: transparent !important;
+  color: #94a3b8 !important;
+  transition: color 0.15s ease, box-shadow 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .method-tab:not(.active):hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #ffffff !important;
+}
+:is(html, body).ntd-dark-theme .method-tab.active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45) !important;
+}
+
+/* E. Tabs danh mục nhóm groups.html (.tab-btn) */
+:is(html, body).ntd-dark-theme .tab-nav {
+  border-bottom: 2px solid rgba(255, 255, 255, 0.08) !important;
+}
+:is(html, body).ntd-dark-theme .tab-btn {
+  color: #94a3b8 !important;
+  background: transparent !important;
+  transition: color 0.15s ease, border-color 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .tab-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+:is(html, body).ntd-dark-theme .tab-btn.active {
+  color: #60a5fa !important;
+  background: transparent !important;
+  border-bottom-color: #3b82f6 !important;
+}
+
+/* F. Tabs bài viết panel.html (.post-tab-btn: Bài 1, Bài 2, Bài 3) */
+:is(html, body).ntd-dark-theme .post-tab-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  color: #cbd5e1 !important;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .post-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border-color: rgba(96, 165, 250, 0.3) !important;
+}
+:is(html, body).ntd-dark-theme .post-tab-btn.active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.35) 0%, rgba(37, 99, 235, 0.2) 100%) !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+}
+:is(html, body).ntd-dark-theme .post-tab-btn.active .post-tab-title {
+  color: #60a5fa !important;
+}
+
+/* G. View Switcher Buttons (.view-switch-btn) */
+:is(html, body).ntd-dark-theme .view-switch-btn {
+  background: transparent !important;
+  color: #94a3b8 !important;
+  border: none !important;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .view-switch-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #ffffff !important;
+}
+:is(html, body).ntd-dark-theme .view-switch-btn.active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.45) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+  color: #60a5fa !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(59, 130, 246, 0.35) !important;
+}
+:is(html, body).ntd-dark-theme .view-switch-btn[data-type="fanpage"].active {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.35) 0%, rgba(239, 68, 68, 0.2) 100%) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+:is(html, body).ntd-dark-theme .view-switch-btn[data-type="all"].active {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.45) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+  color: #93c5fd !important;
+}
+:is(html, body).ntd-dark-theme .view-switch-btn[data-type="links"].active {
+  background: linear-gradient(135deg, rgba(5, 150, 105, 0.35) 0%, rgba(16, 185, 129, 0.2) 100%) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+}
+
+/* H. Filter Pills & Buttons (.filter-pill, .cfg-filter-pill, .filter-pill-btn) */
+:is(html, body).ntd-dark-theme .cfg-filter-pill,
+:is(html, body).ntd-dark-theme .prog-filter-pill,
+:is(html, body).ntd-dark-theme .filter-pill,
+:is(html, body).ntd-dark-theme .filter-pill-btn {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #94a3b8 !important;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .cfg-filter-pill:hover,
+:is(html, body).ntd-dark-theme .prog-filter-pill:hover,
+:is(html, body).ntd-dark-theme .filter-pill:hover,
+:is(html, body).ntd-dark-theme .filter-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+:is(html, body).ntd-dark-theme .cfg-filter-pill.active,
+:is(html, body).ntd-dark-theme .prog-filter-pill.active,
+:is(html, body).ntd-dark-theme .filter-pill.active,
+:is(html, body).ntd-dark-theme .filter-pill-btn.active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35) !important;
+}
+:is(html, body).ntd-dark-theme .filter-pill-btn.active.free,
+:is(html, body).ntd-dark-theme .filter-pill.success.active {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+  border-color: #10b981 !important;
+}
+:is(html, body).ntd-dark-theme .filter-pill-btn.active.approval,
+:is(html, body).ntd-dark-theme .filter-pill.waiting.active {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%) !important;
+  border-color: #f59e0b !important;
+}
+:is(html, body).ntd-dark-theme .filter-pill.error.active {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%) !important;
+  border-color: #ef4444 !important;
+}
+
+/* I. Sync Cloud Modal Tabs (.sync-tabs, .sync-tab-btn) */
+:is(html, body).ntd-dark-theme .sync-modal {
+  background: #0d1527 !important;
+  border: 1px solid rgba(59, 130, 246, 0.25) !important;
+  color: #f8fafc !important;
+}
+:is(html, body).ntd-dark-theme .sync-tabs {
+  background: rgba(10, 16, 30, 0.8) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+:is(html, body).ntd-dark-theme .sync-tab-btn {
+  color: #94a3b8 !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  transition: color 0.15s ease, border-color 0.15s ease !important;
+}
+:is(html, body).ntd-dark-theme .sync-tab-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+:is(html, body).ntd-dark-theme .sync-tab-btn.active {
+  background: rgba(13, 21, 39, 0.95) !important;
+  color: #60a5fa !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  border-bottom-color: #0d1527 !important;
+}
+:is(html, body).ntd-dark-theme .sync-card {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+:is(html, body).ntd-dark-theme .sync-card-title {
+  color: #f8fafc !important;
+}
+
+/* ── NTD Theme Toggle Button (Nút chuyển chế độ Ban ngày / Ban đêm góc trên bên phải) ── */
+.ntd-theme-toggle-btn {
+  position: fixed !important;
+  top: 16px !important;
+  right: 20px !important;
+  z-index: 99999 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 38px !important;
+  padding: 4px 12px 4px 6px !important;
+  border-radius: 9999px !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.2px !important;
+  border: 1px solid rgba(203, 213, 225, 0.9) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #1e293b !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+}
+
+.ntd-theme-toggle-btn:hover {
+  transform: translateY(-1.5px) !important;
+  border-color: rgba(245, 158, 11, 0.55) !important;
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.22), 0 0 12px rgba(245, 158, 11, 0.15) !important;
+}
+
+.ntd-theme-toggle-btn:active {
+  transform: translateY(0) scale(0.97) !important;
+}
+
+/* Biểu tượng mặt trời / mặt trăng */
+.ntd-theme-toggle-btn .ntd-tt-icon-wrap {
+  position: relative !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+  color: #d97706 !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3) !important;
+  flex-shrink: 0 !important;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+.ntd-theme-toggle-btn .ntd-tt-icon {
+  width: 16px !important;
+  height: 16px !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  margin-top: -8px !important;
+  margin-left: -8px !important;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease !important;
+}
+
+/* Ban ngày: icon mặt trời hiện, icon mặt trăng xoay ẩn */
+.ntd-theme-toggle-btn .ntd-tt-icon-sun {
+  opacity: 1 !important;
+  transform: rotate(0deg) scale(1) !important;
+}
+.ntd-theme-toggle-btn .ntd-tt-icon-moon {
+  opacity: 0 !important;
+  transform: rotate(90deg) scale(0.2) !important;
+}
+
+.ntd-theme-toggle-btn .ntd-tt-label {
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #1e293b !important;
+  transition: color 0.2s ease !important;
+}
+
+/* Mini switch slider */
+.ntd-theme-toggle-btn .ntd-tt-switch {
+  width: 28px !important;
+  height: 16px !important;
+  border-radius: 20px !important;
+  background: #e2e8f0 !important;
+  position: relative !important;
+  transition: background 0.25s ease !important;
+  flex-shrink: 0 !important;
+}
+
+.ntd-theme-toggle-btn .ntd-tt-switch-thumb {
+  position: absolute !important;
+  top: 2px !important;
+  left: 2px !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  background: #f59e0b !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease !important;
+}
+
+/* ── KHI Ở CHẾ ĐỘ BAN ĐÊM (DARK THEME) ── */
+.ntd-dark-theme .ntd-theme-toggle-btn,
+.ntd-theme-toggle-btn.is-dark {
+  background: rgba(15, 23, 42, 0.85) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn:hover,
+.ntd-theme-toggle-btn.is-dark:hover {
+  border-color: rgba(96, 165, 250, 0.55) !important;
+  box-shadow: 0 6px 24px rgba(37, 99, 235, 0.35), 0 0 16px rgba(96, 165, 250, 0.3) !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-icon-wrap,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-icon-wrap {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
+  color: #93c5fd !important;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.45) !important;
+}
+
+/* Ban đêm: icon mặt trời xoay ẩn, icon mặt trăng hiện */
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-icon-sun,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-icon-sun {
+  opacity: 0 !important;
+  transform: rotate(-90deg) scale(0.2) !important;
+}
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-icon-moon,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-icon-moon {
+  opacity: 1 !important;
+  transform: rotate(0deg) scale(1) !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-label,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-label {
+  color: #f1f5f9 !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-switch,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-switch {
+  background: #1e293b !important;
+}
+
+.ntd-dark-theme .ntd-theme-toggle-btn .ntd-tt-switch-thumb,
+.ntd-theme-toggle-btn.is-dark .ntd-tt-switch-thumb {
+  background: #3b82f6 !important;
+  box-shadow: 0 1px 5px rgba(59, 130, 246, 0.7) !important;
+  transform: translateX(12px) !important;
+}
+
+/* Tooltip nổi khi rê chuột */
+.ntd-theme-toggle-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 6px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: all 0.18s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  z-index: 100001;
+  letter-spacing: 0.1px;
+}
+
+.ntd-theme-toggle-btn:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Responsive trên màn hình hẹp */
+@media (max-width: 640px) {
+  .ntd-theme-toggle-btn {
+    top: 10px !important;
+    right: 12px !important;
+    padding: 3px 8px 3px 5px !important;
+    gap: 6px !important;
+    height: 34px !important;
+  }
+  .ntd-theme-toggle-btn .ntd-tt-switch {
+    display: none !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   20. Khắc Phục Triệt Để Các Nút & Khối Bị Trắng Trong Chế Độ Ban Đêm (Dark Mode)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* A. Phần 3 Đăng bài: Khung Nghỉ ngắt quãng, Giới hạn ngày, Giới hạn nhóm */
+body.ntd-dark-theme .as-break-box,
+html.ntd-dark-theme .as-break-box,
+:is(html, body).ntd-dark-theme .as-break-box {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+  color: #f8fafc !important;
+}
+
+body.ntd-dark-theme .as-break-box.as-limit-box,
+html.ntd-dark-theme .as-break-box.as-limit-box,
+:is(html, body).ntd-dark-theme .as-break-box.as-limit-box {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .as-break-box.as-limit-box b,
+html.ntd-dark-theme .as-break-box.as-limit-box b,
+body.ntd-dark-theme .as-break-box.as-limit-box span b,
+html.ntd-dark-theme .as-break-box.as-limit-box span b {
+  color: #34d399 !important;
+}
+
+body.ntd-dark-theme .as-maxposts-row,
+html.ntd-dark-theme .as-maxposts-row,
+:is(html, body).ntd-dark-theme .as-maxposts-row {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .as-maxposts-row label,
+html.ntd-dark-theme .as-maxposts-row label,
+body.ntd-dark-theme .as-maxposts-row span,
+html.ntd-dark-theme .as-maxposts-row span {
+  color: #f8fafc !important;
+}
+
+body.ntd-dark-theme .break-inputs,
+html.ntd-dark-theme .break-inputs,
+body.ntd-dark-theme .break-inputs span,
+html.ntd-dark-theme .break-inputs span {
+  color: #cbd5e1 !important;
+}
+
+body.ntd-dark-theme .break-inputs input,
+html.ntd-dark-theme .break-inputs input,
+body.ntd-dark-theme .as-maxposts-row input,
+html.ntd-dark-theme .as-maxposts-row input {
+  background: rgba(10, 16, 30, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+
+/* B. Phần 2 Đăng bài: Badge đã chọn tài khoản, Nút Lọc bỏ nhóm đã đăng, Nút chọn Bài 1/2/3 */
+body.ntd-dark-theme .shared-post-btn,
+html.ntd-dark-theme .shared-post-btn,
+:is(html, body).ntd-dark-theme .shared-post-btn {
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.4) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+  border: 1px solid rgba(59, 130, 246, 0.5) !important;
+  color: #93c5fd !important;
+  border-radius: 6px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+body.ntd-dark-theme .shared-post-btn:hover,
+html.ntd-dark-theme .shared-post-btn:hover,
+:is(html, body).ntd-dark-theme .shared-post-btn:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  border-color: #60a5fa !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+body.ntd-dark-theme button[style*="background:#f8fafc"],
+body.ntd-dark-theme button[style*="background: #f8fafc"] {
+  background: rgba(30, 58, 138, 0.35) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+}
+
+body.ntd-dark-theme #sharedAccSelectedBadge,
+html.ntd-dark-theme #sharedAccSelectedBadge {
+  background: rgba(234, 88, 12, 0.22) !important;
+  border: 1px solid rgba(251, 146, 60, 0.45) !important;
+  color: #fb923c !important;
+}
+
+body.ntd-dark-theme #filterPostedLinksBtn,
+html.ntd-dark-theme #filterPostedLinksBtn {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border: 1px solid rgba(96, 165, 250, 0.45) !important;
+  color: #93c5fd !important;
+}
+body.ntd-dark-theme #filterPostedLinksBtn:hover,
+html.ntd-dark-theme #filterPostedLinksBtn:hover {
+  background: rgba(37, 99, 235, 0.35) !important;
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme #linksStatsText,
+html.ntd-dark-theme #linksStatsText {
+  color: #94a3b8 !important;
+}
+
+body.ntd-dark-theme .cfg-pbtn,
+html.ntd-dark-theme .cfg-pbtn,
+:is(html, body).ntd-dark-theme .cfg-pbtn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+}
+body.ntd-dark-theme .cfg-pbtn:hover,
+html.ntd-dark-theme .cfg-pbtn:hover,
+:is(html, body).ntd-dark-theme .cfg-pbtn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .cfg-pbtn.active,
+html.ntd-dark-theme .cfg-pbtn.active,
+:is(html, body).ntd-dark-theme .cfg-pbtn.active {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45) !important;
+}
+
+body.ntd-dark-theme .cfg-drawer-post-picker,
+html.ntd-dark-theme .cfg-drawer-post-picker {
+  background: rgba(15, 23, 42, 0.85) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+}
+
+/* Danh mục nhóm: Danh sách tài khoản Accordion & Hộp chọn nhóm */
+body.ntd-dark-theme .cfg-acc-item,
+html.ntd-dark-theme .cfg-acc-item,
+:is(html, body).ntd-dark-theme .cfg-acc-item {
+  background: #0f172a !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .cfg-acc-item:hover,
+html.ntd-dark-theme .cfg-acc-item:hover {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45) !important;
+}
+body.ntd-dark-theme .cfg-acc-name,
+html.ntd-dark-theme .cfg-acc-name,
+body.ntd-dark-theme .cfg-acc-name span,
+html.ntd-dark-theme .cfg-acc-name span,
+body.ntd-dark-theme .acc-assign-name,
+html.ntd-dark-theme .acc-assign-name {
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .cfg-acc-sub,
+html.ntd-dark-theme .cfg-acc-sub {
+  color: #94a3b8 !important;
+}
+body.ntd-dark-theme .cfg-fp-limit-text,
+html.ntd-dark-theme .cfg-fp-limit-text {
+  color: #f87171 !important;
+}
+body.ntd-dark-theme .cfg-acc-check-icon,
+html.ntd-dark-theme .cfg-acc-check-icon {
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+body.ntd-dark-theme .cfg-acc-check-icon.checked,
+html.ntd-dark-theme .cfg-acc-check-icon.checked {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.5) !important;
+}
+body.ntd-dark-theme .cfg-acc-drawer,
+html.ntd-dark-theme .cfg-acc-drawer,
+:is(html, body).ntd-dark-theme .cfg-acc-drawer {
+  background: #0b111e !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .cfg-drawer-actions,
+html.ntd-dark-theme .cfg-drawer-actions,
+body.ntd-dark-theme .cfg-drawer-actions span,
+html.ntd-dark-theme .cfg-drawer-actions span {
+  color: #cbd5e1 !important;
+}
+body.ntd-dark-theme .select-all-cats-btn,
+html.ntd-dark-theme .select-all-cats-btn,
+body.ntd-dark-theme .deselect-all-cats-btn,
+html.ntd-dark-theme .deselect-all-cats-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #cbd5e1 !important;
+}
+body.ntd-dark-theme .select-all-cats-btn:hover,
+html.ntd-dark-theme .select-all-cats-btn:hover,
+body.ntd-dark-theme .deselect-all-cats-btn:hover,
+html.ntd-dark-theme .deselect-all-cats-btn:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .cat-pill,
+html.ntd-dark-theme .cat-pill,
+:is(html, body).ntd-dark-theme .cat-pill {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+}
+body.ntd-dark-theme .cat-pill:hover,
+html.ntd-dark-theme .cat-pill:hover,
+:is(html, body).ntd-dark-theme .cat-pill:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.4) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .cat-pill.checked,
+html.ntd-dark-theme .cat-pill.checked,
+:is(html, body).ntd-dark-theme .cat-pill.checked {
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.45) !important;
+}
+body.ntd-dark-theme .cfg-badge,
+html.ntd-dark-theme .cfg-badge {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+body.ntd-dark-theme .cfg-badge.active,
+html.ntd-dark-theme .cfg-badge.active {
+  background: rgba(37, 99, 235, 0.25) !important;
+  color: #93c5fd !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+}
+body.ntd-dark-theme #cfgBulkPostAssignBar,
+html.ntd-dark-theme #cfgBulkPostAssignBar {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .acc-assign-card,
+html.ntd-dark-theme .acc-assign-card {
+  background: #0f172a !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.ntd-dark-theme .cfg-action-btn,
+html.ntd-dark-theme .cfg-action-btn,
+:is(html, body).ntd-dark-theme .cfg-action-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #e2e8f0 !important;
+}
+body.ntd-dark-theme .cfg-action-btn:hover,
+html.ntd-dark-theme .cfg-action-btn:hover,
+:is(html, body).ntd-dark-theme .cfg-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+body.ntd-dark-theme .cfg-action-btn.primary,
+html.ntd-dark-theme .cfg-action-btn.primary,
+:is(html, body).ntd-dark-theme .cfg-action-btn.primary {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+}
+
+/* C. Phần 4 & Các Modals (Hộp thoại Xem link để đăng & Link đã đăng) */
+body.ntd-dark-theme #progQueuedLinksNote,
+html.ntd-dark-theme #progQueuedLinksNote {
+  background: rgba(14, 165, 233, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.28) !important;
+}
+body.ntd-dark-theme #progQueuedLinksNote span,
+body.ntd-dark-theme #progQueuedLinksNote div,
+html.ntd-dark-theme #progQueuedLinksNote span,
+html.ntd-dark-theme #progQueuedLinksNote div {
+  color: #f1f5f9 !important;
+}
+
+body.ntd-dark-theme #btnViewQueuedLinksModal,
+html.ntd-dark-theme #btnViewQueuedLinksModal {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  border: 1px solid rgba(125, 211, 252, 0.35) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4) !important;
+}
+body.ntd-dark-theme #btnViewQueuedLinksModal:hover,
+html.ntd-dark-theme #btnViewQueuedLinksModal:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.55) !important;
+}
+
+body.ntd-dark-theme #switchToTableViewBtn,
+html.ntd-dark-theme #switchToTableViewBtn {
+  background: rgba(14, 165, 233, 0.16) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  color: #38bdf8 !important;
+}
+body.ntd-dark-theme #switchToTableViewBtn:hover,
+html.ntd-dark-theme #switchToTableViewBtn:hover {
+  background: rgba(14, 165, 233, 0.28) !important;
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme #queuedLinksModal .modal-card,
+html.ntd-dark-theme #queuedLinksModal .modal-card,
+body.ntd-dark-theme .modal-card,
+html.ntd-dark-theme .modal-card,
+body.ntd-dark-theme .modal-box,
+html.ntd-dark-theme .modal-box {
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85) !important;
+}
+body.ntd-dark-theme #queuedLinksModal div {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+body.ntd-dark-theme #queuedLinksModal div[style*="background:#f8fafc"],
+body.ntd-dark-theme #queuedLinksModal div[style*="background: #f8fafc"],
+body.ntd-dark-theme #queuedLinksModal div[style*="background:#ffffff"],
+body.ntd-dark-theme #queuedLinksModal div[style*="background: #ffffff"] {
+  background: #0b111e !important;
+}
+body.ntd-dark-theme .modal-box h3,
+html.ntd-dark-theme .modal-box h3,
+body.ntd-dark-theme #modalQueuedTitle,
+html.ntd-dark-theme #modalQueuedTitle {
+  color: #f8fafc !important;
+}
+body.ntd-dark-theme .modal-box p,
+html.ntd-dark-theme .modal-box p,
+body.ntd-dark-theme #modalQueuedSubtitle,
+html.ntd-dark-theme #modalQueuedSubtitle,
+body.ntd-dark-theme #modalQueuedFooterCount,
+html.ntd-dark-theme #modalQueuedFooterCount {
+  color: #94a3b8 !important;
+}
+
+body.ntd-dark-theme #modalQueuedSearchInput,
+body.ntd-dark-theme #modalQueuedAccFilter,
+html.ntd-dark-theme #modalQueuedSearchInput,
+html.ntd-dark-theme #modalQueuedAccFilter {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+body.ntd-dark-theme #modalTabQueued,
+html.ntd-dark-theme #modalTabQueued,
+body.ntd-dark-theme #modalTabPosted,
+html.ntd-dark-theme #modalTabPosted {
+  background: transparent !important;
+  color: #94a3b8 !important;
+}
+body.ntd-dark-theme #modalTabQueued.active,
+html.ntd-dark-theme #modalTabQueued.active,
+body.ntd-dark-theme #modalTabQueued[style*="background:#fff"],
+html.ntd-dark-theme #modalTabQueued[style*="background:#fff"],
+body.ntd-dark-theme #modalTabQueued[style*="background: #fff"],
+html.ntd-dark-theme #modalTabQueued[style*="background: #fff"],
+body.ntd-dark-theme #modalTabQueued[style*="background: rgb(255, 255, 255)"],
+html.ntd-dark-theme #modalTabQueued[style*="background: rgb(255, 255, 255)"] {
+  background: #1e293b !important;
+  color: #38bdf8 !important;
+}
+body.ntd-dark-theme #modalTabPosted.active,
+html.ntd-dark-theme #modalTabPosted.active,
+body.ntd-dark-theme #modalTabPosted[style*="background:#16a34a"],
+html.ntd-dark-theme #modalTabPosted[style*="background:#16a34a"],
+body.ntd-dark-theme #modalTabPosted[style*="background: #16a34a"],
+html.ntd-dark-theme #modalTabPosted[style*="background: #16a34a"] {
+  background: rgba(16, 185, 129, 0.25) !important;
+  color: #34d399 !important;
+}
+
+body.ntd-dark-theme #modalCopyFilteredLinksBtn,
+html.ntd-dark-theme #modalCopyFilteredLinksBtn {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #93c5fd !important;
+}
+body.ntd-dark-theme #modalExportTxtBtn,
+html.ntd-dark-theme #modalExportTxtBtn,
+body.ntd-dark-theme #modalExportCsvBtn,
+html.ntd-dark-theme #modalExportCsvBtn {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+}
+body.ntd-dark-theme #modalSwitchToFullTableBtn,
+html.ntd-dark-theme #modalSwitchToFullTableBtn {
+  background: rgba(14, 165, 233, 0.18) !important;
+  border-color: rgba(14, 165, 233, 0.4) !important;
+  color: #38bdf8 !important;
+}
+body.ntd-dark-theme #modalCloseBottomBtn,
+html.ntd-dark-theme #modalCloseBottomBtn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+}
+
+/* D. Groups.html: Khung cấu hình tìm kiếm, Lọc trùng, Chip buttons & Append Modal */
+body.ntd-dark-theme div[style*="var(--bg-input"],
+html.ntd-dark-theme div[style*="var(--bg-input"] {
+  background: rgba(11, 17, 30, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f8fafc !important;
+}
+
+body.ntd-dark-theme #btnClearHistoryBtn,
+html.ntd-dark-theme #btnClearHistoryBtn,
+body.ntd-dark-theme #focusScanTabBtn,
+html.ntd-dark-theme #focusScanTabBtn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #94a3b8 !important;
+}
+body.ntd-dark-theme #btnClearHistoryBtn:hover,
+html.ntd-dark-theme #btnClearHistoryBtn:hover,
+body.ntd-dark-theme #focusScanTabBtn:hover,
+html.ntd-dark-theme #focusScanTabBtn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+body.ntd-dark-theme #appendSelectedToCatBtn,
+html.ntd-dark-theme #appendSelectedToCatBtn {
+  background: rgba(14, 165, 233, 0.18) !important;
+  border: 1px solid rgba(14, 165, 233, 0.4) !important;
+  color: #38bdf8 !important;
+}
+body.ntd-dark-theme #saveSelectedToNewCatBtn,
+html.ntd-dark-theme #saveSelectedToNewCatBtn {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+}
+
+body.ntd-dark-theme .inline-editor,
+html.ntd-dark-theme .inline-editor {
+  background: #0b111e !important;
+  border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+  color: #f8fafc !important;
+}

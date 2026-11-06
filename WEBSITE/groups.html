@@ -1,0 +1,1229 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>Tổng hợp nhóm &amp; Danh mục – NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function() {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+        new MutationObserver(function(_, obs) {
+          if (document.body) {
+            document.body.classList.add('ntd-dark-theme');
+            document.body.style.backgroundColor = '#070b14';
+            obs.disconnect();
+          }
+        }).observe(document.documentElement, { childList: true });
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+        new MutationObserver(function(_, obs) {
+          if (document.body) {
+            document.body.classList.remove('ntd-dark-theme');
+            obs.disconnect();
+          }
+        }).observe(document.documentElement, { childList: true });
+      }
+    })();
+  </script>
+  <style id="ntd-anti-flicker">
+    html.ntd-dark-theme,
+    html.ntd-dark-theme body,
+    body.ntd-dark-theme {
+      background-color: #070b14 !important;
+      background: #070b14 !important;
+      color: #f8fafc !important;
+      color-scheme: dark !important;
+    }
+    html.ntd-dark-theme {
+      --bg: #070b14 !important;
+      --surface: #0b111e !important;
+      --card-bg: #0f172a !important;
+      --bg-card: #0f172a !important;
+      --bg-input: #0b111e !important;
+      --bg-page: #070b14 !important;
+      --border: rgba(255, 255, 255, 0.08) !important;
+      --text: #f8fafc !important;
+      --text-muted: #94a3b8 !important;
+    }
+    html.ntd-dark-theme .card,
+    html.ntd-dark-theme .stat-card,
+    html.ntd-dark-theme .grid section,
+    html.ntd-dark-theme section,
+    html.ntd-dark-theme .setting-box,
+    html.ntd-dark-theme .as-card,
+    html.ntd-dark-theme .modal-content,
+    html.ntd-dark-theme .dash-kpi-card,
+    html.ntd-dark-theme .acc-status-card {
+      background-color: #0b111e !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      color: #f8fafc !important;
+    }
+    html.ntd-dark-theme .form-input,
+    html.ntd-dark-theme .form-textarea,
+    html.ntd-dark-theme textarea.form-input,
+    html.ntd-dark-theme select.form-input {
+      background-color: #070b14 !important;
+      border-color: rgba(255, 255, 255, 0.12) !important;
+      color: #f8fafc !important;
+    }
+    html.ntd-dark-theme .card-title {
+      color: #f8fafc !important;
+    }
+    html.ntd-dark-theme .progress-panel {
+      background-color: #0b111e !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      color: #f8fafc !important;
+    }
+    html.ntd-dark-theme .progress-bar-bg {
+      background: #1e293b !important;
+    }
+    html.ntd-dark-theme .results-table-container {
+      background: #0b111e !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+    }
+    html.ntd-dark-theme .results-table th {
+      background: #070b14 !important;
+      color: #94a3b8 !important;
+      border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+    }
+    html.ntd-dark-theme .results-table td {
+      border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+      color: #e2e8f0 !important;
+    }
+    html.ntd-dark-theme .results-table tr:hover td {
+      background: rgba(255, 255, 255, 0.03) !important;
+    }
+    html.ntd-dark-theme .kw-chip {
+      background: rgba(255, 255, 255, 0.06) !important;
+      border-color: rgba(255, 255, 255, 0.1) !important;
+      color: #cbd5e1 !important;
+    }
+    html.ntd-dark-theme .kw-chip:hover {
+      background: rgba(237, 107, 34, 0.2) !important;
+      border-color: #ed6b22 !important;
+      color: #fb923c !important;
+    }
+    html.ntd-dark-theme .scan-pill.dupes {
+      background: rgba(245, 158, 11, 0.15) !important;
+      color: #fbbf24 !important;
+      border: 1px solid rgba(245, 158, 11, 0.35) !important;
+    }
+    html.ntd-dark-theme .modal-box,
+    body.ntd-dark-theme .modal-box {
+      background: #0f172a !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      color: #f8fafc !important;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8) !important;
+    }
+    html.ntd-dark-theme .modal-box h3,
+    body.ntd-dark-theme .modal-box h3 {
+      color: #f8fafc !important;
+    }
+    html.ntd-dark-theme .modal-box p,
+    body.ntd-dark-theme .modal-box p {
+      color: #94a3b8 !important;
+    }
+    html.ntd-dark-theme .chip-btn,
+    body.ntd-dark-theme .chip-btn {
+      background: rgba(255, 255, 255, 0.06) !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      color: #cbd5e1 !important;
+    }
+    html.ntd-dark-theme .chip-btn:hover,
+    body.ntd-dark-theme .chip-btn:hover {
+      background: rgba(255, 255, 255, 0.12) !important;
+      border-color: rgba(96, 165, 250, 0.35) !important;
+      color: #ffffff !important;
+    }
+    html.ntd-dark-theme .act-btn,
+    body.ntd-dark-theme .act-btn {
+      background: rgba(255, 255, 255, 0.06) !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      color: #e2e8f0 !important;
+    }
+    html.ntd-dark-theme .act-btn:hover,
+    body.ntd-dark-theme .act-btn:hover {
+      background: rgba(255, 255, 255, 0.12) !important;
+      color: #ffffff !important;
+    }
+    html.ntd-dark-theme .act-btn.primary,
+    body.ntd-dark-theme .act-btn.primary {
+      background: rgba(16, 185, 129, 0.18) !important;
+      border-color: rgba(16, 185, 129, 0.4) !important;
+      color: #34d399 !important;
+    }
+    html.ntd-dark-theme .act-btn.danger,
+    body.ntd-dark-theme .act-btn.danger {
+      background: rgba(239, 68, 68, 0.18) !important;
+      border-color: rgba(239, 68, 68, 0.4) !important;
+      color: #fca5a5 !important;
+    }
+    html.ntd-dark-theme #appendSelectedToCatBtn,
+    body.ntd-dark-theme #appendSelectedToCatBtn {
+      background: rgba(14, 165, 233, 0.18) !important;
+      border: 1px solid rgba(14, 165, 233, 0.4) !important;
+      color: #38bdf8 !important;
+    }
+    html.ntd-dark-theme #saveSelectedToNewCatBtn,
+    body.ntd-dark-theme #saveSelectedToNewCatBtn {
+      background: rgba(16, 185, 129, 0.18) !important;
+      border: 1px solid rgba(16, 185, 129, 0.4) !important;
+      color: #34d399 !important;
+    }
+    html.ntd-dark-theme #clearScannedResultsBtn,
+    body.ntd-dark-theme #clearScannedResultsBtn {
+      background: rgba(239, 68, 68, 0.18) !important;
+      border: 1px solid rgba(239, 68, 68, 0.4) !important;
+      color: #fca5a5 !important;
+    }
+    html.ntd-dark-theme #clearScannedResultsBtn:hover,
+    body.ntd-dark-theme #clearScannedResultsBtn:hover {
+      background: rgba(239, 68, 68, 0.28) !important;
+      color: #ffffff !important;
+    }
+    html.ntd-dark-theme #btnClearHistoryBtn,
+    body.ntd-dark-theme #btnClearHistoryBtn,
+    html.ntd-dark-theme #focusScanTabBtn,
+    body.ntd-dark-theme #focusScanTabBtn {
+      background: rgba(255, 255, 255, 0.06) !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      color: #94a3b8 !important;
+    }
+    html.ntd-dark-theme .inline-editor,
+    body.ntd-dark-theme .inline-editor {
+      background: #0b111e !important;
+      border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+      color: #f8fafc !important;
+    }
+  </style>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    :root {
+      --bg: #f3f5fa;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --accent: #ed6b22;
+      --accent-hover: #d95a14;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --primary-soft: #fff4ed;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 30px auto;
+      padding: 0 24px 60px;
+    }
+
+    .top-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    /* Stats bar */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+
+    .stat-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      background: var(--primary-soft);
+      color: var(--accent);
+    }
+
+    .stat-val {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .stat-lbl {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Grid layout */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+
+    .card-title {
+      margin: 0 0 16px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+
+    .form-input, .form-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .2s;
+      background: #fff;
+    }
+
+    .form-textarea {
+      font-family: monospace;
+      font-size: 12.5px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .form-input:focus, .form-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(237,107,34,0.1);
+    }
+
+    .textarea-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .helper-btns {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .chip-btn {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all .15s;
+    }
+
+    .chip-btn:hover {
+      background: #e2e8f0;
+      border-color: #94a3b8;
+    }
+
+    .btn-submit {
+      background: linear-gradient(135deg, #ed6b22, #f59332);
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all .2s;
+      width: 100%;
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .btn-submit:hover {
+      opacity: .92;
+      transform: translateY(-1px);
+    }
+
+    /* Category list */
+    .search-box {
+      margin-bottom: 14px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .cat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .cat-item {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      transition: all .2s;
+    }
+
+    .cat-item:hover {
+      border-color: #cbd5e1;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    }
+
+    .cat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .cat-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cat-name {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .cat-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    .cat-date {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .cat-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .act-btn {
+      padding: 5px 11px;
+      font-size: 11.5px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #334155;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all .15s;
+    }
+
+    .act-btn:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+    }
+
+    .act-btn.primary {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+      color: #065f46;
+    }
+
+    .act-btn.primary:hover {
+      background: #d1fae5;
+    }
+
+    .act-btn.danger {
+      color: #dc2626;
+      border-color: #fecaca;
+    }
+
+    .act-btn.danger:hover {
+      background: #fee2e2;
+    }
+
+    /* Inline editor for rename and edit links */
+    .inline-editor {
+      background: #fff;
+      border: 1px dashed #cbd5e1;
+      border-radius: 9px;
+      padding: 12px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    .inline-editor.open {
+      display: block;
+      animation: fadeIn .2s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .cat-preview {
+      margin-top: 10px;
+      font-family: monospace;
+      font-size: 11px;
+      color: #64748b;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      padding: 8px 10px;
+      max-height: 70px;
+      overflow-y: auto;
+      white-space: pre;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #94a3b8;
+    }
+
+    .empty-icon {
+      font-size: 40px;
+      margin-bottom: 8px;
+    }
+
+    /* Tab navigation */
+    .tab-nav {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 0;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 12px 20px;
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: color .15s, border-color .15s;
+      margin-bottom: -2px;
+      border-radius: 8px 8px 0 0;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      background: rgba(0,0,0,0.02);
+    }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: transparent;
+    }
+
+    .new-pill {
+      background: linear-gradient(135deg, #ef4444, #f97316);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 10px;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      box-shadow: 0 1px 4px rgba(239,68,68,0.3);
+    }
+
+    /* Scanner styles */
+    .scanner-hero {
+      background: linear-gradient(135deg, #fff7ed, #ffedd5);
+      border: 1px solid #fed7aa;
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .scanner-hero-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #9a3412;
+      margin: 0 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .scanner-hero-desc {
+      font-size: 13px;
+      color: #7c2d12;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    .keyword-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .kw-chip {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #475569;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .kw-chip:hover {
+      background: #ffedd5;
+      border-color: #fdba74;
+      color: #c2410c;
+    }
+
+    .scan-controls-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1.3fr 1fr;
+      gap: 16px;
+      align-items: end;
+    }
+
+    #clearKeywordBtn:hover {
+      color: #ef4444 !important;
+      background: #fef2f2 !important;
+    }
+
+    @media (max-width: 900px) {
+      .scan-controls-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #334155;
+      user-select: none;
+    }
+
+    .toggle-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Progress panel */
+    .progress-panel {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+
+    .progress-bar-bg {
+      height: 10px;
+      background: #e2e8f0;
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #ed6b22, #f59e0b);
+      border-radius: 5px;
+      transition: width .3s ease;
+    }
+
+    .progress-bar-fill.scanning {
+      background-size: 30px 30px;
+      background-image: linear-gradient(45deg, rgba(255, 255, 255, .25) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, .25) 50%, rgba(255, 255, 255, .25) 75%, transparent 75%, transparent);
+      animation: progressStripes 1s linear infinite;
+    }
+
+    @keyframes progressStripes {
+      0% { background-position: 0 0; }
+      100% { background-position: 30px 0; }
+    }
+
+    .scan-stat-pills {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .scan-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .scan-pill.total { background: #f1f5f9; color: #334155; }
+    .scan-pill.free { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .scan-pill.approval { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+    .scan-pill.private { background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }
+    .scan-pill.dupes { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+
+    /* Filter bar & Batch actions */
+    .filter-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .filter-pills-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-pill-btn {
+      background: #fff;
+      border: 1px solid var(--border);
+      color: #475569;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-pill-btn:hover {
+      border-color: #94a3b8;
+      background: #f8fafc;
+    }
+
+    .filter-pill-btn.active {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+    }
+
+    .filter-pill-btn.active.free {
+      background: #059669;
+      border-color: #059669;
+    }
+
+    .filter-pill-btn.active.approval {
+      background: #d97706;
+      border-color: #d97706;
+    }
+
+    .batch-actions-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* Results Table */
+    .results-table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .results-table th {
+      background: #f8fafc;
+      padding: 12px 14px;
+      font-weight: 700;
+      color: #475569;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .results-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      color: #1e293b;
+      vertical-align: middle;
+    }
+
+    .results-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .results-table tr:hover td {
+      background: #f8fafc;
+    }
+
+    .badge-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+
+    .badge-status.free { background: #d1fae5; color: #065f46; }
+    .badge-status.approval { background: #fef3c7; color: #92400e; }
+    .badge-status.private { background: #f3e8ff; color: #6b21a8; }
+    .badge-status.admin_only { background: #fee2e2; color: #991b1b; }
+    .badge-status.uninspected { background: #f1f5f9; color: #64748b; }
+    .badge-status.loading { background: #e0f2fe; color: #0369a1; }
+
+    /* Modal dialog */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.5);
+      backdrop-filter: blur(3px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      animation: fadeIn .15s ease;
+    }
+
+    .modal-box {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 480px;
+      width: 90%;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Toast message */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0f172a;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      display: none;
+      z-index: 9999;
+    }
+
+  </style>
+</head>
+<body class="ntd-dark-theme">
+<main>
+  <div class="top-nav">
+    <header style="margin-bottom:0">
+      <div>
+        <h1>Tổng Hợp &amp; Danh Mục Nhóm</h1>
+      </div>
+    </header>
+  </div>
+
+  <!-- Tab navigation -->
+  <div class="tab-nav">
+    <button type="button" class="tab-btn active" id="tabGroupScanner">
+      Quét Nhóm Theo Từ Khóa
+    </button>
+    <button type="button" class="tab-btn" id="tabCatManager">
+      Danh Mục Nhóm Của Tôi
+    </button>
+  </div>
+
+  <!-- VIEW 1: GROUP SCANNER & APPROVAL FILTER -->
+  <div id="viewGroupScanner">
+    <!-- Scanner Config Card -->
+    <div class="card" style="margin-bottom:24px">
+      <h3 class="card-title" style="margin-bottom:14px">Cấu hình tìm kiếm &amp; Bộ lọc nhóm</h3>
+      
+      <div class="form-group">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label for="scanKeyword" style="font-weight:600;margin-bottom:0">Từ khóa tìm kiếm nhóm trên Facebook (quét nhiều từ khóa):</label>
+          <span id="kwCountBadge" style="font-size:11.5px;font-weight:700;color:var(--accent);background:rgba(237,107,34,0.12);padding:2px 8px;border-radius:12px;display:none">0 từ khóa</span>
+        </div>
+        <div style="position:relative;width:100%">
+          <textarea id="scanKeyword" class="form-input" rows="3" style="width:100%;resize:vertical;padding-right:38px;box-sizing:border-box;font-family:inherit;line-height:1.5" placeholder="Nhập 1 hoặc nhiều từ khóa (mỗi từ khóa 1 dòng hoặc cách nhau bởi dấu phẩy)&#10;Ví dụ:&#10;bất động sản hà nội&#10;việc làm đà nẵng&#10;rao vặt toàn quốc&#10;thanh lý đồ cũ"></textarea>
+          <button type="button" id="clearKeywordBtn" style="display:none;position:absolute;top:8px;right:10px;background:rgba(148,163,184,0.18);border:none;color:#94a3b8;font-size:14px;cursor:pointer;padding:3px 7px;border-radius:50%;line-height:1;transition:all .15s" title="Xóa toàn bộ từ khóa">✕</button>
+        </div>
+        <div class="keyword-chips" style="margin-top:8px">
+          <span style="font-size:12px;color:var(--text-muted);display:flex;align-items:center">Gợi ý nhanh (bấm để thêm):</span>
+          <button type="button" class="kw-chip" data-kw="Bất động sản">+ Bất động sản</button>
+          <button type="button" class="kw-chip" data-kw="Tuyển dụng việc làm">+ Tuyển dụng việc làm</button>
+          <button type="button" class="kw-chip" data-kw="Rao vặt mua bán">+ Rao vặt mua bán</button>
+          <button type="button" class="kw-chip" data-kw="Kinh doanh online">+ Kinh doanh online</button>
+          <button type="button" class="kw-chip" data-kw="Mẹ và bé">+ Mẹ và bé</button>
+          <button type="button" class="kw-chip" data-kw="Thanh lý đồ cũ">+ Thanh lý đồ cũ</button>
+        </div>
+      </div>
+
+      <div class="scan-controls-grid">
+        <div class="form-group" style="margin-bottom:0">
+          <label for="scanFilterMode">Bộ lọc phân loại ưu tiên:</label>
+          <select id="scanFilterMode" class="form-input" style="font-weight:600;height:42px">
+            <option value="free_only" selected>Chỉ lấy nhóm ĐĂNG TỰ DO (Không kiểm duyệt bài)</option>
+            <option value="approval_only">Chỉ lấy nhóm CÓ KIỂM DUYỆT (Quản trị viên duyệt)</option>
+            <option value="all">Lấy tất cả các nhóm tìm thấy</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <label for="scanMinMembers">Số lượng thành viên tối thiểu:</label>
+          <select id="scanMinMembers" class="form-input" style="font-weight:600;height:42px">
+            <option value="10000" selected>Từ 10.000 thành viên trở lên (≥ 10k TV)</option>
+            <option value="20000">Từ 20.000 thành viên trở lên (≥ 20k TV)</option>
+            <option value="50000">Từ 50.000 thành viên trở lên (≥ 50k TV)</option>
+            <option value="100000">Từ 100.000 thành viên trở lên (≥ 100k TV)</option>
+            <option value="5000">Từ 5.000 thành viên trở lên (≥ 5k TV)</option>
+            <option value="1000">Từ 1.000 thành viên trở lên (≥ 1k TV)</option>
+            <option value="0">Tất cả (Không lọc thành viên)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <label for="scanMaxCount">Số lượng nhóm tối đa mỗi từ khóa:</label>
+          <select id="scanMaxCount" class="form-input" style="height:42px">
+            <option value="15">15 nhóm / mỗi từ khóa</option>
+            <option value="30" selected>30 nhóm / mỗi từ khóa (Khuyên dùng)</option>
+            <option value="50">50 nhóm / mỗi từ khóa</option>
+            <option value="80">80 nhóm / mỗi từ khóa</option>
+            <option value="120">120 nhóm / mỗi từ khóa</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Tùy chọn chống quét trùng nhóm -->
+      <div style="margin-top:14px;padding:12px 14px;background:var(--bg-input, #f8fafc);border:1px solid var(--border);border-radius:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12.5px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px">
+            🛡️ Tự động lọc & Chống quét trùng nhóm:
+          </span>
+          <button type="button" id="btnClearHistoryBtn" class="act-btn" style="font-size:11.5px;padding:3px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer" title="Xóa toàn bộ lịch sử nhóm đã quét trước đây để có thể quét lại từ đầu">
+            🗑️ Xóa bộ nhớ đã quét (<span id="txtHistoryCount">0</span>)
+          </button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px">
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-weight:500;color:var(--text)">
+            <input type="checkbox" id="chkDedupeHistory" checked style="cursor:pointer;accent-color:var(--accent);width:15px;height:15px">
+            Bỏ qua nhóm đã từng quét trước đây (<span id="txtHistoryBadge" style="font-weight:700;color:var(--accent)">0</span> nhóm)
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-weight:500;color:var(--text)">
+            <input type="checkbox" id="chkDedupeCategories" checked style="cursor:pointer;accent-color:var(--accent);width:15px;height:15px">
+            Bỏ qua nhóm đã có trong Danh mục lưu (<span id="txtCategoriesBadge" style="font-weight:700;color:#059669">0</span> nhóm)
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-weight:500;color:var(--text)" title="Nhận diện các nhóm trùng nhau kể cả khi khác định dạng link (link rút gọn vs ID số) hoặc trùng tên giữa các từ khóa">
+            <input type="checkbox" id="chkDedupeName" checked style="cursor:pointer;accent-color:var(--accent);width:15px;height:15px">
+            Lọc trùng theo Tên & Từ khóa chéo
+          </label>
+        </div>
+      </div>
+
+      <div style="margin-top:20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn-submit" id="startScanBtn" style="flex:1;max-width:280px;margin-top:0;font-size:14px;padding:12px 24px">
+          🚀 Bắt đầu quét nhóm
+        </button>
+        <button type="button" class="act-btn danger" id="stopScanBtn" style="display:none;padding:11px 20px;font-size:13.5px;border-radius:9px">
+          ⏹ Dừng quét
+        </button>
+        <button type="button" class="act-btn" id="focusScanTabBtn" style="display:none;padding:11px 18px;font-size:13.5px;border-radius:9px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);font-weight:600" title="Chuyển đến tab Facebook đang mở để xem trực tiếp tiến trình quét">
+          👁️ Xem tab quét
+        </button>
+        <span id="scanStatusQuick" style="font-size:13px;color:var(--text-muted);font-weight:500"></span>
+      </div>
+    </div>
+
+    <!-- Progress Panel -->
+    <div class="progress-panel" id="scanProgressCard" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;font-size:14px" id="scanProgressTitle">Đang quét...</span>
+        </div>
+        <span style="font-size:13px;font-weight:700;color:var(--accent)" id="scanProgressPercent">0%</span>
+      </div>
+
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="scanProgressBar"></div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:12.5px;color:var(--text-muted)">
+        <span id="scanProgressDetail">Đang chuẩn bị phiên làm việc Facebook...</span>
+        <span id="scanProgressCount">0/0</span>
+      </div>
+
+      <!-- Real-time Stat Pills -->
+      <div class="scan-stat-pills">
+        <div class="scan-pill total">Tổng tìm thấy: <span id="cntTotal">0</span></div>
+        <div class="scan-pill free">Đăng tự do: <span id="cntFree">0</span></div>
+        <div class="scan-pill approval">Cần kiểm duyệt: <span id="cntApproval">0</span></div>
+        <div class="scan-pill private">Riêng tư: <span id="cntPrivate">0</span></div>
+        <div class="scan-pill dupes">Đã lọc trùng: <span id="cntDupes">0</span></div>
+        <div class="scan-pill" id="pillLowMembers" style="display:none;background:#fef2f2;color:#b91c1c;border-color:#fecaca">Bỏ qua &lt;10k TV: <span id="cntLowMembers">0</span></div>
+      </div>
+    </div>
+
+    <!-- Results Card -->
+    <div class="card" id="scanResultsCard" style="display:none">
+      <div class="filter-bar">
+        <!-- Filter Pills Group -->
+        <div class="filter-pills-group" id="resultsFilterGroup">
+          <button type="button" class="filter-pill-btn active" data-filter="all">Tất cả (<span id="pillCountAll">0</span>)</button>
+          <button type="button" class="filter-pill-btn free" data-filter="free">Đăng tự do (<span id="pillCountFree">0</span>)</button>
+          <button type="button" class="filter-pill-btn approval" data-filter="approval">Cần kiểm duyệt (<span id="pillCountApproval">0</span>)</button>
+          <button type="button" class="filter-pill-btn" data-filter="private">Riêng tư (<span id="pillCountPrivate">0</span>)</button>
+        </div>
+
+        <!-- Batch Actions Group -->
+        <div class="batch-actions-group">
+          <button type="button" class="chip-btn" id="selectAllResultsBtn">Chọn tất cả</button>
+          <button type="button" class="chip-btn" id="deselectAllResultsBtn">Bỏ chọn</button>
+          <button type="button" class="chip-btn" id="copySelectedResultsBtn" title="Sao chép link các nhóm đã chọn">Copy link</button>
+          <button type="button" class="chip-btn" id="appendSelectedToCatBtn" style="background:#e0f2fe;border-color:#bae6fd;color:#0284c7" title="Thêm vào danh mục có sẵn">Thêm vào danh mục...</button>
+          <button type="button" class="chip-btn" id="saveSelectedToNewCatBtn" style="background:#ecfdf5;border-color:#a7f3d0;color:#059669;font-weight:700" title="Lưu các nhóm đã chọn thành danh mục mới">Lưu thành danh mục mới</button>
+          <button type="button" class="chip-btn" id="useSelectedInPanelBtn" style="background:var(--accent);color:#fff;border-color:var(--accent-hover);font-weight:700" title="Nạp trực tiếp vào Bảng đăng bài">Nạp vào Đăng bài</button>
+          <button type="button" class="chip-btn danger" id="clearScannedResultsBtn" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;font-weight:700" title="Xóa toàn bộ danh sách nhóm đã quét">🗑️ Xóa dữ liệu</button>
+        </div>
+      </div>
+
+      <!-- Results Table -->
+      <div class="results-table-container">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th style="width:36px;text-align:center"><input type="checkbox" id="headerCheckbox" checked></th>
+              <th style="width:40px;text-align:center">#</th>
+              <th>Tên nhóm Facebook</th>
+              <th style="width:170px">Kiểm định đăng bài</th>
+              <th style="width:110px">Chế độ</th>
+              <th style="width:130px">Thành viên</th>
+              <th style="width:80px;text-align:center">Xem</th>
+            </tr>
+          </thead>
+          <tbody id="scanResultsBody">
+            <!-- Rows dynamically rendered here -->
+          </tbody>
+        </table>
+      </div>
+
+      <div id="emptyScanState" class="empty-state" style="display:none">
+        <p>Không có nhóm nào phù hợp với bộ lọc đang chọn.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 2: CATEGORY MANAGER -->
+  <div id="viewCatManager" style="display:none">
+    <!-- Stats bar -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div>
+          <div class="stat-val" id="totalCats">0</div>
+          <div class="stat-lbl">Danh mục nhóm</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-val" id="totalGroups">0</div>
+          <div class="stat-lbl">Tổng số link nhóm</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div>
+          <div class="stat-val" id="uniqueGroups">0</div>
+          <div class="stat-lbl">Nhóm duy nhất (không trùng)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content-grid">
+      <!-- Left Column: Add New Category -->
+      <div class="card">
+        <h2 class="card-title">Tạo danh mục nhóm mới</h2>
+        
+        <div class="form-group">
+          <label for="newCatName">Tên danh mục nhóm:</label>
+          <input type="text" id="newCatName" class="form-input" placeholder="VD: Bất động sản Hà Nội, Rao vặt, Việc làm...">
+        </div>
+
+        <div class="form-group">
+          <label for="newCatLinks">Danh sách link Facebook Group (mỗi dòng 1 link):</label>
+          <textarea id="newCatLinks" class="form-textarea" rows="9" placeholder="https://www.facebook.com/groups/nhadat102.vn/&#10;https://www.facebook.com/groups/batdongsan/&#10;https://www.facebook.com/groups/123456789/"></textarea>
+          <div class="textarea-meta">
+            <span id="newCatCount">0 link nhóm</span>
+            <span style="color:#059669" id="newCatValidCount"></span>
+          </div>
+        </div>
+
+        <div class="helper-btns">
+          <button type="button" class="chip-btn" id="cleanNewLinksBtn" title="Loại bỏ link trùng lặp và định dạng chuẩn">Lọc trùng lặp</button>
+          <button type="button" class="chip-btn" id="pasteFromSharedBtn" title="Lấy nhanh danh sách link đang có từ Bảng đăng bài">Lấy từ Bảng đăng</button>
+        </div>
+
+        <button type="button" class="btn-submit" id="saveNewCatBtn">💾 Lưu danh mục mới</button>
+      </div>
+
+      <!-- Right Column: List of Categories -->
+      <div class="card">
+        <div class="card-title">
+          <span>Danh sách danh mục nhóm của tôi</span>
+          <span style="font-size:12px;color:var(--text-muted);font-weight:normal" id="catCountDisplay">0 mục</span>
+        </div>
+
+        <div class="search-box">
+          <input type="text" id="searchCat" class="form-input" placeholder="Tìm kiếm danh mục theo tên...">
+        </div>
+
+        <div id="catList" class="cat-list">
+          <div class="empty-state">
+            <p>Chưa có danh mục nào. Hãy tạo danh mục nhóm đầu tiên ở cột bên trái!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Append to Category Modal -->
+  <div id="appendModal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <h3 style="margin:0 0 12px;font-size:16px">Thêm nhóm vào danh mục có sẵn</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px">
+        Chọn danh mục nhóm bạn muốn nối thêm <strong id="modalSelectedCount" style="color:var(--accent)">0</strong> link nhóm đã chọn. Hệ thống sẽ tự động lọc trùng.
+      </p>
+
+      <div class="form-group">
+        <label for="targetCategorySelect">Chọn danh mục đích:</label>
+        <select id="targetCategorySelect" class="form-input" style="font-weight:600">
+          <!-- Populated dynamically -->
+        </select>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button type="button" class="chip-btn" id="cancelAppendModalBtn" style="padding:8px 16px">Hủy</button>
+        <button type="button" class="chip-btn" id="confirmAppendModalBtn" style="background:#ed6b22;color:#fff;border-color:#d95a14;padding:8px 20px;font-weight:700">Xác nhận thêm</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script type="module" src="groups.js"></script>
+<script type="module" src="sidebar.js"></script>
+</body>
+</html>

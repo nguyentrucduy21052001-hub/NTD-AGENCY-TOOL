@@ -1,0 +1,1644 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>Quét data – NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function() {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+        new MutationObserver(function(_, obs) {
+          if (document.body) {
+            document.body.classList.add('ntd-dark-theme');
+            document.body.style.backgroundColor = '#070b14';
+            obs.disconnect();
+          }
+        }).observe(document.documentElement, { childList: true });
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+        new MutationObserver(function(_, obs) {
+          if (document.body) {
+            document.body.classList.remove('ntd-dark-theme');
+            obs.disconnect();
+          }
+        }).observe(document.documentElement, { childList: true });
+      }
+    })();
+  </script>
+  <style id="ntd-anti-flicker">
+    html.ntd-dark-theme,
+    html.ntd-dark-theme body,
+    body.ntd-dark-theme {
+      background-color: #070b14 !important;
+      background: #070b14 !important;
+      color: #f8fafc !important;
+      color-scheme: dark !important;
+    }
+    html.ntd-dark-theme {
+      --bg: #070b14 !important;
+      --surface: #0b111e !important;
+      --card-bg: #0f172a !important;
+      --bg-page: #070b14 !important;
+      --border: rgba(255, 255, 255, 0.08) !important;
+      --text: #f8fafc !important;
+      --text-muted: #94a3b8 !important;
+    }
+    html.ntd-dark-theme .card,
+    html.ntd-dark-theme .stat-card,
+    html.ntd-dark-theme .grid section,
+    html.ntd-dark-theme section,
+    html.ntd-dark-theme .setting-box,
+    html.ntd-dark-theme .as-card,
+    html.ntd-dark-theme .modal-content,
+    html.ntd-dark-theme .dash-kpi-card,
+    html.ntd-dark-theme .acc-status-card {
+      background-color: #0b111e !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      color: #f8fafc !important;
+    }
+  </style>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    :root {
+      --bg: #f3f5fa;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --accent: #ed6b22;
+      --accent-hover: #d95a14;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --info: #3b82f6;
+      --primary-soft: #fff4ed;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 28px auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Header ── */
+    .maps-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .maps-header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .maps-header-icon {
+      width: 54px;
+      height: 54px;
+      background: linear-gradient(135deg, #ed6b22 0%, #f59332 100%);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      box-shadow: 0 6px 18px rgba(237, 107, 34, 0.28);
+      flex-shrink: 0;
+    }
+    .maps-header-icon svg {
+      width: 30px;
+      height: 30px;
+    }
+    .maps-title h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* ── Metrics Grid ── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 900px) {
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 480px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .metric-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .metric-label {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .metric-val {
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+    }
+    .metric-val.green { color: #16a34a; }
+    .metric-val.orange { color: #ea580c; }
+    .metric-val.blue { color: #2563eb; }
+    .metric-icon-wrap {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .metric-icon-wrap.orange { background: #fff4ed; color: #ea580c; }
+    .metric-icon-wrap.green { background: #f0fdf4; color: #16a34a; }
+    .metric-icon-wrap.blue { background: #eff6ff; color: #2563eb; }
+    .metric-icon-wrap.purple { background: #faf5ff; color: #9333ea; }
+    .metric-icon-wrap svg { width: 22px; height: 22px; }
+
+    /* ── 2-Column Split: Keywords & Area ── */
+    .keyword-setup-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 6px;
+    }
+    @media (max-width: 860px) {
+      .keyword-setup-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+    }
+    .keyword-setup-col {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Card Styles ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+      margin-bottom: 20px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .card-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title svg {
+      width: 19px;
+      height: 19px;
+      color: var(--accent);
+    }
+
+    /* Form controls */
+    label {
+      display: block;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    label span {
+      display: block;
+      margin-bottom: 5px;
+    }
+    input[type=text], input[type=password], input[type=number], textarea, select {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: #0f172a;
+      border-radius: 9px;
+      padding: 10px 13px;
+      font-size: 13.5px;
+      resize: vertical;
+      outline: none;
+      transition: all .2s;
+      font-family: inherit;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(237,107,34,0.12);
+    }
+    textarea {
+      font-family: inherit;
+      line-height: 1.5;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    @media (max-width: 600px) {
+      .form-row { flex-direction: column; gap: 8px; }
+    }
+    .form-col {
+      flex: 1;
+    }
+
+    /* Tag suggestions */
+    .tag-suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: -6px;
+      margin-bottom: 14px;
+    }
+    .tag-item {
+      font-size: 11.5px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 3px 10px;
+      cursor: pointer;
+      user-select: none;
+      transition: all .15s;
+    }
+    .tag-item:hover {
+      background: #fff4ed;
+      color: var(--accent);
+      border-color: #fcd34d;
+    }
+
+    /* ── Geo Location Pickers (Tỉnh / Phường dạng Data lưu sẵn) ── */
+    .geo-picker-container {
+      margin-bottom: 12px;
+    }
+    .geo-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .geo-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 0 !important;
+    }
+    .geo-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .geo-count {
+      font-size: 11.5px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .geo-text-btn {
+      background: none;
+      border: none;
+      font-size: 11.5px;
+      color: #64748b;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      transition: all .15s;
+    }
+    .geo-text-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+    .geo-text-btn.highlight {
+      color: #ea580c;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+    }
+    .geo-text-btn.highlight:hover {
+      background: #fed7aa;
+    }
+
+    .geo-picker-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 8px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .geo-picker-card:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(237,107,34,0.12);
+    }
+
+    .geo-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 3px 8px;
+    }
+    .geo-search-icon {
+      width: 14px;
+      height: 14px;
+      color: #94a3b8;
+      flex-shrink: 0;
+    }
+    .geo-search-input {
+      border: none !important;
+      background: transparent !important;
+      padding: 5px 4px !important;
+      font-size: 12.5px !important;
+      box-shadow: none !important;
+      outline: none !important;
+      flex: 1;
+      color: #0f172a;
+      width: 100%;
+    }
+    .geo-dropdown-toggle {
+      background: none;
+      border: none;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: all .15s;
+    }
+    .geo-dropdown-toggle:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .geo-chips-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      max-height: 84px;
+      overflow-y: auto;
+      margin-top: 6px;
+      padding-bottom: 2px;
+    }
+    .geo-chips-wrap:empty {
+      display: none;
+    }
+    .geo-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11.5px;
+      font-weight: 600;
+      background: #fff7ed;
+      color: #c2410c;
+      border: 1px solid #fed7aa;
+      border-radius: 6px;
+      padding: 2px 7px;
+    }
+    .geo-chip-remove {
+      cursor: pointer;
+      color: #ea580c;
+      border: none;
+      background: none;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0 1px;
+      line-height: 1;
+    }
+    .geo-chip-remove:hover {
+      color: #9a3412;
+    }
+
+    .geo-quick-picks {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+      margin-top: 6px;
+      padding-top: 5px;
+      border-top: 1px dashed #e2e8f0;
+    }
+    .quick-chip {
+      font-size: 11px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 2px 8px;
+      cursor: pointer;
+      user-select: none;
+      transition: all .15s;
+    }
+    .quick-chip:hover {
+      background: #ffedd5;
+      color: #ea580c;
+      border-color: #fdba74;
+    }
+    .quick-chip.active {
+      background: #ea580c;
+      color: #ffffff;
+      border-color: #ea580c;
+    }
+
+    .geo-dropdown-list {
+      max-height: 190px;
+      overflow-y: auto;
+      margin-top: 8px;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .geo-dropdown-list[hidden] {
+      display: none !important;
+    }
+    .geo-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #334155;
+      transition: background .12s;
+      user-select: none;
+    }
+    .geo-item:hover {
+      background: #fff7ed;
+      color: #ea580c;
+    }
+    .geo-item.selected {
+      background: #ffedd5;
+      color: #c2410c;
+      font-weight: 600;
+    }
+    .geo-item-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .geo-item-checkbox {
+      accent-color: var(--accent);
+      cursor: pointer;
+      width: 13px;
+      height: 13px;
+    }
+    .geo-item-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .geo-item-badge.ward { background: #eff6ff; color: #2563eb; }
+    .geo-item-badge.commune { background: #f0fdf4; color: #16a34a; }
+    .geo-item-badge.special { background: #faf5ff; color: #9333ea; }
+    .geo-item-badge.count { background: #f1f5f9; color: #64748b; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 10px 18px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all .2s;
+      text-decoration: none;
+      line-height: 1.2;
+    }
+    .btn svg { width: 16px; height: 16px; }
+    .btn-primary {
+      background: linear-gradient(135deg, #ed6b22, #f59332);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(237,107,34,0.25);
+    }
+    .btn-primary:hover:not(:disabled) {
+      opacity: .92;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+    .btn-danger {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: #fee2e2;
+    }
+    .btn-success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+    }
+    .btn-success:hover:not(:disabled) {
+      background: #dcfce7;
+    }
+    .btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    /* Status banner */
+    .status-banner {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: #1e40af;
+      font-size: 13px;
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-banner.running {
+      background: #fff7ed;
+      border-color: #fed7aa;
+      color: #c2410c;
+    }
+    .status-banner.done {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+      color: #15803d;
+    }
+    .status-banner.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #b91c1c;
+    }
+
+    /* Live query preview */
+    .query-preview-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 12.5px;
+    }
+    .query-preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #475569;
+      font-weight: 600;
+    }
+    .query-preview-list {
+      max-height: 120px;
+      overflow-y: auto;
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      color: #334155;
+    }
+
+    /* Checkbox styled */
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      margin-bottom: 12px;
+      user-select: none;
+      font-weight: 500;
+    }
+    .checkbox-label input[type=checkbox] {
+      width: 17px;
+      height: 17px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      margin: 0;
+    }
+
+    /* Accordion Guide */
+    details.guide-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+    details.guide-box summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #334155;
+      user-select: none;
+    }
+    details.guide-box ol {
+      margin: 10px 0 0;
+      padding-left: 20px;
+      color: #475569;
+    }
+    details.guide-box li {
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+
+    /* ── Results Table Section ── */
+    .table-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .table-search-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      max-width: 400px;
+    }
+    .table-search-box input {
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .table-filter-select {
+      width: auto !important;
+      padding: 8px 12px !important;
+      font-size: 13px !important;
+    }
+
+    .table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+    table.data-table th {
+      background: #f8fafc;
+      padding: 11px 14px;
+      font-weight: 700;
+      color: #475569;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    table.data-table td {
+      padding: 11px 14px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+      vertical-align: middle;
+    }
+    table.data-table tbody tr:hover {
+      background: #fcfdfe;
+    }
+    .phone-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 700;
+      color: #15803d;
+      background: #f0fdf4;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid #bbf7d0;
+    }
+    .phone-copy-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: #16a34a;
+      padding: 0;
+      display: flex;
+      align-items: center;
+    }
+    .phone-copy-btn:hover {
+      color: #15803d;
+      transform: scale(1.15);
+    }
+    .phone-copy-btn svg { width: 14px; height: 14px; }
+
+    .tag-query {
+      font-size: 11px;
+      background: #f1f5f9;
+      color: #475569;
+      padding: 2px 7px;
+      border-radius: 4px;
+      display: inline-block;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .link-action {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .link-action:hover {
+      text-decoration: underline;
+    }
+    .link-action svg { width: 13px; height: 13px; }
+
+    /* Log Box */
+    .log-box {
+      background: #0f172a;
+      color: #cbd5e1;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin-top: 16px;
+      line-height: 1.6;
+    }
+
+    /* Pulse dot */
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      display: inline-block;
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+      animation: pulseAnimation 1.6s infinite;
+    }
+    @keyframes pulseAnimation {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+
+    /* ── Phone Type Checkboxes ── */
+    .phone-type-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 13px 18px;
+      margin-bottom: 18px;
+    }
+    .phone-type-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .phone-type-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .phone-type-title svg {
+      width: 16px;
+      height: 16px;
+      color: var(--accent);
+    }
+    .phone-type-options {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .phone-type-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 9px;
+      cursor: pointer;
+      user-select: none;
+      transition: all .18s ease;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #334155;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    }
+    .phone-type-chip:hover {
+      border-color: var(--accent);
+      background: #fffcf9;
+    }
+    .phone-type-chip input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      margin: 0;
+    }
+    .phone-type-chip.checked {
+      border-color: var(--accent);
+      background: #fff4ed;
+      color: #c2410c;
+      box-shadow: 0 2px 6px rgba(237, 107, 34, 0.12);
+    }
+
+    /* ── Mode Selector Tabs (Google Maps vs Quét số nhóm) ── */
+    .scan-mode-tabs {
+      display: inline-flex;
+      background: rgba(15, 23, 42, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 4px;
+      gap: 6px;
+      margin-bottom: 22px;
+      flex-wrap: wrap;
+    }
+    .ntd-dark-theme .scan-mode-tabs {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .scan-mode-btn {
+      background: transparent;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      transition: all .2s ease;
+      outline: none;
+    }
+    .scan-mode-btn:hover {
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.04);
+    }
+    .ntd-dark-theme .scan-mode-btn:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #f8fafc;
+    }
+    .scan-mode-btn.active {
+      background: #ffffff;
+      color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .ntd-dark-theme .scan-mode-btn.active {
+      background: var(--surface);
+      color: #fb923c;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .scan-mode-btn .badge-pill {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #ef4444, #f97316);
+      color: #fff;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    /* ── Source Badges ── */
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .source-badge.post {
+      background: #eff6ff;
+      color: #2563eb;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+    }
+    .ntd-dark-theme .source-badge.post {
+      background: rgba(37, 99, 235, 0.15);
+      color: #93c5fd;
+      border-color: rgba(37, 99, 235, 0.3);
+    }
+    .source-badge.comment {
+      background: #fdf2f8;
+      color: #db2777;
+      border: 1px solid rgba(219, 39, 119, 0.2);
+    }
+    .ntd-dark-theme .source-badge.comment {
+      background: rgba(219, 39, 119, 0.15);
+      color: #f472b6;
+      border-color: rgba(219, 39, 119, 0.3);
+    }
+    .source-badge.image {
+      background: #fef3c7;
+      color: #d97706;
+      border: 1px solid rgba(217, 119, 6, 0.2);
+    }
+    .ntd-dark-theme .source-badge.image {
+      background: rgba(217, 119, 6, 0.15);
+      color: #fbbf24;
+      border-color: rgba(217, 119, 6, 0.3);
+    }
+
+    /* ── Context snippet ── */
+    .context-snippet {
+      font-size: 12.5px;
+      color: var(--text);
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      line-height: 1.4;
+    }
+    .context-snippet mark {
+      background: rgba(237, 107, 34, 0.18);
+      color: var(--accent);
+      font-weight: 700;
+      padding: 0 2px;
+      border-radius: 3px;
+    }
+
+    [hidden] { display: none !important; }
+</style>
+</head>
+<body class="ntd-dark-theme">
+<main>
+  <!-- ── Header ── -->
+  <header class="maps-header">
+    <div class="maps-header-left">
+      <div class="maps-header-icon" id="headerIconWrap">
+        <svg id="headerIconSvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+      </div>
+      <div class="maps-title">
+        <h1 id="headerTitle">Quét số Google Maps</h1>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Bộ chọn tính năng: Quét số Google Maps vs Quét số nhóm ── -->
+  <div class="scan-mode-tabs" id="scanModeTabs">
+    <button type="button" class="scan-mode-btn active" id="modeBtnMaps">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+        <circle cx="12" cy="10" r="3"></circle>
+      </svg>
+      <span>Quét số Google Maps</span>
+    </button>
+    <button type="button" class="scan-mode-btn" id="modeBtnGroup">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9" cy="7" r="4"></circle>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+      </svg>
+      <span>Quét số nhóm</span>
+    </button>
+  </div>
+
+  <!-- ── Metrics Grid (Maps) ── -->
+  <div class="metrics-grid" id="metricsGridMaps">
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Tổng cơ sở đã quét</span>
+        <span class="metric-val" id="metricTotalPlaces">0</span>
+      </div>
+      <div class="metric-icon-wrap orange">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Cơ sở có số điện thoại</span>
+        <span class="metric-val green" id="metricTotalPhones">0</span>
+      </div>
+      <div class="metric-icon-wrap green">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+        </svg>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Tỷ lệ có số điện thoại</span>
+        <span class="metric-val blue" id="metricPhoneRate">0%</span>
+      </div>
+      <div class="metric-icon-wrap blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Trạng thái hệ thống</span>
+        <span class="metric-val" id="metricStatus" style="font-size: 16px; font-weight:700">Sẵn sàng</span>
+      </div>
+      <div class="metric-icon-wrap purple">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Metrics Grid (Nhóm Facebook) ── -->
+  <div class="metrics-grid" id="metricsGridGroup" hidden>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Tổng bài viết &amp; bình luận</span>
+        <span class="metric-val" id="metricGroupTotalItems">0</span>
+      </div>
+      <div class="metric-icon-wrap orange">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Số điện thoại tìm thấy</span>
+        <span class="metric-val green" id="metricGroupTotalPhones">0</span>
+      </div>
+      <div class="metric-icon-wrap green">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+        </svg>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Tỷ lệ phát hiện SĐT</span>
+        <span class="metric-val blue" id="metricGroupPhoneRate">0%</span>
+      </div>
+      <div class="metric-icon-wrap blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+      </div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-info">
+        <span class="metric-label">Trạng thái hệ thống</span>
+        <span class="metric-val" id="metricGroupStatus" style="font-size: 16px; font-weight:700">Sẵn sàng</span>
+      </div>
+      <div class="metric-icon-wrap purple">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Cấu hình quét: Thiết lập từ khóa & Địa bàn ── -->
+  <div class="card" id="configViewMaps">
+    <div class="card-header">
+      <h2 class="card-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        Thiết lập từ khóa &amp; Địa bàn
+      </h2>
+    </div>
+
+    <!-- 2 Cột: Bên trái là Bộ từ khóa, Bên phải là Khu vực tìm kiếm & Tỉnh/thành -->
+    <div class="keyword-setup-grid">
+      <!-- Cột trái: Bộ từ khóa -->
+      <div class="keyword-setup-col">
+        <label style="margin-bottom:8px">
+          <span>Bộ từ khóa:</span>
+          <textarea id="queries" rows="6" placeholder="Nội thất&#10;Cửa hàng camera&#10;Thợ điện nước&#10;Nha khoa" style="min-height:120px"></textarea>
+        </label>
+
+        <!-- Gợi ý từ khóa mẫu -->
+        <div class="tag-suggestions" style="margin-top:0;margin-bottom:0">
+          <span style="font-size:11.5px;color:#64748b;align-self:center">Gợi ý:</span>
+          <span class="tag-item" data-tag="Nội thất">Nội thất</span>
+          <span class="tag-item" data-tag="Bất động sản">Bất động sản</span>
+          <span class="tag-item" data-tag="Nha khoa">Nha khoa</span>
+          <span class="tag-item" data-tag="Thẩm mỹ viện">Thẩm mỹ viện</span>
+          <span class="tag-item" data-tag="Cửa hàng camera">Camera</span>
+          <span class="tag-item" data-tag="Nhà hàng">Nhà hàng</span>
+          <span class="tag-item" data-tag="Khách sạn">Khách sạn</span>
+        </div>
+      </div>
+
+      <!-- Cột phải: Phạm vi tìm kiếm & Tỉnh/thành phố -->
+      <div class="keyword-setup-col">
+        <label>
+          <span>Phạm vi tìm kiếm:</span>
+          <select id="areaMode">
+            <option value="province">Theo tỉnh / thành phố</option>
+            <option value="ward">Theo phường / xã</option>
+            <option value="custom">Từ khóa đã có sẵn địa phương</option>
+          </select>
+        </label>
+
+        <!-- Khung chọn Tỉnh / Thành phố -->
+        <div id="provinceBox" class="geo-picker-container">
+          <div class="geo-picker-header">
+            <span class="geo-label">Tỉnh/thành phố:</span>
+            <div class="geo-actions">
+              <span class="geo-count" id="provinceSelectedCount">Đã chọn: 0</span>
+              <button type="button" class="geo-text-btn" id="clearProvincesBtn" title="Bỏ chọn tất cả tỉnh">Xóa chọn</button>
+              <button type="button" class="geo-text-btn" id="toggleProvinceManualBtn" title="Chuyển sang gõ danh sách thủ công">Nhập tay</button>
+            </div>
+          </div>
+
+          <!-- Bộ chọn dạng Dropdown kéo & tìm kiếm thông minh -->
+          <div class="geo-picker-card" id="provincePickerCard">
+            <div class="geo-search-wrap">
+              <svg class="geo-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="provinceSearch" class="geo-search-input" placeholder="Gõ chữ hoặc cuộn chọn Tỉnh / Thành phố (34 tỉnh)..." autocomplete="off">
+              <button type="button" class="geo-dropdown-toggle" id="toggleProvinceDropdownBtn" title="Đóng/Mở danh sách">▾</button>
+            </div>
+
+            <!-- Các chip tỉnh đã chọn -->
+            <div class="geo-chips-wrap" id="selectedProvinceChips"></div>
+
+            <!-- Quick picks đô thị lớn -->
+            <div class="geo-quick-picks">
+              <span style="font-size:11px;color:#64748b">Đô thị lớn:</span>
+              <span class="quick-chip" data-prov="Hà Nội">Hà Nội</span>
+              <span class="quick-chip" data-prov="Hồ Chí Minh">TP.HCM</span>
+              <span class="quick-chip" data-prov="Đà Nẵng">Đà Nẵng</span>
+              <span class="quick-chip" data-prov="Hải Phòng">Hải Phòng</span>
+              <span class="quick-chip" data-prov="Cần Thơ">Cần Thơ</span>
+            </div>
+
+            <!-- Dropdown cuộn tìm vị trí (34 tỉnh) -->
+            <div class="geo-dropdown-list" id="provinceDropdownList"></div>
+          </div>
+
+          <!-- Khung nhập tay dự phòng -->
+          <div id="provinceManualWrap" hidden style="margin-top:6px">
+            <textarea id="provinces" rows="3" placeholder="Đà Nẵng&#10;Hồ Chí Minh&#10;Hà Nội&#10;Đắk Lắk" style="min-height:86px"></textarea>
+          </div>
+        </div>
+
+        <!-- Khung chọn Phường / Xã -->
+        <div id="wardBox" class="geo-picker-container" hidden>
+          <div class="geo-picker-header">
+            <span class="geo-label">Phường / xã:</span>
+            <div class="geo-actions">
+              <span class="geo-count" id="wardSelectedCount">Đã chọn: 0</span>
+              <button type="button" class="geo-text-btn highlight" id="selectAllWardsBtn" title="Chọn toàn bộ phường/xã của tỉnh hiện tại">Chọn tất cả</button>
+              <button type="button" class="geo-text-btn" id="clearWardsBtn" title="Bỏ chọn tất cả phường/xã">Xóa chọn</button>
+              <button type="button" class="geo-text-btn" id="toggleWardManualBtn" title="Chuyển sang gõ danh sách thủ công">Nhập tay</button>
+            </div>
+          </div>
+
+          <!-- Bộ chọn dạng Dropdown kéo & tìm kiếm thông minh -->
+          <div class="geo-picker-card" id="wardPickerCard">
+            <div class="geo-search-wrap">
+              <svg class="geo-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="wardSearch" class="geo-search-input" placeholder="Gõ chữ cái hoặc cuộn chọn Phường / Xã..." autocomplete="off">
+              <button type="button" class="geo-dropdown-toggle" id="toggleWardDropdownBtn" title="Đóng/Mở danh sách">▾</button>
+            </div>
+
+            <!-- Các chip phường/xã đã chọn -->
+            <div class="geo-chips-wrap" id="selectedWardChips"></div>
+
+            <!-- Dropdown cuộn tìm vị trí (3.321 phường/xã) -->
+            <div class="geo-dropdown-list" id="wardDropdownList"></div>
+          </div>
+
+          <!-- Khung nhập tay dự phòng -->
+          <div id="wardManualWrap" hidden style="margin-top:6px">
+            <textarea id="wards" rows="3" placeholder="Phường Hải Châu, Đà Nẵng&#10;Phường Tân An, Đắk Lắk"></textarea>
+            <p style="font-size:12px;color:#64748b;margin-top:3px">Nếu chỉ nhập tên phường/xã, hãy chọn đúng 1 tỉnh ở trên để ghép tự động.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview danh sách truy vấn -->
+    <div class="query-preview-box">
+      <div class="query-preview-header">
+        <span id="preview">Nhập từ khóa và tỉnh để tính số lượt tìm...</span>
+        <span style="cursor:pointer;color:var(--accent)" id="toggleQueryPreview">Xem chi tiết ▾</span>
+      </div>
+      <div class="query-preview-list" id="queryPreview" hidden></div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-col">
+        <label>
+          <span>Số điện thoại/từ khóa:</span>
+          <input id="limit" type="number" min="1" max="500" value="50">
+        </label>
+      </div>
+      <div class="form-col">
+        <label>
+          <span>Thời gian chờ giữa mỗi số:</span>
+          <input id="delay" type="number" min="3" max="120" value="5">
+        </label>
+      </div>
+    </div>
+
+    <!-- Khung tích chọn loại số điện thoại cần quét -->
+    <div class="phone-type-card">
+      <div class="phone-type-header">
+        <span class="phone-type-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          Loại số điện thoại cần quét:
+        </span>
+      </div>
+      <div class="phone-type-options">
+        <label class="phone-type-chip checked" id="labelPhoneCurrent">
+          <input type="checkbox" id="phoneTypeCurrent" checked>
+          <span>Số điện thoại hiện hành</span>
+        </label>
+        <label class="phone-type-chip" id="labelPhoneHotline">
+          <input type="checkbox" id="phoneTypeHotline">
+          <span>Số điện thoại tổng đài</span>
+        </label>
+        <label class="phone-type-chip" id="labelPhoneOld">
+          <input type="checkbox" id="phoneTypeOld">
+          <span>Số điện thoại cũ</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button id="start" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Bắt đầu lượt mới
+      </button>
+      <button id="resume" class="btn btn-secondary" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 4 15 12 5 20 5 4"></polygon>
+          <line x1="19" y1="5" x2="19" y2="19"></line>
+        </svg>
+        Tiếp tục lượt đã lưu
+      </button>
+      <button id="stop" class="btn btn-danger" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="6" width="12" height="12"></rect>
+        </svg>
+        Dừng sau bước hiện tại
+      </button>
+      <button id="show" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        Xem tab Maps
+      </button>
+    </div>
+
+    <div class="status-banner" id="statusBanner" style="display:none">
+      <span class="pulse-dot" id="statusPulse" style="display:none"></span>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <!-- ── Cấu hình quét số nhóm Facebook ── -->
+  <div class="card" id="configViewGroup" hidden>
+    <div class="card-header">
+      <h2 class="card-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        Cấu hình quét số điện thoại từ Nhóm Facebook
+      </h2>
+    </div>
+
+    <!-- 2 Cột: Link nhóm & Giới hạn số bài & thời gian -->
+    <div class="keyword-setup-grid">
+      <!-- Cột trái: Link nhóm Facebook -->
+      <div class="keyword-setup-col">
+        <label style="margin-bottom:0">
+          <span>Đường link nhóm Facebook cần quét:</span>
+          <textarea id="groupUrl" rows="3" placeholder="https://www.facebook.com/groups/123456789/&#10;https://www.facebook.com/groups/batdongsanhanoi/&#10;(Có thể nhập 1 link hoặc nhiều link nhóm, mỗi link 1 dòng)" style="min-height:86px;height:86px"></textarea>
+        </label>
+      </div>
+
+      <!-- Cột phải: Giới hạn bài viết & Thời gian cuộn -->
+      <div class="keyword-setup-col">
+        <div class="form-row" style="margin-bottom:0">
+          <div class="form-col">
+            <label style="margin-bottom:0">
+              <span>Số bài viết tối đa / mỗi link:</span>
+              <input id="groupMaxPosts" type="number" min="5" max="5000" value="500" title="Số lượng bài viết tối đa cần quét trên mỗi link nhóm Facebook">
+            </label>
+          </div>
+          <div class="form-col">
+            <label style="margin-bottom:0">
+              <span>Thời gian chờ cuộn trang (giây):</span>
+              <input id="groupScrollDelay" type="number" min="2" max="30" value="3">
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Khung tích chọn phạm vi quét dữ liệu trong nhóm -->
+    <div class="phone-type-card" style="margin-top:16px;margin-bottom:14px">
+      <div class="phone-type-header">
+        <span class="phone-type-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 11 12 14 22 4"></polyline>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+          Phạm vi quét dữ liệu trong nhóm:
+        </span>
+      </div>
+      <div class="phone-type-options">
+        <label class="phone-type-chip checked" id="labelGroupScanPosts">
+          <input type="checkbox" id="groupScanPosts" checked>
+          <span>📝 Quét bài viết</span>
+        </label>
+        <label class="phone-type-chip checked" id="labelGroupScanImages">
+          <input type="checkbox" id="groupScanImages" checked>
+          <span>🖼️ Quét hình ảnh (OCR/Alt)</span>
+        </label>
+        <label class="phone-type-chip checked" id="labelGroupScanComments">
+          <input type="checkbox" id="groupScanComments" checked>
+          <span>💬 Quét bình luận &amp; trả lời</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Khung tích chọn loại số điện thoại cần quét -->
+    <div class="phone-type-card" style="margin-bottom:18px">
+      <div class="phone-type-header">
+        <span class="phone-type-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          Loại số điện thoại cần quét:
+        </span>
+      </div>
+      <div class="phone-type-options">
+        <label class="phone-type-chip checked" id="labelGroupPhoneCurrent">
+          <input type="checkbox" id="groupPhoneTypeCurrent" checked>
+          <span>Số điện thoại hiện hành</span>
+        </label>
+        <label class="phone-type-chip" id="labelGroupPhoneHotline">
+          <input type="checkbox" id="groupPhoneTypeHotline">
+          <span>Số điện thoại tổng đài</span>
+        </label>
+        <label class="phone-type-chip" id="labelGroupPhoneOld">
+          <input type="checkbox" id="groupPhoneTypeOld">
+          <span>Số điện thoại cũ</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button id="startGroup" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Bắt đầu quét số nhóm
+      </button>
+      <button id="resumeGroup" class="btn btn-secondary" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 4 15 12 5 20 5 4"></polygon>
+          <line x1="19" y1="5" x2="19" y2="19"></line>
+        </svg>
+        Tiếp tục lượt đã lưu
+      </button>
+      <button id="stopGroup" class="btn btn-danger" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="6" width="12" height="12"></rect>
+        </svg>
+        Dừng sau bước hiện tại
+      </button>
+      <button id="showGroupTab" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        Xem tab Facebook
+      </button>
+    </div>
+
+    <div class="status-banner" id="groupStatusBanner" style="display:none">
+      <span class="pulse-dot" id="groupStatusPulse" style="display:none"></span>
+      <span id="groupStatus"></span>
+    </div>
+  </div>
+
+  <!-- ── Danh sách kết quả & Xuất file ── -->
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title">Danh sách dữ liệu thu thập &amp; Xuất báo cáo</h2>
+      <div class="btn-group" style="margin-top:0">
+        <button id="csv" class="btn btn-success">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Xuất Excel (.xlsx đầy đủ)
+        </button>
+        <button id="phones" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          Xuất riêng SĐT (.xlsx)
+        </button>
+        <button id="backup" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Sao lưu JSON
+        </button>
+        <button id="clear" class="btn btn-danger">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          Xóa dữ liệu
+        </button>
+      </div>
+    </div>
+
+    <!-- Bộ lọc & Tìm kiếm -->
+    <div class="table-toolbar">
+      <div class="table-search-box">
+        <input type="text" id="tableSearch" placeholder="Tìm nhanh cơ sở, SĐT, địa chỉ, từ khóa...">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <select id="tableFilter" class="table-filter-select">
+          <option value="all">Tất cả cơ sở</option>
+          <option value="with_phone">Chỉ cơ sở có SĐT</option>
+          <option value="without_phone">Cơ sở chưa có SĐT</option>
+        </select>
+        <span id="displayCount" style="font-size:12.5px;color:#64748b">Hiển thị 0 cơ sở</span>
+      </div>
+    </div>
+
+    <!-- Bảng dữ liệu -->
+    <div class="table-container">
+      <table class="data-table">
+        <thead id="tableThead">
+          <tr id="theadMaps">
+            <th style="width:40px;text-align:center">#</th>
+            <th style="min-width:180px">Tên cơ sở</th>
+            <th style="min-width:150px">Số điện thoại</th>
+            <th style="min-width:240px">Địa chỉ</th>
+            <th style="min-width:150px">Website</th>
+            <th style="min-width:140px">Từ khóa</th>
+            <th style="width:100px;text-align:center">Google Maps</th>
+          </tr>
+          <tr id="theadGroup" hidden>
+            <th style="width:40px;text-align:center">#</th>
+            <th style="min-width:160px">Người đăng / Tác giả</th>
+            <th style="min-width:150px">Số điện thoại</th>
+            <th style="min-width:130px">Nguồn</th>
+            <th style="min-width:260px">Trích đoạn nội dung</th>
+            <th style="min-width:160px">Nhóm Facebook</th>
+            <th style="width:110px;text-align:center">Bài viết FB</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr>
+            <td colspan="7" style="text-align:center;padding:40px 16px;color:#94a3b8">
+              Chưa có dữ liệu nào được quét. Vui lòng nhập từ khóa và bấm "Bắt đầu lượt mới".
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Log hoạt động -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
+      <span style="font-size:12.5px;font-weight:700;color:#475569">Nhật ký tiến trình hoạt động (Live Logs):</span>
+      <button type="button" id="clearLogBtn" style="background:transparent;border:none;color:#94a3b8;font-size:12px;cursor:pointer">Xóa nhật ký</button>
+    </div>
+    <pre class="log-box" id="log">[Hệ thống] NTD Agency - Sẵn sàng khởi động quét số Google Maps.</pre>
+  </div>
+</main>
+
+<script type="module" src="maps.js"></script>
+<script type="module" src="sidebar.js"></script>
+</body>
+</html>

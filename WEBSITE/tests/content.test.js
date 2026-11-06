@@ -1,0 +1,29 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import vm from 'node:vm';import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../content.js',import.meta.url),'utf8');
+function harness(initial='',mutate=false,notice='post published',media=false,collapseBreaks=false){let opened=false,listener,insertions=0,clicks=0,uploaded=false,clock=0;const results=[];
+ const visible={getClientRects:()=>[{}],getAttribute:()=>null};
+ const editor={...visible,innerText:initial,focus(){},dispatchEvent(e){if(e.type==='paste'){insertions++;const text=e.clipboardData.getData('text/plain');this.innerText+=mutate?'wrong':collapseBreaks?text.replace(/\n/g,''):text;}else if(e.inputType==='insertText')this.innerText+=e.data;}};
+ const post={...visible,innerText:'Post',click(){clicks++;opened=false;dialog.isConnected=false;}};
+ const fileInput={accept:'image/*',files:null,dispatchEvent(){uploaded=true;}};
+ const thumbnail={...visible,src:'https://example.test/uploaded-photo.jpg',complete:true,naturalWidth:800,naturalHeight:600};
+ const dialog={...visible,innerText:'Create post',isConnected:true,querySelector:s=>s.includes('contenteditable')?editor:null,querySelectorAll:s=>s.includes('contenteditable')?[editor]:s.includes('button')?[post]:s==='img'?(uploaded&&media!=='missing'?[thumbnail]:[]):s.includes('input[type=')?(media?[fileInput]:[]):[]};
+ const opener={...visible,innerText:'Write something...',click(){opened=true;}};
+ const doc={querySelector:()=>opened?dialog:null,querySelectorAll:s=>s.includes('button')?[opener]:s.includes('dialog')?(opened?[dialog]:[]):s.includes('status')?[{...visible,innerText:notice}]:[],execCommand(cmd,unused,text){if(cmd==='insertLineBreak'){if(!collapseBreaks)editor.innerText+='\n';}else{insertions++;editor.innerText+=mutate?'wrong':text;}return true;}};
+ const ctx={document:doc,location:{origin:'https://www.facebook.com',pathname:'/groups/test/'},getComputedStyle:()=>({visibility:'visible'}),Date:class extends Date{static now(){return clock;}},setTimeout:(f,ms)=>{clock+=ms;return setTimeout(f,0);},atob,File,Event,ClipboardEvent:class{constructor(type,args){this.type=type;Object.assign(this,args);}},DataTransfer:class{constructor(){this.files=[];this.items={add:f=>this.files.push(f)};this.data={};}setData(k,v){this.data[k]=v;}getData(k){return this.data[k]||'';}} ,InputEvent:class{constructor(type,args){Object.assign(this,args);}},chrome:{runtime:{onMessage:{addListener:f=>listener=f},async sendMessage(m){if(m.type==='RESULT')results.push(m);return {ok:true};}}},console};vm.runInNewContext(source,ctx);
+ const job={token:'one',url:'https://www.facebook.com/groups/test/',text:'https://www.facebook.com/share/r/example/',mode:'preview'};
+ const send=j=>new Promise(resolve=>listener({type:'RUN',job:{...job,...j}},{},resolve));return {send,editor,results,get insertions(){return insertions;},get clicks(){return clicks;},get uploaded(){return uploaded;}};
+}
+test('preview inserts a link once and never publishes',async()=>{const h=harness();const r=await h.send();assert.equal(r.status,'preview');assert.equal(h.editor.innerText,'https://www.facebook.com/share/r/example/');assert.equal(h.insertions,1);assert.equal(h.clicks,0);});
+test('existing draft is preserved',async()=>{const h=harness('Existing draft');const r=await h.send();assert.equal(r.status,'error');assert.equal(h.editor.innerText,'Existing draft');assert.equal(h.insertions,0);assert.equal(h.clicks,0);});
+test('mismatched editor content blocks publish',async()=>{const h=harness('',true);const r=await h.send({mode:'auto'});assert.equal(r.status,'error');assert.equal(h.clicks,0);});
+test('repeated job token cannot insert or publish twice',async()=>{const h=harness();await Promise.all([h.send(),h.send()]);assert.equal(h.insertions,1);assert.equal(h.results.length,1);assert.equal(h.clicks,0);});
+
+test('closed composer without toast continues with unverified status',async()=>{const h=harness('',false,'');const r=await h.send({mode:'auto'});assert.equal(r.status,'sent_unverified');assert.equal(h.clicks,1);});
+test('explicit Facebook error still pauses',async()=>{const h=harness('',false,'Something went wrong');const r=await h.send({mode:'auto'});assert.equal(r.status,'unknown');assert.equal(h.clicks,1);});
+
+test('Vietnamese, Korean and blank lines retain paragraph breaks',async()=>{const h=harness();const text='Thư giãn 🌿\n\nMột ngày mới\n안녕하세요\nEnglish paragraph';const r=await h.send({text});assert.equal(r.status,'preview');assert.equal(h.editor.innerText,text);assert.equal(h.clicks,0);});
+test('lost newlines block publishing and image attachment',async()=>{const h=harness('',false,'',true,true);const r=await h.send({mode:'auto',text:'First\nSecond',picture:{data:'data:image/png;base64,YQ==',name:'a.png',type:'image/png'}});assert.equal(r.status,'error');assert.equal(h.clicks,0);assert.equal(h.uploaded,false);});
+test('photo preview may use an https URL, and multiline text survives',async()=>{const h=harness('',false,'',true);const r=await h.send({text:'Hello\n\nWorld',picture:{data:'data:image/png;base64,YQ==',name:'a.png',type:'image/png'}});assert.equal(r.status,'preview');assert.equal(h.uploaded,true);assert.equal(h.editor.innerText,'Hello\n\nWorld');assert.equal(h.clicks,0);});
+test('missing photo preview prevents text-only accidental publish',async()=>{const h=harness('',false,'','missing');const r=await h.send({mode:'auto',picture:{data:'data:image/png;base64,YQ==',name:'a.png',type:'image/png'}});assert.equal(r.status,'error');assert.equal(h.uploaded,true);assert.equal(h.clicks,0);});
+
+test('long multilingual post is pasted in one transaction, including hashtags',async()=>{const h=harness();const text=Array.from({length:80},(_,i)=>'Đoạn '+i+' 🌿 안녕하세요').join('\n\n')+'\n#Spa #DaNang';const r=await h.send({text});assert.equal(r.status,'preview');assert.equal(h.editor.innerText,text);assert.equal(h.insertions,1);assert.equal(h.clicks,0);});

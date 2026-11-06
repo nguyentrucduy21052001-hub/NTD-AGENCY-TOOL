@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>NTD Agency – Nền Tảng Marketing & Đăng Bài Tự Động</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function () {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    :root {
+      --primary: #ed6b22;
+      --primary-hover: #d55a14;
+      --primary-gradient: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      --bg-page: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+    }
+
+    html:not(.ntd-dark-theme) {
+      --bg-page: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-sub: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .top-nav {
+      height: 64px;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(15, 23, 42, 0.7);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--text-main);
+      text-decoration: none;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-badge {
+      background: var(--primary-gradient);
+      color: #fff;
+      font-size: 10.5px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 14px;
+      background: rgba(234, 88, 12, 0.1);
+      border: 1px solid rgba(234, 88, 12, 0.25);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .user-pill span.acc-name {
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    .hero-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 48px 24px 60px;
+      width: 100%;
+      flex: 1;
+    }
+
+    .hero-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .hero-title {
+      font-size: 36px;
+      font-weight: 900;
+      letter-spacing: -0.8px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #fff 40%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    html:not(.ntd-dark-theme) .hero-title {
+      background: linear-gradient(135deg, #0f172a 40%, #475569 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-sub {
+      font-size: 16px;
+      color: var(--text-sub);
+      max-width: 680px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .portal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 22px;
+      margin-bottom: 40px;
+    }
+
+    .portal-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .portal-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(234, 88, 12, 0.4);
+      box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.35);
+    }
+
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(234, 88, 12, 0.12);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+
+    .card-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+
+    .card-desc {
+      font-size: 13.5px;
+      color: var(--text-sub);
+      line-height: 1.5;
+      flex: 1;
+      margin-bottom: 16px;
+    }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 14px;
+      border-top: 1px solid var(--card-border);
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .quick-banner {
+      background: linear-gradient(135deg, rgba(234, 88, 12, 0.12) 0%, rgba(249, 115, 22, 0.04) 100%);
+      border: 1px dashed rgba(234, 88, 12, 0.35);
+      border-radius: 16px;
+      padding: 22px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .btn-action {
+      background: var(--primary-gradient);
+      color: #fff;
+      border: none;
+      padding: 10px 22px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);
+      transition: all 0.2s;
+    }
+
+    .btn-action:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--text-sub);
+      font-size: 12.5px;
+      border-top: 1px solid var(--card-border);
+    }
+  </style>
+</head>
+
+<body>
+  <nav class="top-nav">
+    <a href="index.html" class="brand">
+      <span style="color:#ed6b22">NTD</span> AGENCY
+      <span class="brand-badge">Web Platform</span>
+    </a>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div id="licenseInfoBadge" class="user-pill" style="display:none">
+        <span>👤 <span id="userNameText" class="acc-name">--</span></span>
+        <span style="opacity:0.4">|</span>
+        <span id="expiryDaysText" style="font-size:12px">--</span>
+      </div>
+      <button type="button" id="logoutBtn" class="btn-secondary" style="display:none">Đăng xuất</button>
+      <a href="activate.html" id="loginBtn" class="btn-action" style="font-size:13px;padding:7px 16px">Đăng nhập</a>
+    </div>
+  </nav>
+
+  <main class="hero-container">
+    <div class="hero-header">
+      <h1 class="hero-title">Hệ Thống Marketing Tự Động</h1>
+      <p class="hero-sub">
+        Soạn nội dung, quản lý danh mục nhóm, đăng bài đa tài khoản xen kẽ, quét dữ liệu khách hàng Google Maps và nuôi tương tác tự động.
+      </p>
+    </div>
+
+    <div class="portal-grid">
+      <!-- 1. Đăng bài -->
+      <a href="panel.html" class="portal-card">
+        <div class="card-icon">🚀</div>
+        <div class="card-title">Đăng bài Nhóm Facebook</div>
+        <div class="card-desc">
+          Soạn nội dung Spin text đa biến thể, đính kèm ảnh, chọn màu nền Facebook, phân phối bài đăng theo danh mục và nhiều tài khoản.
+        </div>
+        <div class="card-footer">
+          <span>Truy cập bảng điều khiển</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 2. Quản lý tài khoản -->
+      <a href="accounts.html" class="portal-card">
+        <div class="card-icon">👥</div>
+        <div class="card-title">Quản lý Tài khoản Facebook</div>
+        <div class="card-desc">
+          Thêm và quản lý nhiều nick Facebook bằng Cookie hoặc User/Pass/2FA, chuyển đổi session và quản lý hạn mức đăng an toàn.
+        </div>
+        <div class="card-footer">
+          <span>Quản lý nick</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 3. Quản lý nhóm -->
+      <a href="groups.html" class="portal-card">
+        <div class="card-icon">📁</div>
+        <div class="card-title">Quản lý & Quét Nhóm</div>
+        <div class="card-desc">
+          Phân loại nhóm theo từng danh mục chiến dịch, tìm kiếm và lọc nhóm theo từ khóa, phát hiện nhóm duyệt bài trước khi đăng.
+        </div>
+        <div class="card-footer">
+          <span>Khám phá kho nhóm</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 4. Quét Maps -->
+      <a href="maps.html" class="portal-card">
+        <div class="card-icon">🗺️</div>
+        <div class="card-title">Quét Google Maps & SĐT</div>
+        <div class="card-desc">
+          Cào số điện thoại hotline, địa chỉ, website của các doanh nghiệp trên Google Maps và bóc tách số điện thoại từ bình luận nhóm.
+        </div>
+        <div class="card-footer">
+          <span>Khai thác dữ liệu</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 5. Fanpage -->
+      <a href="fanpages.html" class="portal-card">
+        <div class="card-icon">📄</div>
+        <div class="card-title">Quản lý Fanpage</div>
+        <div class="card-desc">
+          Quản lý hệ thống Fanpage vệ tinh, bài viết fanpage và điều hướng chiến dịch truyền thông đa kênh.
+        </div>
+        <div class="card-footer">
+          <span>Xem Fanpage</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 6. Nuôi tương tác -->
+      <a href="warmup.html" class="portal-card">
+        <div class="card-icon">🤖</div>
+        <div class="card-title">Nuôi Nick & Tương tác</div>
+        <div class="card-desc">
+          Tự động lướt Newfeed, xem bài viết, like, thả tim và bình luận tự nhiên giúp tài khoản Facebook cứng cáp và hạn chế khóa.
+        </div>
+        <div class="card-footer">
+          <span>Cấu hình nuôi nick</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 7. Cài đặt -->
+      <a href="settings.html" class="portal-card">
+        <div class="card-icon">⚙️</div>
+        <div class="card-title">Cài đặt Hệ thống</div>
+        <div class="card-desc">
+          Tùy chỉnh thời gian giãn cách giữa các bài đăng, giới hạn tối đa hàng ngày và cấu hình thông báo tức thì qua Zalo Bot.
+        </div>
+        <div class="card-footer">
+          <span>Thiết lập cấu hình</span>
+          <span>→</span>
+        </div>
+      </a>
+
+      <!-- 8. Quản trị -->
+      <a href="manage.html" class="portal-card" id="adminPortalCard" style="display:none">
+        <div class="card-icon" style="color:#f97316;background:rgba(249,115,22,0.12)">👑</div>
+        <div class="card-title">Quản trị &amp; Phân quyền</div>
+        <div class="card-desc">
+          Quản lý tài khoản khách hàng, phân quyền Admin/Member, gia hạn ngày dùng và quản lý cơ sở dữ liệu Supabase.
+        </div>
+        <div class="card-footer">
+          <span>Mở trang Quản trị (Admin)</span>
+          <span>→</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="quick-banner">
+      <div>
+        <div style="font-weight:800;font-size:16px;margin-bottom:4px">
+          💡 Chuyển đổi dữ liệu và sao lưu 1-chạm
+        </div>
+        <div style="font-size:13.5px;color:var(--text-sub)">
+          Bạn có thể xuất file sao lưu toàn bộ danh mục nhóm và tài khoản để đồng bộ sang bất kỳ thiết bị nào khác.
+        </div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <a href="panel.html" class="btn-action">Bắt đầu ngay</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    &copy; 2026 NTD Agency. Nền tảng Marketing tự động hóa đa kênh.
+  </footer>
+
+  <script type="module">
+    import { checkCurrentLicense, logoutAccount } from './license.js';
+
+    async function initPortal() {
+      try {
+        const info = await checkCurrentLicense(false);
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const badge = document.getElementById('licenseInfoBadge');
+        const userText = document.getElementById('userNameText');
+        const expiryText = document.getElementById('expiryDaysText');
+
+        if (info && info.username) {
+          const isAdmin = info.role === 'admin';
+          if (loginBtn) loginBtn.style.display = 'none';
+          if (logoutBtn) logoutBtn.style.display = 'inline-block';
+          if (badge) badge.style.display = 'flex';
+          if (userText) userText.innerHTML = `${info.username} ${isAdmin ? '<span style="font-size:10px;background:#ea580c;color:#fff;padding:1px 5px;border-radius:4px;margin-left:4px">Admin</span>' : '<span style="font-size:10px;background:#334155;color:#94a3b8;padding:1px 5px;border-radius:4px;margin-left:4px">Member</span>'}`;
+          if (expiryText) expiryText.textContent = `Hạn dùng: ${info.expiryFormatted || '--'}`;
+
+          const adminCard = document.getElementById('adminPortalCard');
+          if (adminCard) {
+            adminCard.style.display = isAdmin ? 'flex' : 'none';
+          }
+
+          logoutBtn.onclick = async () => {
+            if (confirm('Bạn có chắc chắn muốn đăng xuất tài khoản?')) {
+              await logoutAccount();
+              window.location.reload();
+            }
+          };
+        } else {
+          // Chưa đăng nhập
+          if (loginBtn) loginBtn.style.display = 'inline-flex';
+          if (logoutBtn) logoutBtn.style.display = 'none';
+          if (badge) badge.style.display = 'none';
+        }
+      } catch (e) {
+        console.warn('License check error:', e);
+      }
+    }
+
+    initPortal();
+  </script>
+</body>
+
+</html>
+
