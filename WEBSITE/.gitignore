@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Logs & temp files
+*.log
+test_404.txt
+test_default.txt
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+.env.local
+

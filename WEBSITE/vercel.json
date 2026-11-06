@@ -1,17 +1,5 @@
 {
   "version": 2,
-  "name": "ntd-agency-web",
   "cleanUrls": true,
-  "trailingSlash": false,
-  "routes": [
-    {
-      "src": "/api/health",
-      "dest": "/server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
-  ]
+  "trailingSlash": false
 }
-

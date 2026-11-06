@@ -501,6 +501,176 @@
     </footer>
   </div>
 
+  <script src="web_adapter.js"></script>
+  <script>
+    (function () {
+      const SUPABASE_URL = 'https://jwketbnfapscggpvnbui.supabase.co';
+      const SUPABASE_KEY = 'sb_publishable_HK-WyUKi4lK9RBJvSrf4Kg_i920nRCv';
+
+      // 1. Tạo hoặc lấy Machine ID ngay lập tức (không để bị treo ở "Đang tải mã máy...")
+      let mid = localStorage.getItem('dg_machine_id');
+      if (!mid || mid.length < 8) {
+        mid = 'mid_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+        localStorage.setItem('dg_machine_id', mid);
+      }
+      const midEl = document.getElementById('machineIdDisplay');
+      if (midEl) {
+        midEl.textContent = mid;
+      }
+
+      // Nút copy mã máy
+      const copyBtn = document.getElementById('copyMidBtn');
+      if (copyBtn) {
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(mid).then(() => alert('Đã sao chép mã máy: ' + mid));
+        };
+      }
+
+      // Hiện / ẩn mật khẩu
+      const pwdInput = document.getElementById('passwordInput');
+      const togglePwdBtn = document.getElementById('togglePasswordBtn');
+      if (togglePwdBtn && pwdInput) {
+        togglePwdBtn.onclick = () => {
+          pwdInput.type = pwdInput.type === 'password' ? 'text' : 'password';
+        };
+      }
+
+      // 2. Xử lý Đăng nhập trực tiếp (Hoạt động cho cả file:/// lẫn http/https)
+      const btn = document.getElementById('submitLoginBtn');
+      const uInput = document.getElementById('usernameInput');
+      const pInput = document.getElementById('passwordInput');
+      const msgEl = document.getElementById('loginMsg');
+
+      if (btn) {
+        btn.onclick = async () => {
+          const username = (uInput?.value || '').trim();
+          const password = (pInput?.value || '').trim();
+
+          if (!username || !password) {
+            if (msgEl) {
+              msgEl.className = 'msg-box err';
+              msgEl.style.display = 'block';
+              msgEl.textContent = 'Vui lòng nhập cả Tên tài khoản và Mật khẩu.';
+            }
+            return;
+          }
+
+          btn.disabled = true;
+          btn.innerHTML = '<span>⏳ Đang kiểm tra đăng nhập…</span>';
+          if (msgEl) {
+            msgEl.className = 'msg-box';
+            msgEl.style.display = 'block';
+            msgEl.style.background = '#1e3a5f';
+            msgEl.style.color = '#93c5fd';
+            msgEl.textContent = 'Đang kết nối tới Supabase…';
+          }
+
+          try {
+            // Gọi trực tiếp Supabase REST API
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}&select=*`, {
+              method: 'GET',
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(`Supabase phản hồi lỗi HTTP ${res.status}: ${text}`);
+            }
+
+            const users = await res.json();
+            if (!users || users.length === 0) {
+              throw new Error('Tài khoản không tồn tại trên hệ thống.');
+            }
+
+            const user = users[0];
+            if (user.password !== password) {
+              throw new Error('Mật khẩu không chính xác.');
+            }
+
+            if (user.status === 'locked' || user.status === 'khoa') {
+              throw new Error('Tài khoản này đã bị khóa bởi Quản trị viên.');
+            }
+
+            const expiryDate = new Date(user.expiry_date || user.expiry);
+            if (expiryDate < new Date()) {
+              throw new Error('Tài khoản đã hết hạn sử dụng. Vui lòng liên hệ Admin để gia hạn.');
+            }
+
+            // Cập nhật machine_id nếu chưa có
+            if (!user.machine_id) {
+              fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}`, {
+                method: 'PATCH',
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ machine_id: mid, last_login: new Date().toISOString() })
+              }).catch(() => {});
+            }
+
+            const userRole = (user.role || 'member').toLowerCase() === 'admin' ? 'admin' : 'member';
+
+            const licenseData = {
+              username: user.username,
+              role: userRole,
+              expiry: expiryDate.toISOString(),
+              expiryFormatted: expiryDate.toLocaleDateString('vi-VN'),
+              machineId: mid,
+              source: 'supabase',
+              lastChecked: Date.now()
+            };
+
+            // Lưu vào storage & localStorage
+            if (window.chrome && window.chrome.storage && window.chrome.storage.local) {
+              await window.chrome.storage.local.set({ license: licenseData, machineId: mid });
+            }
+            localStorage.setItem('ntd_store_license', JSON.stringify(licenseData));
+            localStorage.setItem('dg_machine_id', mid);
+
+            if (msgEl) {
+              msgEl.className = 'msg-box ok';
+              msgEl.style.display = 'block';
+              msgEl.textContent = `Đăng nhập thành công! Xin chào ${user.username} [${userRole.toUpperCase()}]. Đang chuyển hướng…`;
+            }
+
+            setTimeout(() => {
+              window.location.href = 'panel.html';
+            }, 800);
+
+          } catch (err) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>Đăng nhập vào hệ thống</span>';
+            if (msgEl) {
+              msgEl.className = 'msg-box err';
+              msgEl.style.display = 'block';
+              msgEl.textContent = 'Lỗi: ' + (err.message || String(err));
+            }
+          }
+        };
+
+        // Nhấn Enter để đăng nhập
+        [uInput, pInput].forEach(inp => {
+          inp?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') btn.click();
+          });
+        });
+      }
+
+      // Hiển thị thông báo nếu đang mở bằng file:///
+      if (window.location.protocol === 'file:') {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:rgba(234,88,12,0.15);border:1px solid rgba(234,88,12,0.4);color:#fdba74;padding:10px 14px;border-radius:10px;font-size:12px;margin-bottom:14px;text-align:left;line-height:1.5';
+        banner.innerHTML = '💡 <b>Khuyên dùng:</b> Để chạy đầy đủ mọi tính năng trên máy tính mà không bị giới hạn bảo mật file của trình duyệt, bạn hãy nhấp đúp vào file <b>CHAY_WEBSITE.bat</b> trong thư mục này nhé!';
+        const card = document.querySelector('.activate-card');
+        if (card) card.insertBefore(banner, card.firstChild);
+      }
+    })();
+  </script>
   <script type="module" src="activate.js"></script>
 </body>
 

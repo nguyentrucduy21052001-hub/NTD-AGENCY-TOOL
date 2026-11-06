@@ -8,8 +8,8 @@ export const STORAGE_SUPABASE_URL = 'ntd_supabase_url';
 export const STORAGE_SUPABASE_KEY = 'ntd_supabase_key';
 
 // Cấu hình mặc định (người dùng có thể thay đổi trong trang Quản trị)
-export const DEFAULT_SUPABASE_URL = '';
-export const DEFAULT_SUPABASE_KEY = '';
+export const DEFAULT_SUPABASE_URL = 'https://jwketbnfapscggpvnbui.supabase.co';
+export const DEFAULT_SUPABASE_KEY = 'sb_publishable_HK-WyUKi4lK9RBJvSrf4Kg_i920nRCv';
 
 /**
  * Lấy cấu hình Supabase hiện tại
@@ -17,12 +17,19 @@ export const DEFAULT_SUPABASE_KEY = '';
 export async function getSupabaseConfig() {
   try {
     const res = await chrome.storage.local.get([STORAGE_SUPABASE_URL, STORAGE_SUPABASE_KEY]);
-    return {
-      url: (res[STORAGE_SUPABASE_URL] || DEFAULT_SUPABASE_URL || '').trim().replace(/\/+$/, ''),
-      key: (res[STORAGE_SUPABASE_KEY] || DEFAULT_SUPABASE_KEY || '').trim()
-    };
+    const url = (res[STORAGE_SUPABASE_URL] || DEFAULT_SUPABASE_URL || '').trim().replace(/\/+$/, '');
+    const key = (res[STORAGE_SUPABASE_KEY] || DEFAULT_SUPABASE_KEY || '').trim();
+    
+    // Tự động lưu giá trị mặc định vào storage nếu chưa có
+    if (!res[STORAGE_SUPABASE_URL] && DEFAULT_SUPABASE_URL) {
+      await chrome.storage.local.set({
+        [STORAGE_SUPABASE_URL]: DEFAULT_SUPABASE_URL,
+        [STORAGE_SUPABASE_KEY]: DEFAULT_SUPABASE_KEY
+      });
+    }
+    return { url, key };
   } catch (_) {
-    return { url: '', key: '' };
+    return { url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY };
   }
 }
 

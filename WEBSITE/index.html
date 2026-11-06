@@ -421,6 +421,47 @@
     &copy; 2026 NTD Agency. Nền tảng Marketing tự động hóa đa kênh.
   </footer>
 
+  <script>
+    // Universal Fallback Reader cho cả file:/// và http/https
+    (function () {
+      try {
+        let raw = localStorage.getItem('ntd_store_license');
+        if (raw) {
+          const lic = JSON.parse(raw);
+          if (lic && lic.username) {
+            const exp = new Date(lic.expiry);
+            if (exp > new Date()) {
+              const isAdmin = (lic.role || '').toLowerCase() === 'admin';
+              const loginBtn = document.getElementById('loginBtn');
+              const logoutBtn = document.getElementById('logoutBtn');
+              const badge = document.getElementById('licenseInfoBadge');
+              const userText = document.getElementById('userNameText');
+              const expiryText = document.getElementById('expiryDaysText');
+
+              if (loginBtn) loginBtn.style.display = 'none';
+              if (logoutBtn) logoutBtn.style.display = 'inline-block';
+              if (badge) badge.style.display = 'flex';
+              if (userText) userText.innerHTML = `${lic.username} ${isAdmin ? '<span style="font-size:10px;background:#ea580c;color:#fff;padding:1px 5px;border-radius:4px;margin-left:4px">Admin</span>' : '<span style="font-size:10px;background:#334155;color:#94a3b8;padding:1px 5px;border-radius:4px;margin-left:4px">Member</span>'}`;
+              if (expiryText) expiryText.textContent = `Hạn dùng: ${lic.expiryFormatted || exp.toLocaleDateString('vi-VN')}`;
+
+              const adminCard = document.getElementById('adminPortalCard');
+              if (adminCard) adminCard.style.display = isAdmin ? 'flex' : 'none';
+
+              if (logoutBtn) {
+                logoutBtn.onclick = () => {
+                  if (confirm('Bạn có chắc muốn đăng xuất?')) {
+                    localStorage.removeItem('ntd_store_license');
+                    window.location.reload();
+                  }
+                };
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    })();
+  </script>
+
   <script type="module">
     import { checkCurrentLicense, logoutAccount } from './license.js';
 
