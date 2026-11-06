@@ -298,6 +298,41 @@ export async function supabaseCreateUser({ username, password, role = 'member', 
 }
 
 /**
+ * [ADMIN] Nhập hoặc cập nhật hàng loạt người dùng (Upsert batch)
+ */
+export async function supabaseUpsertUsers(usersArray) {
+  if (!Array.isArray(usersArray) || usersArray.length === 0) {
+    return { ok: true, count: 0 };
+  }
+
+  // Chuẩn hóa dữ liệu từng user
+  const sanitized = usersArray.map(u => ({
+    username: (u.username || '').trim().toLowerCase(),
+    password: String(u.password || '123456').trim(),
+    role: (u.role || 'member').toLowerCase() === 'admin' ? 'admin' : 'member',
+    expiry_date: u.expiryDate || u.expiry_date,
+    status: u.status || 'active',
+    machine_id: u.machineId || u.machine_id || null,
+    note: u.note || '',
+    updated_at: new Date().toISOString()
+  })).filter(u => Boolean(u.username));
+
+  if (sanitized.length === 0) {
+    return { ok: true, count: 0 };
+  }
+
+  const res = await supabaseRequest('ntd_users', {
+    method: 'POST',
+    headers: {
+      'Prefer': 'resolution=merge-duplicates,return=representation'
+    },
+    body: JSON.stringify(sanitized)
+  });
+
+  return { ok: true, data: res, count: Array.isArray(res) ? res.length : sanitized.length };
+}
+
+/**
  * [ADMIN] Phân quyền người dùng (Đổi vai trò giữa admin và member)
  */
 export async function supabaseUpdateRole(username, newRole) {

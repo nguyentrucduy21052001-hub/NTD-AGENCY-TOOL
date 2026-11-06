@@ -439,7 +439,7 @@
           ⚡ Cơ sở dữ liệu Supabase
         </button>
         <button type="button" class="tab-btn" id="tabBtnSheets" data-tab="tabSheets">
-          📊 Dự phòng Google Sheets
+          📊 Bảng tính Google Sheets &amp; Đồng bộ
         </button>
       </nav>
 
@@ -557,22 +557,129 @@
         </div>
       </section>
 
-      <!-- TAB 3: DỰ PHÒNG GOOGLE SHEETS -->
+      <!-- TAB 3: GOOGLE SHEETS & ĐỒNG BỘ DỮ LIỆU -->
       <section id="tabSheets" class="tab-pane" style="display:none">
+        <!-- 1. BẢNG TÍNH GOOGLE SHEET TRỰC TIẾP (XEM & SỬA TẠI CHỖ) -->
         <div class="card">
-          <h2>📊 Cấu hình Google Sheets (Kênh dự phòng)</h2>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+            <div>
+              <h2 style="margin:0 0 4px">📑 Bảng tính Google Sheet của bạn (Xem &amp; Sửa trực tiếp)</h2>
+              <p class="sub" style="margin:0">
+                Thao tác, tra cứu và chỉnh sửa thông tin tài khoản khách hàng ngay trên giao diện này mà không cần chuyển tab.
+              </p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <a id="openSheetExternalBtn" href="https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166#gid=1321941166" target="_blank" rel="noopener noreferrer" class="btn-primary" style="font-size:12.5px;padding:8px 14px;text-decoration:none">
+                ↗️ Mở trên Tab mới
+              </a>
+              <button type="button" id="refreshSheetFrameBtn" class="btn-secondary" style="font-size:12.5px;padding:8px 14px">
+                🔄 Tải lại bảng tính
+              </button>
+            </div>
+          </div>
+
+          <!-- Sheet URL Configuration Toggle -->
+          <div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--card-border);border-radius:10px">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:12.5px;font-weight:700;color:var(--text-sub);white-space:nowrap">🔗 Link Google Sheet:</span>
+              <input id="sheetUrlInput" type="text" style="flex:1;min-width:240px;margin-top:0;padding:8px 12px;font-size:13px" value="https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166#gid=1321941166">
+              <button type="button" id="saveSheetUrlBtn" class="btn-secondary" style="padding:8px 14px;font-size:12.5px">💾 Lưu URL</button>
+            </div>
+            <div id="sheetUrlMsg" class="msg-box" style="margin-top:8px"></div>
+          </div>
+
+          <!-- Iframe Embed -->
+          <div style="position:relative;width:100%;min-height:680px;border-radius:12px;overflow:hidden;border:1px solid var(--card-border);background:#ffffff">
+            <iframe id="sheetIframe" 
+                    src="https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166&amp;widget=true&amp;headers=false"
+                    style="position:absolute;top:0;left:0;width:100%;height:100%;border:none"
+                    allowfullscreen>
+            </iframe>
+          </div>
+          <p style="margin:10px 0 0;font-size:12px;color:var(--text-sub);text-align:right">
+            💡 <i>Mẹo: Nếu trình duyệt chặn hiển thị do chưa đăng nhập Google, bạn chỉ cần bấm nút <b>"↗️ Mở trên Tab mới"</b> ở trên nhé!</i>
+          </p>
+        </div>
+
+        <!-- 2. ĐỒNG BỘ & NHẬP HÀNG LOẠT VÀO SUPABASE -->
+        <div class="card">
+          <h2>⚡ Đồng bộ &amp; Nhập hàng loạt tài khoản vào Supabase</h2>
           <p class="sub">
-            Nếu bạn chưa triển khai Supabase, hệ thống có thể sử dụng Google Sheets qua Google Apps Script để quản lý tài khoản.
+            Chuyển nhanh toàn bộ tài khoản khách hàng từ Google Sheet của bạn vào cơ sở dữ liệu Supabase để khách hàng có thể đăng nhập trên Website mới ngay lập tức.
+          </p>
+
+          <!-- Auto Sync from Sheet via Export URL -->
+          <div style="padding:16px;background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:12px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+              <div>
+                <b style="color:var(--primary);font-size:14px">Cách 1: Đồng bộ tự động 1-Chạm từ Google Sheet</b>
+                <p style="margin:4px 0 0;font-size:12.5px;color:var(--text-sub)">
+                  Hệ thống sẽ tải danh sách trực tiếp từ link Google Sheet của bạn và nhập vào Supabase.
+                </p>
+              </div>
+              <button type="button" id="autoSyncFromSheetBtn" class="btn-primary" style="font-size:13px;padding:9px 18px">
+                ⚡ Tải dữ liệu &amp; Đồng bộ ngay
+              </button>
+            </div>
+            <div id="autoSyncMsg" class="msg-box" style="margin-top:10px"></div>
+          </div>
+
+          <!-- Manual Copy-Paste Import -->
+          <div>
+            <b style="font-size:14px;color:var(--text-main)">Cách 2: Sao chép &amp; Dán nhanh từ Google Sheet (Ctrl+C &rarr; Ctrl+V)</b>
+            <p style="margin:4px 0 10px;font-size:12.5px;color:var(--text-sub)">
+              Mở file Google Sheet &rarr; Bôi đen các dòng tài khoản khách hàng &rarr; Nhấn <b>Ctrl + C</b> &rarr; Dán vào ô bên dưới &rarr; Bấm <b>"Xem trước &amp; Nhập"</b>.
+            </p>
+
+            <textarea id="importPasteInput" rows="5" placeholder="Dán dữ liệu copy từ Google Sheet vào đây...&#10;Ví dụ:&#10;khach_nam    123456    2026-12-31    Khách gói 1 năm&#10;khach_lan    pass888   15/06/2026    Khách nhóm 5 tài khoản"></textarea>
+
+            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+              <button type="button" id="previewImportBtn" class="btn-secondary">
+                🔍 Xem trước danh sách tài khoản
+              </button>
+              <button type="button" id="confirmImportBtn" class="btn-primary" style="display:none">
+                🚀 Xác nhận Nhập tất cả vào Supabase (<span id="importCountBadge">0</span>)
+              </button>
+            </div>
+
+            <!-- Preview Table Container -->
+            <div id="importPreviewContainer" style="margin-top:16px;display:none">
+              <h4 style="margin:0 0 8px;font-size:13px;color:var(--primary)">Danh sách tài khoản phát hiện được:</h4>
+              <div class="user-table-wrap" style="max-height:280px;overflow-y:auto">
+                <table class="user-table" id="importPreviewTable">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Tài khoản</th>
+                      <th>Mật khẩu</th>
+                      <th>Vai trò</th>
+                      <th>Hạn sử dụng</th>
+                      <th>Ghi chú</th>
+                    </tr>
+                  </thead>
+                  <tbody id="importPreviewTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="importMsg" class="msg-box" style="margin-top:12px"></div>
+          </div>
+        </div>
+
+        <!-- 3. CẤU HÌNH GOOGLE APPS SCRIPT (KÊNH DỰ PHÒNG) -->
+        <div class="card">
+          <h2>📊 Cấu hình Google Apps Script (Kênh xác thực dự phòng)</h2>
+          <p class="sub">
+            Nếu bạn muốn website kiểm tra trực tiếp vào Google Sheet mỗi khi khách đăng nhập (thay cho Supabase), bạn có thể nhập URL Google Apps Script Web App tại đây.
           </p>
 
           <label>URL Google Apps Script Web App
             <input id="scriptUrlInput" type="text" placeholder="https://script.google.com/macros/s/.../exec">
           </label>
 
-          <div style="display:flex;gap:10px;margin-top:8px">
-            <button id="saveScriptUrlBtn" class="btn-primary">💾 Lưu URL Google Sheets</button>
-            <button id="testConnectionBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
-            <button id="copyScriptCodeBtn" class="btn-secondary">📋 Sao chép code Apps Script</button>
+          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <button type="button" id="saveScriptUrlBtn" class="btn-primary">💾 Lưu URL Web App</button>
+            <button type="button" id="testConnectionBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
+            <button type="button" id="copyScriptCodeBtn" class="btn-secondary">📋 Sao chép code Apps Script</button>
           </div>
           <div id="configMsg" class="msg-box"></div>
         </div>

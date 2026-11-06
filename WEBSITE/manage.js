@@ -11,6 +11,7 @@ import {
   testSupabaseConnection,
   supabaseListUsers,
   supabaseCreateUser,
+  supabaseUpsertUsers,
   supabaseUpdateRole,
   supabaseUpdateStatus,
   supabaseRenewUser,
@@ -84,6 +85,9 @@ async function initAdminPage() {
   // Nạp cấu hình Google Sheets
   const sheetUrl = await getGoogleScriptUrl();
   if ($('scriptUrlInput')) $('scriptUrlInput').value = sheetUrl;
+
+  // Nạp giao diện Bảng tính Google Sheet trực tiếp & Công cụ Đồng bộ
+  initGoogleSheetSection();
 
   // Đặt ngày hết hạn mặc định: Hôm nay + 30 ngày
   const d30 = new Date();
@@ -596,6 +600,285 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ── 9. QUẢN LÝ BẢNG TÍNH GOOGLE SHEET TRỰC TIẾP & ĐỒNG BỘ ──────────────────
+const DEFAULT_SHEET_VIEW_URL = 'https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166#gid=1321941166';
+let parsedImportUsers = [];
+
+function toGoogleSheetEmbedUrl(rawUrl) {
+  if (!rawUrl) return '';
+  const idMatch = rawUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (!idMatch) return rawUrl;
+  const sheetId = idMatch[1];
+  const gidMatch = rawUrl.match(/gid=([0-9]+)/);
+  const gid = gidMatch ? gidMatch[1] : '0';
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/edit?gid=${gid}&widget=true&headers=false&embedded=true`;
+}
+
+function initGoogleSheetSection() {
+  const storedUrl = localStorage.getItem('ntd_sheet_view_url') || DEFAULT_SHEET_VIEW_URL;
+  const sheetInput = $('sheetUrlInput');
+  const iframe = $('sheetIframe');
+  const extBtn = $('openSheetExternalBtn');
+
+  if (sheetInput) sheetInput.value = storedUrl;
+  if (iframe) iframe.src = toGoogleSheetEmbedUrl(storedUrl);
+  if (extBtn) extBtn.href = storedUrl;
+
+  // Nút Lưu URL Google Sheet mới
+  $('saveSheetUrlBtn')?.addEventListener('click', () => {
+    const val = $('sheetUrlInput')?.value?.trim() || DEFAULT_SHEET_VIEW_URL;
+    localStorage.setItem('ntd_sheet_view_url', val);
+    if (iframe) iframe.src = toGoogleSheetEmbedUrl(val);
+    if (extBtn) extBtn.href = val;
+
+    const msg = $('sheetUrlMsg');
+    if (msg) {
+      msg.className = 'msg-box ok';
+      msg.textContent = 'Đã lưu và cập nhật Bảng tính Google Sheet thành công!';
+      setTimeout(() => { msg.style.display = 'none'; }, 3000);
+    }
+  });
+
+  // Nút Tải lại khung iframe
+  $('refreshSheetFrameBtn')?.addEventListener('click', () => {
+    if (!iframe) return;
+    const currentSrc = iframe.src;
+    iframe.src = 'about:blank';
+    setTimeout(() => { iframe.src = currentSrc; }, 100);
+  });
+
+  // Nút Tải dữ liệu & Đồng bộ tự động 1-Chạm
+  $('autoSyncFromSheetBtn')?.addEventListener('click', async () => {
+    const msg = $('autoSyncMsg');
+    const sheetUrl = $('sheetUrlInput')?.value?.trim() || DEFAULT_SHEET_VIEW_URL;
+    const idMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+
+    if (!idMatch) {
+      if (msg) {
+        msg.className = 'msg-box err';
+        msg.textContent = 'Link Google Sheet không hợp lệ.';
+      }
+      return;
+    }
+
+    const sheetId = idMatch[1];
+    const gidMatch = sheetUrl.match(/gid=([0-9]+)/);
+    const gid = gidMatch ? gidMatch[1] : '0';
+    const csvExportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+
+    if (msg) {
+      msg.className = 'msg-box info';
+      msg.textContent = 'Đang tải dữ liệu từ Google Sheets…';
+    }
+
+    try {
+      const resp = await fetch(csvExportUrl);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const csvText = await resp.text();
+
+      if (!csvText || csvText.length < 5) {
+        throw new Error('Dữ liệu trả về từ Sheet rỗng.');
+      }
+
+      if ($('importPasteInput')) {
+        $('importPasteInput').value = csvText;
+      }
+      parseAndPreviewImport(csvText);
+
+      if (msg) {
+        msg.className = 'msg-box ok';
+        msg.textContent = `Đã tải thành công dữ liệu từ Google Sheet! Vui lòng kiểm tra bảng xem trước bên dưới và bấm "Xác nhận Nhập tất cả".`;
+      }
+    } catch (err) {
+      if (msg) {
+        msg.className = 'msg-box err';
+        msg.innerHTML = `⚠️ <b>Google Sheet chưa bật chế độ công khai:</b> Google chặn tải tự động từ bên ngoài.<br>
+          👉 <b>Giải pháp siêu nhanh:</b> Bạn mở Google Sheet &rarr; Bôi đen danh sách tài khoản &rarr; Bấm <b>Ctrl + C</b> &rarr; Dán vào ô bên dưới &rarr; Bấm <b>"Xem trước danh sách"</b>!`;
+      }
+    }
+  });
+
+  // Nút Xem trước dữ liệu dán
+  $('previewImportBtn')?.addEventListener('click', () => {
+    const raw = $('importPasteInput')?.value || '';
+    parseAndPreviewImport(raw);
+  });
+
+  // Nút Xác nhận nạp vào Supabase
+  $('confirmImportBtn')?.addEventListener('click', async () => {
+    if (!parsedImportUsers || parsedImportUsers.length === 0) {
+      alert('Không có tài khoản nào hợp lệ để nhập.');
+      return;
+    }
+
+    const msg = $('importMsg');
+    const confirmBtn = $('confirmImportBtn');
+
+    if (!confirm(`Xác nhận nạp ${parsedImportUsers.length} tài khoản này vào cơ sở dữ liệu Supabase?`)) {
+      return;
+    }
+
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '⏳ Đang nạp vào Supabase...';
+    }
+
+    if (msg) {
+      msg.className = 'msg-box info';
+      msg.textContent = `Đang đồng bộ ${parsedImportUsers.length} tài khoản vào Supabase...`;
+    }
+
+    try {
+      const res = await supabaseUpsertUsers(parsedImportUsers);
+      if (msg) {
+        msg.className = 'msg-box ok';
+        msg.innerHTML = `🎉 <b>Nhập thành công!</b> Đã đưa <b>${res.count || parsedImportUsers.length}</b> tài khoản vào Supabase. Khách hàng có thể đăng nhập trên Website ngay bây giờ!`;
+      }
+      await loadUserList();
+      alert(`Đã nhập thành công ${res.count || parsedImportUsers.length} tài khoản vào Supabase!`);
+    } catch (err) {
+      if (msg) {
+        msg.className = 'msg-box err';
+        msg.textContent = `Lỗi nhập tài khoản vào Supabase: ${err.message}`;
+      }
+    } finally {
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `🚀 Xác nhận Nhập tất cả vào Supabase (${parsedImportUsers.length})`;
+      }
+    }
+  });
+}
+
+function parseVietnameseDate(val) {
+  if (!val) {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  // Khớp YYYY-MM-DD
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(s)) {
+    const p = s.split('T')[0].split('-');
+    return `${p[0]}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`;
+  }
+  // Khớp DD/MM/YYYY hoặc DD-MM-YYYY
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m) {
+    return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().split('T')[0];
+  }
+  const fallback = new Date();
+  fallback.setDate(fallback.getDate() + 30);
+  return fallback.toISOString().split('T')[0];
+}
+
+function parseAndPreviewImport(rawText) {
+  const container = $('importPreviewContainer');
+  const tbody = $('importPreviewTbody');
+  const msg = $('importMsg');
+  const confirmBtn = $('confirmImportBtn');
+  const countBadge = $('importCountBadge');
+
+  if (!rawText || !rawText.trim()) {
+    if (msg) {
+      msg.className = 'msg-box err';
+      msg.textContent = 'Vui lòng dán dữ liệu từ Google Sheet vào ô trên trước khi xem trước.';
+    }
+    return;
+  }
+
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return;
+
+  // Tự động phân tách theo Tab (\t) hoặc Phẩy (,)
+  const isTab = lines[0].includes('\t');
+  const separator = isTab ? '\t' : ',';
+
+  let startIndex = 0;
+  const firstCols = lines[0].split(separator).map(c => c.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+
+  // Kiểm tra xem dòng đầu có phải dòng tiêu đề không (Tài khoản, Mật khẩu,...)
+  const isHeader = firstCols.some(c => 
+    c.includes('tài khoản') || c.includes('username') || c.includes('user') || c.includes('khách') || c.includes('mật khẩu') || c.includes('pass')
+  );
+  if (isHeader) {
+    startIndex = 1;
+  }
+
+  parsedImportUsers = [];
+  const rows = [];
+
+  for (let i = startIndex; i < lines.length; i++) {
+    const cols = lines[i].split(separator).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    if (cols.length === 0 || !cols[0]) continue;
+
+    const username = (cols[0] || '').toLowerCase().trim();
+    if (!username || username === 'admin' || username === 'tài khoản') continue;
+
+    const password = cols[1] || '123456';
+    const rawDate = cols[2] || '';
+    const expiryDate = parseVietnameseDate(rawDate);
+    
+    // Tự động nhận diện vai trò (admin nếu cột chứa chữ admin)
+    let role = 'member';
+    let note = '';
+    
+    for (let c = 3; c < cols.length; c++) {
+      const val = cols[c];
+      if (val.toLowerCase() === 'admin') {
+        role = 'admin';
+      } else if (val) {
+        note = note ? `${note} - ${val}` : val;
+      }
+    }
+
+    parsedImportUsers.push({
+      username,
+      password,
+      role,
+      expiryDate,
+      note,
+      status: 'active'
+    });
+
+    rows.push(`
+      <tr>
+        <td>${parsedImportUsers.length}</td>
+        <td><b style="color:var(--primary)">${escapeHtml(username)}</b></td>
+        <td><code>${escapeHtml(password)}</code></td>
+        <td><span class="${role === 'admin' ? 'badge-role-admin' : 'badge-role-member'}">${role.toUpperCase()}</span></td>
+        <td>${expiryDate}</td>
+        <td style="color:var(--text-sub)">${escapeHtml(note || '-')}</td>
+      </tr>
+    `);
+  }
+
+  if (parsedImportUsers.length === 0) {
+    if (msg) {
+      msg.className = 'msg-box err';
+      msg.textContent = 'Không tìm thấy dòng tài khoản hợp lệ nào. Hãy kiểm tra lại dữ liệu vừa dán.';
+    }
+    if (container) container.style.display = 'none';
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    return;
+  }
+
+  if (tbody) tbody.innerHTML = rows.join('');
+  if (container) container.style.display = 'block';
+  if (confirmBtn) {
+    confirmBtn.style.display = 'inline-flex';
+    if (countBadge) countBadge.textContent = parsedImportUsers.length;
+  }
+  if (msg) {
+    msg.className = 'msg-box ok';
+    msg.textContent = `Đã phân tích thành công ${parsedImportUsers.length} tài khoản! Hãy nhấn nút "Xác nhận Nhập tất cả vào Supabase" để lưu vào hệ thống.`;
+  }
 }
 
 // Chạy khởi tạo
