@@ -2,6 +2,7 @@
   "cleanUrls": true,
   "rewrites": [
     { "source": "/activate", "destination": "/activate.html" },
+    { "source": "/dashboard", "destination": "/dashboard.html" },
     { "source": "/panel", "destination": "/panel.html" },
     { "source": "/manage", "destination": "/manage.html" },
     { "source": "/accounts", "destination": "/accounts.html" },

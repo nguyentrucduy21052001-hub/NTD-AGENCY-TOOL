@@ -8,6 +8,8 @@
  */
 import { enforceLicenseGate, logoutAccount, checkCurrentLicense } from './license.js';
 import { applyTheme, mountThemeToggle, getCurrentTheme } from './theme_toggle.js';
+import { supabaseUpdateUserStats } from './supabase.js';
+import { initSyncModal } from './sync_helper.js';
 
 // 0. Khởi tạo Chế độ Ban đêm / Ban ngày & Nút chuyển đổi góc trên bên phải NGAY TỨC THÌ
 applyTheme(getCurrentTheme());
@@ -73,6 +75,8 @@ const activeLicense = await enforceLicenseGate();
     activeKey = 'settings';
   } else if (currentPath.includes('manage.html')) {
     activeKey = 'manage';
+  } else if (currentPath.includes('dashboard.html')) {
+    activeKey = 'dashboard';
   } else if (currentPath.includes('panel.html')) {
     activeKey = 'panel';
   }
@@ -87,6 +91,7 @@ const activeLicense = await enforceLicenseGate();
   const urlMaps = chrome.runtime?.getURL ? chrome.runtime.getURL('maps.html') : 'maps.html';
   const urlSettings = chrome.runtime?.getURL ? chrome.runtime.getURL('settings.html') : 'settings.html';
   const urlManage = chrome.runtime?.getURL ? chrome.runtime.getURL('manage.html') : 'manage.html';
+  const urlDashboard = chrome.runtime?.getURL ? chrome.runtime.getURL('dashboard.html') : 'dashboard.html';
 
   // 4. Kiểm tra quyền Admin & Giao diện Dark / Light để áp dụng style hòa hợp
   const isAdmin = (activeLicense?.role || '').toLowerCase() === 'admin';
@@ -224,16 +229,31 @@ const activeLicense = await enforceLicenseGate();
         <span class="ntd-sb-item-badge" id="sbBadgeSettings" style="display:none"></span>
       </a>
 
-      <!-- Mục 8: Quản trị & Phân quyền (CHỈ DÀNH CHO ADMIN) -->
+      <!-- Mục 8 & 9: Dashboard & Quản trị (CHỈ DÀNH CHO ADMIN) -->
       ${isAdmin ? `
-      <a href="${urlManage}" data-page="manage.html" class="ntd-sb-item ${activeKey === 'manage' ? 'active' : ''}" id="sbItemManage" data-tooltip="Quản trị & Phân quyền">
+      <a href="${urlDashboard}" data-page="dashboard.html" class="ntd-sb-item ${activeKey === 'dashboard' ? 'active' : ''}" id="sbItemDashboard" data-tooltip="Dashboard Giám sát hoạt động">
+        <div class="ntd-sb-item-icon" style="color:#38bdf8">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+            <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+            <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+          </svg>
+        </div>
+        <div class="ntd-sb-item-content">
+          <span class="ntd-sb-item-title">Dashboard Hoạt động</span>
+        </div>
+        <span class="ntd-sb-item-badge" style="background:#0284c7;color:#fff;display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700">KPI</span>
+      </a>
+
+      <a href="${urlManage}" data-page="manage.html" class="ntd-sb-item ${activeKey === 'manage' ? 'active' : ''}" id="sbItemManage" data-tooltip="Quản trị &amp; Phân quyền">
         <div class="ntd-sb-item-icon" style="color:#f97316">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
           </svg>
         </div>
         <div class="ntd-sb-item-content">
-          <span class="ntd-sb-item-title">Quản trị & Phân quyền</span>
+          <span class="ntd-sb-item-title">Quản trị &amp; Phân quyền</span>
         </div>
         <span class="ntd-sb-item-badge" style="background:#ea580c;color:#fff;display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700">Admin</span>
       </a>
@@ -710,6 +730,110 @@ const activeLicense = await enforceLicenseGate();
     connect();
   }
   maintainWorkerKeepAlive();
+
+  // ── 9. [TELEMETRY] Tự động đồng bộ số liệu hoạt động lên Supabase cho Admin Dashboard ──
+  let _lastTelemetryReport = 0;
+  async function reportUserActivity() {
+    try {
+      const now = Date.now();
+      // Giới hạn tần suất: Tối đa 1 lần mỗi 20 giây để không gây nghẽn mạng
+      if (now - _lastTelemetryReport < 20000) return;
+      _lastTelemetryReport = now;
+
+      const lic = activeLicense || JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
+      const username = (lic?.username || '').trim();
+      if (!username) return;
+
+      let data = {};
+      if (chrome?.storage?.local) {
+        data = await chrome.storage.local.get([
+          'accounts',
+          'dailyPostStats',
+          'rinFbGroup',
+          'rinMaps'
+        ]);
+      } else {
+        try {
+          data = {
+            accounts: JSON.parse(localStorage.getItem('accounts') || '[]'),
+            dailyPostStats: JSON.parse(localStorage.getItem('dailyPostStats') || '{}'),
+            rinFbGroup: JSON.parse(localStorage.getItem('rinFbGroup') || '{}'),
+            rinMaps: JSON.parse(localStorage.getItem('rinMaps') || '{}')
+          };
+        } catch (_) {}
+      }
+
+      const allAccs = Array.isArray(data.accounts) ? data.accounts : [];
+      const fbCount = allAccs.filter(a => a.type !== 'fanpage').length;
+      const fanpageCount = allAccs.filter(a => a.type === 'fanpage').length;
+
+      // Tính tổng bài đăng hôm nay theo giờ địa phương (YYYY-MM-DD)
+      const todayDate = new Date();
+      const y = todayDate.getFullYear();
+      const m = String(todayDate.getMonth() + 1).padStart(2, '0');
+      const d = String(todayDate.getDate()).padStart(2, '0');
+      const todayStr = `${y}-${m}-${d}`;
+
+      let todayPosts = 0;
+      const statsMap = data.dailyPostStats || {};
+      for (const k of Object.keys(statsMap)) {
+        if (statsMap[k] && statsMap[k].date === todayStr) {
+          todayPosts += Number(statsMap[k].count) || 0;
+        }
+      }
+
+      // Quét số nhóm hôm nay (tính theo số điện thoại / bài viết quét được trong ngày)
+      let todayGroupScans = 0;
+      const groupRows = Array.isArray(data.rinFbGroup?.rows) ? data.rinFbGroup.rows : [];
+      if (groupRows.length > 0) {
+        const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
+        const todayVi = todayDate.toLocaleDateString('vi-VN');
+        const matched = groupRows.filter(r => {
+          if (r.id && r.id.startsWith('fg_')) {
+            const ts = Number(r.id.split('_')[1]);
+            if (!isNaN(ts) && ts >= startOfDay) return true;
+          }
+          if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
+          return false;
+        }).length;
+        todayGroupScans = matched > 0 ? matched : groupRows.length;
+      }
+
+      // Quét Google Maps hôm nay
+      const mapRows = Array.isArray(data.rinMaps?.rows) ? data.rinMaps.rows : [];
+      const todayMapsScans = mapRows.length;
+
+      // Gửi lên Supabase
+      await supabaseUpdateUserStats(username, {
+        fb_count: fbCount,
+        fanpage_count: fanpageCount,
+        today_posts: todayPosts,
+        today_group_scans: todayGroupScans,
+        today_maps_scans: todayMapsScans
+      });
+    } catch (err) {
+      // Bỏ qua lỗi âm thầm để không ảnh hưởng luồng công việc của khách hàng
+      console.warn('Telemetry update ignored:', err);
+    }
+  }
+
+  // Tự động gửi telemetry sau khi mở trang 2.5 giây
+  setTimeout(() => {
+    reportUserActivity().catch(() => {});
+  }, 2500);
+
+  // Lắng nghe thay đổi dữ liệu để gửi telemetry (Debounced 5s)
+  if (chrome?.storage?.onChanged) {
+    let _telemetryTimer = null;
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && (changes.accounts || changes.dailyPostStats || changes.rinFbGroup || changes.rinMaps)) {
+        if (_telemetryTimer) clearTimeout(_telemetryTimer);
+        _telemetryTimer = setTimeout(() => {
+          reportUserActivity().catch(() => {});
+        }, 5000);
+      }
+    });
+  }
 
   // Khởi động khi DOM sẵn sàng
   if (document.readyState === 'loading') {
