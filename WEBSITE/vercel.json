@@ -1,5 +1,14 @@
 {
-  "version": 2,
   "cleanUrls": true,
-  "trailingSlash": false
+  "rewrites": [
+    { "source": "/activate", "destination": "/activate.html" },
+    { "source": "/panel", "destination": "/panel.html" },
+    { "source": "/manage", "destination": "/manage.html" },
+    { "source": "/accounts", "destination": "/accounts.html" },
+    { "source": "/groups", "destination": "/groups.html" },
+    { "source": "/maps", "destination": "/maps.html" },
+    { "source": "/fanpages", "destination": "/fanpages.html" },
+    { "source": "/warmup", "destination": "/warmup.html" },
+    { "source": "/settings", "destination": "/settings.html" }
+  ]
 }
