@@ -54,8 +54,184 @@
     }
 
     main {
-      max-width: 1040px;
+      max-width: 1200px;
       margin: 0 auto;
+    }
+
+    /* KPI Dashboard Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .kpi-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(234, 88, 12, 0.4);
+    }
+
+    .kpi-icon-wrap {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      color: var(--text-sub);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .kpi-value {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--text-main);
+      line-height: 1.1;
+      margin-bottom: 4px;
+    }
+
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--text-sub);
+    }
+
+    /* Filter Bar for Dashboard */
+    .dash-filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .dash-search-input {
+      position: relative;
+      flex: 1;
+      min-width: 240px;
+      max-width: 380px;
+    }
+
+    .dash-search-input input {
+      margin-top: 0;
+      padding: 8px 12px 8px 34px;
+      font-size: 13px;
+    }
+
+    .dash-search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      color: var(--text-sub);
+      pointer-events: none;
+    }
+
+    .dash-filter-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .dash-pill-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-sub);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .dash-pill-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    .dash-pill-btn.active {
+      background: rgba(234, 88, 12, 0.2);
+      border-color: #ea580c;
+      color: #fb923c;
+      font-weight: 700;
+    }
+
+    /* Activity Metric Badges */
+    .metric-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      min-width: 28px;
+    }
+
+    .badge-zero {
+      background: rgba(148, 163, 184, 0.1);
+      color: #94a3b8;
+    }
+
+    .badge-blue {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .badge-green {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-orange {
+      background: rgba(249, 115, 22, 0.15);
+      color: #fb923c;
+      border: 1px solid rgba(249, 115, 22, 0.3);
+    }
+
+    .badge-purple {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .user-avatar-sm {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(249, 115, 22, 0.1) 100%);
+      border: 1px solid rgba(234, 88, 12, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #fb923c;
+      font-size: 13px;
+      flex-shrink: 0;
     }
 
     .admin-header {
@@ -419,7 +595,6 @@
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <span class="admin-badge-tag">👑 Quyền Quản trị viên (Admin)</span>
-        <a href="dashboard.html" class="btn-secondary" style="font-size:12px;padding:6px 12px;background:rgba(2,132,199,0.15);color:#38bdf8;border:1px solid rgba(2,132,199,0.3)">📊 Dashboard Hoạt động</a>
         <a href="panel.html" class="btn-secondary" style="font-size:12px;padding:6px 12px">← Quay lại Đăng bài</a>
       </div>
     </header>
@@ -433,19 +608,138 @@
     <div id="adminMainContent">
       <!-- Tabs -->
       <nav class="admin-tabs" role="tablist">
-        <button type="button" class="tab-btn active" id="tabBtnUsers" data-tab="tabUsers">
+        <button type="button" class="tab-btn active" id="tabBtnDashboard" data-tab="tabDashboard">
+          📊 Dashboard Hoạt động
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnUsers" data-tab="tabUsers">
           👥 Phân quyền &amp; Người dùng
         </button>
         <button type="button" class="tab-btn" id="tabBtnSupabase" data-tab="tabSupabase">
           ⚡ Cơ sở dữ liệu Supabase
         </button>
         <button type="button" class="tab-btn" id="tabBtnSheets" data-tab="tabSheets">
-          📊 Bảng tính Google Sheets &amp; Đồng bộ
+          📈 Bảng tính Google Sheets &amp; Đồng bộ
         </button>
       </nav>
 
-      <!-- TAB 1: PHÂN QUYỀN & NGƯỜI DÙNG -->
-      <section id="tabUsers" class="tab-pane">
+      <!-- TAB 1: DASHBOARD HOẠT ĐỘNG (TELEMETRY KPI) -->
+      <section id="tabDashboard" class="tab-pane">
+        <!-- 6 KPI Summary Cards -->
+        <div class="kpi-grid">
+          <!-- KPI 1: Khách hàng -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:rgba(234,88,12,0.15);color:#fb923c">👥</div>
+            <div class="kpi-label">Tổng khách hàng</div>
+            <div class="kpi-value" id="kpiActiveUsers">0</div>
+            <div class="kpi-sub">trên tổng số <span id="kpiTotalUsers" style="font-weight:700">0</span> tài khoản</div>
+          </div>
+
+          <!-- KPI 2: Nick Facebook -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:rgba(59,130,246,0.15);color:#60a5fa">📘</div>
+            <div class="kpi-label">Nick FB cá nhân</div>
+            <div class="kpi-value" id="kpiTotalFb">0</div>
+            <div class="kpi-sub">tài khoản FB đang nuôi</div>
+          </div>
+
+          <!-- KPI 3: Fanpage vệ tinh -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:rgba(168,85,247,0.15);color:#c084fc">📄</div>
+            <div class="kpi-label">Fanpage vệ tinh</div>
+            <div class="kpi-value" id="kpiTotalFanpages">0</div>
+            <div class="kpi-sub">trang vệ tinh kết nối</div>
+          </div>
+
+          <!-- KPI 4: Bài đăng hôm nay -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:rgba(16,185,129,0.15);color:#34d399">🚀</div>
+            <div class="kpi-label">Bài đăng hôm nay</div>
+            <div class="kpi-value" id="kpiTodayPosts">0</div>
+            <div class="kpi-sub">lượt đăng nhóm thành công</div>
+          </div>
+
+          <!-- KPI 5: Quét số nhóm hôm nay -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:rgba(249,115,22,0.15);color:#fb923c">🔍</div>
+            <div class="kpi-label">Quét số nhóm hôm nay</div>
+            <div class="kpi-value" id="kpiGroupScans">0</div>
+            <div class="kpi-sub">SĐT / bài viết thu thập</div>
+          </div>
+
+          <!-- KPI 6: Quét Google Maps hôm nay -->
+          <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:rgba(234,88,12,0.15);color:#f97316">🗺️</div>
+            <div class="kpi-label">Quét Maps hôm nay</div>
+            <div class="kpi-value" id="kpiMapsScans">0</div>
+            <div class="kpi-sub">cơ sở doanh nghiệp cào được</div>
+          </div>
+        </div>
+
+        <!-- Bảng giám sát hoạt động chi tiết -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div>
+              <h2 style="margin:0 0 4px">Giám sát Hoạt động từng Khách hàng</h2>
+              <span id="dashSourceBadge" style="font-size:12px;color:var(--text-sub)">Cập nhật từ Supabase theo thời gian thực</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn-secondary" id="refreshDashBtn" style="padding:7px 14px;font-size:12px">
+                🔄 Làm mới
+              </button>
+              <button type="button" class="btn-secondary" id="exportDashCsvBtn" style="padding:7px 14px;font-size:12px;border-color:#10b981;color:#34d399">
+                📥 Xuất CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Thanh tìm kiếm & bộ lọc nhanh -->
+          <div class="dash-filter-bar">
+            <div class="dash-search-input">
+              <span class="dash-search-icon">🔍</span>
+              <input type="text" id="dashSearchInput" placeholder="Tìm kiếm theo tên tài khoản hoặc ghi chú..." autocomplete="off">
+            </div>
+            <div class="dash-filter-pills">
+              <button type="button" class="dash-pill-btn active" data-dashfilter="all">Tất cả</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="active-today">Đăng nhập hôm nay</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-fb">Có nick FB (&gt;0)</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-posts">Có đăng bài hôm nay</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-scans">Có cào dữ liệu</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="admin">Admin</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="member">Khách hàng</button>
+            </div>
+          </div>
+
+          <!-- Table Container -->
+          <div class="user-table-wrap">
+            <table class="user-table" id="dashActivityTable">
+              <thead>
+                <tr>
+                  <th style="width:36px;text-align:center">#</th>
+                  <th>Khách hàng &amp; Ghi chú</th>
+                  <th style="text-align:center">Nick FB</th>
+                  <th style="text-align:center">Fanpage</th>
+                  <th style="text-align:center">Bài hôm nay</th>
+                  <th style="text-align:center">Quét nhóm</th>
+                  <th style="text-align:center">Quét Maps</th>
+                  <th>Đăng nhập cuối</th>
+                  <th>Hạn dùng &amp; Trạng thái</th>
+                  <th style="text-align:right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="dashActivityTbody">
+                <tr>
+                  <td colspan="10" style="text-align:center;padding:24px;color:var(--text-sub)">
+                    Đang nạp dữ liệu hoạt động...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: PHÂN QUYỀN & NGƯỜI DÙNG -->
+      <section id="tabUsers" class="tab-pane" style="display:none">
         <!-- 1. Tạo tài khoản mới kèm Phân quyền -->
         <div class="card">
           <h2>1. Thêm tài khoản mới &amp; Phân quyền</h2>

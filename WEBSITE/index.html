@@ -388,28 +388,15 @@
         </div>
       </a>
 
-      <!-- 8. Dashboard Giám sát Hoạt động (Admin) -->
-      <a href="dashboard.html" class="portal-card" id="adminDashboardCard" style="display:none">
-        <div class="card-icon" style="color:#0284c7;background:rgba(2,132,199,0.12)">📊</div>
-        <div class="card-title">Dashboard Hoạt động</div>
-        <div class="card-desc">
-          Giám sát hoạt động khách hàng: Số lượng tài khoản FB, Fanpage, bài đăng trong ngày, lượt quét số nhóm và quét Google Maps.
-        </div>
-        <div class="card-footer">
-          <span>Xem Dashboard KPI</span>
-          <span>→</span>
-        </div>
-      </a>
-
-      <!-- 9. Quản trị & Phân quyền (Admin) -->
+      <!-- 8. Quản trị & Phân quyền kèm Dashboard Hoạt động (Admin) -->
       <a href="manage.html" class="portal-card" id="adminPortalCard" style="display:none">
         <div class="card-icon" style="color:#f97316;background:rgba(249,115,22,0.12)">👑</div>
         <div class="card-title">Quản trị &amp; Phân quyền</div>
         <div class="card-desc">
-          Quản lý tài khoản khách hàng, phân quyền Admin/Member, gia hạn ngày dùng và quản lý cơ sở dữ liệu Supabase.
+          Dashboard giám sát hoạt động hệ thống, quản lý tài khoản khách hàng, phân quyền Admin/Member và đồng bộ cơ sở dữ liệu.
         </div>
         <div class="card-footer">
-          <span>Mở trang Quản trị (Admin)</span>
+          <span>Mở trang Quản trị &amp; Dashboard</span>
           <span>→</span>
         </div>
       </a>
@@ -459,8 +446,6 @@
 
               const adminCard = document.getElementById('adminPortalCard');
               if (adminCard) adminCard.style.display = isAdmin ? 'flex' : 'none';
-              const dashCard = document.getElementById('adminDashboardCard');
-              if (dashCard) dashCard.style.display = isAdmin ? 'flex' : 'none';
 
               if (logoutBtn) {
                 logoutBtn.onclick = () => {
@@ -500,10 +485,6 @@
           const adminCard = document.getElementById('adminPortalCard');
           if (adminCard) {
             adminCard.style.display = isAdmin ? 'flex' : 'none';
-          }
-          const dashCard = document.getElementById('adminDashboardCard');
-          if (dashCard) {
-            dashCard.style.display = isAdmin ? 'flex' : 'none';
           }
 
           logoutBtn.onclick = async () => {

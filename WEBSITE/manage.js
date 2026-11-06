@@ -48,6 +48,7 @@ async function enforceAdminRole() {
 // ── 2. QUẢN LÝ TABS ──────────────────────────────────────────────────────────
 function initTabs() {
   const tabs = [
+    { btn: $('tabBtnDashboard'), pane: $('tabDashboard') },
     { btn: $('tabBtnUsers'), pane: $('tabUsers') },
     { btn: $('tabBtnSupabase'), pane: $('tabSupabase') },
     { btn: $('tabBtnSheets'), pane: $('tabSheets') }
@@ -85,8 +86,6 @@ async function initAdminPage() {
   // Nạp cấu hình Google Sheets
   const sheetUrl = await getGoogleScriptUrl();
   if ($('scriptUrlInput')) $('scriptUrlInput').value = sheetUrl;
-
-  // Nạp giao diện Bảng tính Google Sheet trực tiếp & Công cụ Đồng bộ
   initGoogleSheetSection();
 
   // Đặt ngày hết hạn mặc định: Hôm nay + 30 ngày
@@ -372,6 +371,8 @@ async function loadUserList() {
     }
 
     renderUserTable();
+    renderKpiCards(cachedUsers);
+    renderDashboardTable();
   } catch (err) {
     container.innerHTML = `<p style="padding:20px;text-align:center;color:#f87171">Lỗi tải dữ liệu: ${err.message}</p>`;
   }
@@ -581,6 +582,281 @@ function attachTableEventListeners(container) {
   });
 }
 
+
+// ── 7B. DASHBOARD HOẠT ĐỘNG (TELEMETRY & KPI) ──────────────────────────────
+let dashFilter = 'all';
+let dashSearch = '';
+
+function formatRelativeTime(dateString) {
+  if (!dateString) return { display: 'Chưa đăng nhập', sub: 'Chưa có hoạt động', isToday: false };
+
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return { display: 'Không rõ', sub: '', isToday: false };
+
+  const now = new Date();
+  const diffMs = now - date;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHours = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  const formattedExact = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ' + date.toLocaleDateString('vi-VN');
+
+  let relative = '';
+  if (diffSec < 60) {
+    relative = 'Vừa xong';
+  } else if (diffMin < 60) {
+    relative = `${diffMin} phút trước`;
+  } else if (diffHours < 24) {
+    relative = `${diffHours} giờ trước`;
+  } else if (diffDays <= 30) {
+    relative = `${diffDays} ngày trước`;
+  } else {
+    relative = date.toLocaleDateString('vi-VN');
+  }
+
+  return { display: formattedExact, sub: relative, isToday: diffHours < 24 };
+}
+
+function renderKpiCards(users) {
+  const totalUsers = users.length;
+  const activeUsers = users.filter(u => u.status === 'active' && !u.isExpired).length;
+
+  let totalFb = 0;
+  let totalFanpages = 0;
+  let todayPosts = 0;
+  let groupScans = 0;
+  let mapsScans = 0;
+
+  users.forEach(u => {
+    totalFb += Number(u.fbCount) || 0;
+    totalFanpages += Number(u.fanpageCount) || 0;
+    todayPosts += Number(u.todayPosts) || 0;
+    groupScans += Number(u.todayGroupScans) || 0;
+    mapsScans += Number(u.todayMapsScans) || 0;
+  });
+
+  if ($('kpiActiveUsers')) $('kpiActiveUsers').textContent = activeUsers;
+  if ($('kpiTotalUsers')) $('kpiTotalUsers').textContent = totalUsers;
+  if ($('kpiTotalFb')) $('kpiTotalFb').textContent = totalFb.toLocaleString('vi-VN');
+  if ($('kpiTotalFanpages')) $('kpiTotalFanpages').textContent = totalFanpages.toLocaleString('vi-VN');
+  if ($('kpiTodayPosts')) $('kpiTodayPosts').textContent = todayPosts.toLocaleString('vi-VN');
+  if ($('kpiGroupScans')) $('kpiGroupScans').textContent = groupScans.toLocaleString('vi-VN');
+  if ($('kpiMapsScans')) $('kpiMapsScans').textContent = mapsScans.toLocaleString('vi-VN');
+}
+
+function filterDashUsers(users) {
+  const q = (dashSearch || '').trim().toLowerCase();
+
+  return users.filter(u => {
+    if (q) {
+      const matchName = (u.username || '').toLowerCase().includes(q);
+      const matchNote = (u.note || '').toLowerCase().includes(q);
+      if (!matchName && !matchNote) return false;
+    }
+
+    if (dashFilter === 'active-today') {
+      if (!u.rawLastLogin) return false;
+      const d = new Date(u.rawLastLogin);
+      const today = new Date();
+      return d.toDateString() === today.toDateString();
+    }
+    if (dashFilter === 'has-fb') {
+      return (Number(u.fbCount) || 0) > 0;
+    }
+    if (dashFilter === 'has-posts') {
+      return (Number(u.todayPosts) || 0) > 0;
+    }
+    if (dashFilter === 'has-scans') {
+      return (Number(u.todayGroupScans) || 0) > 0 || (Number(u.todayMapsScans) || 0) > 0;
+    }
+    if (dashFilter === 'admin') {
+      return u.role === 'admin';
+    }
+    if (dashFilter === 'member') {
+      return u.role !== 'admin';
+    }
+
+    return true;
+  });
+}
+
+function renderDashboardTable() {
+  const tbody = $('dashActivityTbody');
+  if (!tbody) return;
+
+  const filtered = filterDashUsers(cachedUsers);
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" style="text-align:center;padding:32px;color:var(--text-sub)">
+          Không tìm thấy tài khoản nào phù hợp với bộ lọc hiện tại.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((u, idx) => {
+    const isAdmin = u.role === 'admin';
+    const firstLetter = (u.username || 'U').charAt(0).toUpperCase();
+    const loginInfo = formatRelativeTime(u.rawLastLogin);
+
+    let statusBadge = '';
+    if (u.status === 'locked') {
+      statusBadge = '<span class="badge-locked">Bị khóa</span>';
+    } else if (u.isExpired) {
+      statusBadge = '<span class="badge-expired">Hết hạn</span>';
+    } else {
+      statusBadge = '<span class="badge-active">Hoạt động</span>';
+    }
+
+    const fbCount = Number(u.fbCount) || 0;
+    const fbBadge = fbCount > 0 
+      ? `<span class="metric-badge badge-blue" title="${fbCount} nick Facebook cá nhân">${fbCount} nick</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
+    const fpCount = Number(u.fanpageCount) || 0;
+    const fpBadge = fpCount > 0
+      ? `<span class="metric-badge badge-purple" title="${fpCount} Fanpage vệ tinh">${fpCount} page</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
+    const postCount = Number(u.todayPosts) || 0;
+    const postBadge = postCount > 0
+      ? `<span class="metric-badge badge-green" title="${postCount} bài đã đăng hôm nay">🚀 ${postCount}</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
+    const groupCount = Number(u.todayGroupScans) || 0;
+    const groupBadge = groupCount > 0
+      ? `<span class="metric-badge badge-orange" title="${groupCount} SĐT / dữ liệu quét từ nhóm hôm nay">📞 ${groupCount}</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
+    const mapsCount = Number(u.todayMapsScans) || 0;
+    const mapsBadge = mapsCount > 0
+      ? `<span class="metric-badge badge-orange" title="${mapsCount} cơ sở doanh nghiệp quét từ Maps hôm nay">🗺️ ${mapsCount}</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
+    return `
+      <tr>
+        <td style="text-align:center;color:var(--text-sub);font-weight:700">${idx + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="user-avatar-sm">${firstLetter}</div>
+            <div>
+              <div style="font-weight:700;color:var(--text-main);display:flex;align-items:center;gap:6px">
+                <span>${escapeHtml(u.username)}</span>
+                ${isAdmin ? '<span class="badge-role-admin" style="font-size:9.5px;padding:1px 5px">👑 Admin</span>' : '<span class="badge-role-member" style="font-size:9.5px;padding:1px 5px">👤 Member</span>'}
+              </div>
+              <div style="font-size:11.5px;color:var(--text-sub);margin-top:2px" title="${escapeHtml(u.note)}">${escapeHtml(u.note || 'Không có ghi chú')}</div>
+            </div>
+          </div>
+        </td>
+        <td style="text-align:center">${fbBadge}</td>
+        <td style="text-align:center">${fpBadge}</td>
+        <td style="text-align:center">${postBadge}</td>
+        <td style="text-align:center">${groupBadge}</td>
+        <td style="text-align:center">${mapsBadge}</td>
+        <td>
+          <div style="font-weight:600">${loginInfo.display}</div>
+          <div style="font-size:11px;color:${loginInfo.isToday ? '#34d399' : 'var(--text-sub)'}">${loginInfo.sub}</div>
+        </td>
+        <td>
+          <div style="font-weight:600;margin-bottom:3px">${u.expiry || '--/--/----'}</div>
+          <div>${statusBadge}</div>
+        </td>
+        <td style="text-align:right">
+          <button type="button" class="action-btn-sm btn-quick-manage" data-user="${escapeHtml(u.username)}" style="background:#ea580c;color:#fff;padding:5px 9px" title="Chuyển sang tab Phân quyền để đổi mật khẩu, vai trò hoặc gia hạn">
+            ⚙️ Quản trị
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Gắn sự kiện nút Quản trị từng dòng để chuyển ngay sang tab Phân quyền
+  tbody.querySelectorAll('.btn-quick-manage').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $('tabBtnUsers')?.click();
+      setTimeout(() => {
+        $('userListContainer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    });
+  });
+}
+
+function exportDashCsv() {
+  if (!cachedUsers || cachedUsers.length === 0) {
+    alert('Không có dữ liệu để xuất file.');
+    return;
+  }
+
+  const filtered = filterDashUsers(cachedUsers);
+  const headers = [
+    'STT',
+    'Tên tài khoản',
+    'Vai trò',
+    'Ghi chú',
+    'Nick FB cá nhân',
+    'Fanpage',
+    'Bài đăng hôm nay',
+    'Quét số nhóm hôm nay',
+    'Quét Maps hôm nay',
+    'Đăng nhập cuối',
+    'Hạn sử dụng',
+    'Trạng thái'
+  ];
+
+  const rows = filtered.map((u, i) => [
+    i + 1,
+    `"${(u.username || '').replace(/"/g, '""')}"`,
+    u.role || 'member',
+    `"${(u.note || '').replace(/"/g, '""')}"`,
+    Number(u.fbCount) || 0,
+    Number(u.fanpageCount) || 0,
+    Number(u.todayPosts) || 0,
+    Number(u.todayGroupScans) || 0,
+    Number(u.todayMapsScans) || 0,
+    `"${u.lastLogin || ''}"`,
+    u.expiry || '',
+    u.status || 'active'
+  ]);
+
+  const csvContent = '\uFEFF' + [
+    headers.join(','),
+    ...rows.map(r => r.join(','))
+  ].join('\r\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const nowStr = new Date().toISOString().slice(0, 10);
+  a.download = `Bao_cao_hoat_dong_NTD_Agency_${nowStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Gắn sự kiện các chức năng Dashboard
+$('refreshDashBtn')?.addEventListener('click', loadUserList);
+$('exportDashCsvBtn')?.addEventListener('click', exportDashCsv);
+
+$('dashSearchInput')?.addEventListener('input', (e) => {
+  dashSearch = e.target.value;
+  renderDashboardTable();
+});
+
+document.querySelectorAll('.dash-pill-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.dash-pill-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    dashFilter = btn.getAttribute('data-dashfilter') || 'all';
+    renderDashboardTable();
+  });
+});
+
 // ── 8. BỘ LỌC VAI TRÒ ────────────────────────────────────────────────────────
 document.querySelectorAll('.role-filter-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -588,6 +864,8 @@ document.querySelectorAll('.role-filter-btn').forEach(btn => {
     btn.classList.add('active');
     currentRoleFilter = btn.getAttribute('data-filter') || 'all';
     renderUserTable();
+    renderKpiCards(cachedUsers);
+    renderDashboardTable();
   });
 });
 

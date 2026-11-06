@@ -229,23 +229,8 @@ const activeLicense = await enforceLicenseGate();
         <span class="ntd-sb-item-badge" id="sbBadgeSettings" style="display:none"></span>
       </a>
 
-      <!-- Mục 8 & 9: Dashboard & Quản trị (CHỈ DÀNH CHO ADMIN) -->
+      <!-- Mục 8: Quản trị & Phân quyền (CHỈ DÀNH CHO ADMIN) -->
       ${isAdmin ? `
-      <a href="${urlDashboard}" data-page="dashboard.html" class="ntd-sb-item ${activeKey === 'dashboard' ? 'active' : ''}" id="sbItemDashboard" data-tooltip="Dashboard Giám sát hoạt động">
-        <div class="ntd-sb-item-icon" style="color:#38bdf8">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="9" rx="1"></rect>
-            <rect x="14" y="3" width="7" height="5" rx="1"></rect>
-            <rect x="14" y="12" width="7" height="9" rx="1"></rect>
-            <rect x="3" y="16" width="7" height="5" rx="1"></rect>
-          </svg>
-        </div>
-        <div class="ntd-sb-item-content">
-          <span class="ntd-sb-item-title">Dashboard Hoạt động</span>
-        </div>
-        <span class="ntd-sb-item-badge" style="background:#0284c7;color:#fff;display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700">KPI</span>
-      </a>
-
       <a href="${urlManage}" data-page="manage.html" class="ntd-sb-item ${activeKey === 'manage' ? 'active' : ''}" id="sbItemManage" data-tooltip="Quản trị &amp; Phân quyền">
         <div class="ntd-sb-item-icon" style="color:#f97316">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
