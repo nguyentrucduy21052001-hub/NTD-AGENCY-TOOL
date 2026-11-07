@@ -1,0 +1,3744 @@
+﻿<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>(function () { var t = localStorage.getItem('ntd_theme') || 'dark'; var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches); if (isDark) { document.documentElement.classList.add('ntd-dark-theme'); document.documentElement.style.backgroundColor = '#070b14'; document.documentElement.style.colorScheme = 'dark'; new MutationObserver(function (_, obs) { if (document.body) { document.body.classList.add('ntd-dark-theme'); document.body.style.backgroundColor = '#070b14'; obs.disconnect(); } }).observe(document.documentElement, { childList: true }); } else { document.documentElement.classList.remove('ntd-dark-theme'); document.documentElement.style.backgroundColor = '#f3f5fa'; document.documentElement.style.colorScheme = 'light'; new MutationObserver(function (_, obs) { if (document.body) { document.body.classList.remove('ntd-dark-theme'); obs.disconnect(); } }).observe(document.documentElement, { childList: true }); } })();</script>
+  <style id="ntd-anti-flicker">
+    html.ntd-dark-theme,
+    html.ntd-dark-theme body,
+    body.ntd-dark-theme {
+      background-color: #070b14 !important;
+      background: #070b14 !important;
+      color: #f8fafc !important;
+      color-scheme: dark !important
+    }
+
+    html.ntd-dark-theme {
+      --bg: #070b14 !important;
+      --surface: #0b111e !important;
+      --card-bg: #0f172a !important;
+      --bg-card: #0f172a !important;
+      --bg-input: #0b111e !important;
+      --bg-page: #070b14 !important;
+      --border: rgba(255, 255, 255, 0.08) !important;
+      --text: #f8fafc !important;
+      --text-muted: #94a3b8 !important
+    }
+
+    html.ntd-dark-theme .card,
+    html.ntd-dark-theme .stat-card,
+    html.ntd-dark-theme .grid section,
+    html.ntd-dark-theme section,
+    html.ntd-dark-theme .setting-box,
+    html.ntd-dark-theme .as-card,
+    html.ntd-dark-theme .modal-content,
+    html.ntd-dark-theme .dash-kpi-card,
+    html.ntd-dark-theme .acc-status-card {
+      background-color: #0b111e !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      color: #f8fafc !important
+    }
+  </style>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<style>
+  /* Multi-account section */
+  #multiSection {
+    margin-top: 22px;
+    border-top: 1px solid #e8e8e8;
+    padding-top: 20px
+  }
+
+  .acc-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px
+  }
+
+  .acc-bar h2 {
+    margin: 0;
+    font-size: 15px
+  }
+
+  .acc-count {
+    background: #f0f4ff;
+    border: 1px solid #c8d8ff;
+    color: #3355aa;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 700
+  }
+
+  .manage-btn {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    color: #444;
+    padding: 7px 14px;
+    font-size: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px
+  }
+
+  .manage-btn:hover {
+    background: #eee
+  }
+
+  /* Per-account status list (tối đa 8 account: 2 cột x 4 hàng, cuộn khi nhiều hơn) */
+  #accStatusList {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    max-height: 585px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    scroll-behavior: smooth;
+  }
+
+  @media (max-width: 768px) {
+    #accStatusList {
+      grid-template-columns: 1fr;
+      max-height: 585px;
+    }
+  }
+
+  #accStatusList::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  #accStatusList::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+
+  #accStatusList::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+
+  #accStatusList::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  .acc-status-card {
+    background: #f9fafb;
+    border: 1px solid #e4e8ef;
+    border-radius: 12px;
+    padding: 14px 16px
+  }
+
+  .acc-status-card.running {
+    border-left: 3px solid #ed6b22
+  }
+
+  .acc-status-card.waiting {
+    border-left: 3px solid #60a5fa
+  }
+
+  .acc-status-card.paused {
+    border-left: 3px solid #fbbf24
+  }
+
+  .acc-status-card.done {
+    border-left: 3px solid #4ade80
+  }
+
+  .acc-status-card.stopped {
+    border-left: 3px solid #f87171
+  }
+
+  .asc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px
+  }
+
+  .asc-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: #1a2635
+  }
+
+  .asc-state {
+    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-weight: 700
+  }
+
+  .state-running {
+    background: rgba(237, 107, 34, .12);
+    color: #c95500
+  }
+
+  .state-waiting {
+    background: rgba(96, 165, 250, .18);
+    color: #1d4ed8
+  }
+
+  .state-paused {
+    background: rgba(251, 191, 36, .15);
+    color: #9a7000
+  }
+
+  .state-done {
+    background: rgba(74, 222, 128, .15);
+    color: #1a8a45
+  }
+
+  .state-stopped {
+    background: rgba(248, 113, 113, .12);
+    color: #c00
+  }
+
+  .asc-prog {
+    font-size: 12px;
+    color: #68758b;
+    margin-top: 4px
+  }
+
+  .asc-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap
+  }
+
+  .asc-btn {
+    padding: 5px 12px;
+    font-size: 11px;
+    border-radius: 7px;
+    cursor: pointer;
+    border: 1px solid #ddd;
+    background: #fff;
+    font-weight: 600
+  }
+
+  .asc-btn:hover {
+    background: #f0f0f0
+  }
+
+  .asc-btn.danger {
+    color: #c00;
+    border-color: #f8a8a8
+  }
+
+  .asc-btn.danger:hover {
+    background: #fff0f0
+  }
+
+  .asc-jobs {
+    max-height: 80px;
+    overflow-y: auto;
+    margin-top: 8px
+  }
+
+  .asc-jobs ol {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 11px;
+    color: #68758b
+  }
+
+  .asc-jobs ol li {
+    margin-bottom: 2px
+  }
+
+  .no-accounts-notice {
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: #7a5c00;
+    text-align: center
+  }
+
+  .no-accounts-notice a {
+    color: #ed6b22;
+    font-weight: 700;
+    text-decoration: none
+  }
+
+  .bulk-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    flex-wrap: wrap
+  }
+
+  #startAllBtn {
+    background: linear-gradient(135deg, #ed6b22, #f59332);
+    color: #fff;
+    border: none;
+    padding: 10px 22px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: all .2s
+  }
+
+  #startAllBtn:hover {
+    opacity: .88;
+    transform: translateY(-1px)
+  }
+
+  #pauseAllBtn:hover {
+    background: #fde68a !important
+  }
+
+  #resumeAllBtn:hover {
+    background: #d1fae5 !important
+  }
+
+  #stopAllBtn {
+    background: #fff;
+    border: 1px solid #f87171;
+    color: #c00;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer
+  }
+
+  #stopAllBtn:hover {
+    background: #fff0f0
+  }
+
+  /* Anti-Spam Card & Controls */
+  .anti-spam-card {
+    background: #f8fafc;
+    border: 1px solid #dbe3ee;
+    border-left: 4px solid #10b981;
+    border-radius: 12px;
+    padding: 0;
+    margin: 18px 0;
+    overflow: visible;
+    transition: all .2s ease
+  }
+
+  .anti-spam-card.collapsed {
+    border-left-color: #10b981
+  }
+
+  .as-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    background: #f8fafc;
+    transition: background .15s
+  }
+
+  .as-header:hover {
+    background: #f1f5f9
+  }
+
+  .as-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap
+  }
+
+  .as-icon {
+    font-size: 16px
+  }
+
+  .as-title-text {
+    font-weight: 700;
+    font-size: 13.5px;
+    color: #0f172a
+  }
+
+  .as-summary-badge {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #047857;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 20px;
+    padding: 2px 9px;
+    display: inline-flex;
+    align-items: center
+  }
+
+  .as-toggle-btn {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all .15s
+  }
+
+  .as-toggle-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a
+  }
+
+  .as-arrow {
+    font-size: 10px;
+    transition: transform .2s ease
+  }
+
+  .as-body {
+    padding: 14px 16px 16px;
+    border-top: 1px solid #e2e8f0;
+    background: #fff;
+    border-radius: 0 0 12px 12px
+  }
+
+  .as-section-item {
+    margin-bottom: 12px
+  }
+
+  .as-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap
+  }
+
+  .as-item-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: #1e293b;
+    display: inline-flex;
+    align-items: center
+  }
+
+  .range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px
+  }
+
+  .range-inputs input {
+    margin-top: 0;
+    width: 75px;
+    text-align: center;
+    font-weight: 600;
+    padding: 6px 8px
+  }
+
+  .range-inputs span {
+    font-size: 12.5px;
+    color: #64748b;
+    font-weight: 500
+  }
+
+  .as-hint {
+    display: block;
+    font-size: 11.5px;
+    color: #64748b;
+    margin-top: 4px
+  }
+
+  .as-grid-checks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px
+  }
+
+  @media (max-width: 650px) {
+    .as-grid-checks {
+      grid-template-columns: 1fr
+    }
+  }
+
+  .as-check-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #334155;
+    line-height: 1.4;
+    margin: 0
+  }
+
+  .as-check-label.compact {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 9px 11px;
+    align-items: center
+  }
+
+  .as-check-label.as-highlight-check {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 8px;
+    padding: 9px 12px;
+    margin-bottom: 10px;
+    align-items: center
+  }
+
+  .as-check-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: #10b981;
+    flex-shrink: 0
+  }
+
+  /* Note Icon & Tooltip */
+  .as-note-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    cursor: help;
+    margin-left: 6px;
+    vertical-align: middle;
+    line-height: 1;
+  }
+
+  .as-note-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13.5px;
+    opacity: 0.85;
+    transition: all .15s ease;
+    user-select: none;
+  }
+
+  .as-note-btn:hover .as-note-badge {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+
+  .as-note-btn .as-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    width: 250px;
+    max-width: 280px;
+    background-color: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    text-align: left;
+    border-radius: 8px;
+    padding: 8px 12px;
+    position: absolute;
+    z-index: 9999;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+    transition: opacity .18s ease, transform .18s ease, visibility .18s;
+    pointer-events: none;
+    white-space: normal;
+    text-transform: none;
+  }
+
+  .as-note-btn .as-tooltip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #0f172a transparent transparent transparent;
+  }
+
+  .as-note-btn:hover .as-tooltip,
+  .as-note-btn:focus .as-tooltip {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  .as-grid-checks>label:last-child .as-note-btn .as-tooltip {
+    left: auto;
+    right: -10px;
+    transform: translateY(4px);
+  }
+
+  .as-grid-checks>label:last-child .as-note-btn .as-tooltip::after {
+    left: auto;
+    right: 14px;
+  }
+
+  .as-grid-checks>label:last-child .as-note-btn:hover .as-tooltip {
+    transform: translateY(0);
+  }
+
+  .as-split-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px
+  }
+
+  @media (max-width: 650px) {
+    .as-split-row {
+      grid-template-columns: 1fr
+    }
+  }
+
+  .as-break-box {
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 8px 12px
+  }
+
+  .as-break-box.as-limit-box {
+    background: #f0fdf4;
+    border: 1px solid #86efac
+  }
+
+  .break-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: #475569;
+    flex-wrap: wrap
+  }
+
+  .break-inputs input {
+    margin-top: 0;
+    display: inline-block;
+    text-align: center;
+    font-weight: 600;
+    padding: 4px 6px
+  }
+
+  .as-maxposts-row {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 12px
+  }
+
+
+  /* Banned Words Alert & Red Highlight Box */
+  .banned-words-box {
+    background: #fff5f5;
+    border: 1.5px solid #f87171;
+    border-left: 5px solid #ef4444;
+    border-radius: 12px;
+    padding: 13px 15px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.12);
+    animation: fadeInDown .2s ease;
+  }
+
+  .banned-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .banned-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #991b1b;
+  }
+
+  .banned-clean-btn {
+    background: #fee2e2;
+    border: 1px solid #f87171;
+    color: #991b1b;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+
+  .banned-clean-btn:hover {
+    background: #fecaca;
+    color: #7f1d1d;
+  }
+
+  .banned-desc {
+    font-size: 12px;
+    color: #7f1d1d;
+    margin: 0 0 8px;
+    line-height: 1.45;
+  }
+
+  .banned-tags-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .banned-pill {
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #b91c1c;
+    padding: 3px 8px;
+    border-radius: 16px;
+    font-size: 11.5px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .banned-pill small {
+    font-size: 10px;
+    font-weight: 500;
+    color: #991b1b;
+    opacity: 0.85;
+  }
+
+  .banned-preview-text {
+    background: #ffffff;
+    border: 1px dashed #f87171;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 5px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    color: #1e293b;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+
+  .banned-highlight {
+    background: #ef4444;
+    color: #ffffff;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-weight: 800;
+    box-shadow: 0 1px 3px rgba(239, 68, 68, 0.4);
+    text-decoration: underline wavy #7f1d1d;
+  }
+
+  textarea#text.has-banned-words {
+    border-color: #ef4444 !important;
+    background: #fffafa !important;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25) !important;
+  }
+
+  #startAllBtn.btn-blocked,
+  .btn-start-one.btn-blocked {
+    background: #94a3b8 !important;
+    color: #f8fafc !important;
+    cursor: not-allowed !important;
+    opacity: 0.75 !important;
+    filter: grayscale(0.8);
+  }
+
+  /* Image upload input & compact clear button */
+  .image-upload-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+  }
+
+  .image-upload-wrap input[type="file"] {
+    margin-top: 0;
+    flex: 1;
+  }
+
+  .image-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1.5px solid #f87171;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all .15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .image-clear-btn:hover {
+    background: #fca5a5;
+    color: #7f1d1d;
+    transform: scale(1.08);
+  }
+
+  /* Account Category Assignment Styles */
+  .acc-assign-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 14px;
+    transition: border-color .2s
+  }
+
+  .acc-assign-card:hover {
+    border-color: #cbd5e1
+  }
+
+  .acc-assign-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 6px
+  }
+
+  .acc-assign-name {
+    font-weight: 700;
+    font-size: 13.5px;
+    color: #0f172a
+  }
+
+  .acc-assign-count {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #e0f2fe;
+    color: #0369a1
+  }
+
+  .cat-pills-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px
+  }
+
+  .cat-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
+    border-radius: 20px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+    transition: all .15s
+  }
+
+  .cat-pill:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8
+  }
+
+  .cat-pill.checked {
+    background: #fff4ed;
+    border-color: #ed6b22;
+    color: #c95500;
+    box-shadow: 0 0 0 1px #ed6b22
+  }
+
+  .cat-pill input {
+    display: none
+  }
+
+  /* ── Campaign Live Report Section ───────────────────────────────────── */
+  .report-section {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 22px 24px;
+    margin-top: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  }
+
+  .report-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .report-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .report-btn {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 13px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all .15s;
+    border: 1px solid transparent;
+    font-family: inherit;
+  }
+
+  .report-btn.success {
+    background: #10b981;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+  }
+
+  .report-btn.success:hover {
+    background: #059669;
+  }
+
+  .report-btn.outline {
+    background: #fff;
+    border-color: #cbd5e1;
+    color: #334155;
+  }
+
+  .report-btn.outline:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+  }
+
+  .report-btn.danger {
+    background: #fff;
+    border-color: #fecaca;
+    color: #dc2626;
+  }
+
+  .report-btn.danger:hover {
+    background: #fef2f2;
+    border-color: #f87171;
+  }
+
+  .report-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+    margin-bottom: 14px;
+  }
+
+  @media (max-width: 860px) {
+    .report-kpi-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 520px) {
+    .report-kpi-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .report-kpi-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all .15s;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .report-kpi-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  .report-kpi-card.total {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+  }
+
+  .report-kpi-card.success {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+  }
+
+  .report-kpi-card.waiting {
+    background: #fefce8;
+    border-color: #fef08a;
+  }
+
+  .report-kpi-card.error {
+    background: #fef2f2;
+    border-color: #fecaca;
+  }
+
+  .report-kpi-card.active-kpi {
+    border-color: #2563eb !important;
+    background: #eff6ff !important;
+    box-shadow: 0 0 0 2px #2563eb, 0 3px 8px rgba(37, 99, 235, 0.16) !important;
+  }
+
+  .report-kpi-card#dashKpiCardFanpages.active-kpi {
+    border-color: #dc2626 !important;
+    background: #fef2f2 !important;
+    box-shadow: 0 0 0 2px #dc2626, 0 3px 8px rgba(220, 38, 38, 0.16) !important;
+  }
+
+  .report-kpi-card#kpiCardTotal.active-kpi {
+    border-color: #059669 !important;
+    background: #ecfdf5 !important;
+    box-shadow: 0 0 0 2px #059669, 0 3px 8px rgba(5, 150, 105, 0.16) !important;
+  }
+
+  .kpi-icon {
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .kpi-info {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .kpi-val {
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1.1;
+    display: block;
+  }
+
+  .report-kpi-card.total .kpi-val {
+    color: #1e293b;
+  }
+
+  .report-kpi-card.success .kpi-val {
+    color: #15803d;
+  }
+
+  .report-kpi-card.waiting .kpi-val {
+    color: #a16207;
+  }
+
+  .report-kpi-card.error .kpi-val {
+    color: #b91c1c;
+  }
+
+  .kpi-lbl {
+    font-size: 10.5px;
+    color: #64748b;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+  }
+
+  .report-filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 14px;
+  }
+
+  .filter-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .filter-pill {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all .15s;
+    font-family: inherit;
+  }
+
+  .filter-pill:hover {
+    background: #f1f5f9;
+  }
+
+  .filter-pill.active {
+    background: #0f172a;
+    color: #fff;
+    border-color: #0f172a;
+  }
+
+  .filter-pill.success.active {
+    background: #16a34a;
+    border-color: #16a34a;
+    color: #fff;
+  }
+
+  .filter-pill.waiting.active {
+    background: #ca8a04;
+    border-color: #ca8a04;
+    color: #fff;
+  }
+
+  .filter-pill.error.active {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+  }
+
+  .report-table-wrap {
+    overflow-x: auto;
+    max-height: 480px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+  }
+
+  .report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    text-align: left;
+  }
+
+  .report-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 700;
+    padding: 10px 12px;
+    border-bottom: 1.5px solid #cbd5e1;
+    white-space: nowrap;
+    z-index: 2;
+  }
+
+  .report-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+
+  .report-table tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  /* Status badges */
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .badge-success {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+  }
+
+  .badge-pending {
+    background: #fef9c3;
+    color: #854d0e;
+    border: 1px solid #fef08a;
+  }
+
+  .badge-preview {
+    background: #e0e7ff;
+    color: #3730a3;
+    border: 1px solid #c7d2fe;
+  }
+
+  .badge-waiting {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+  }
+
+  .badge-working {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #bfdbfe;
+    animation: pulse 1.5s infinite;
+  }
+
+  .badge-error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+
+  .badge-blocked {
+    background: #450a0a;
+    color: #fecaca;
+    border: 1px solid #991b1b;
+  }
+
+  .badge-skipped {
+    background: #ffedd5;
+    color: #9a3412;
+    border: 1px solid #fed7aa;
+  }
+
+  @keyframes pulse {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  .group-link-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #0284c7;
+    text-decoration: none;
+    font-weight: 600;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .group-link-item:hover {
+    text-decoration: underline;
+    color: #0369a1;
+  }
+
+  /* ── Dashboard KPI Metric Bar ── */
+  .dash-kpi-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .dash-kpi-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 14px;
+    text-align: center;
+    transition: all .15s;
+  }
+
+  .dash-kpi-card:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+  }
+
+  .dash-kpi-card.active {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+  }
+
+  .dash-kpi-val {
+    font-size: 24px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+  }
+
+  .dash-kpi-card.active .dash-kpi-val {
+    color: #2563eb;
+  }
+
+  .dash-kpi-lbl {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+
+  /* ── Section 2: Group Configuration (Dashboard Edition) ── */
+  .cfg-toolbar {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .cfg-toolbar-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+  }
+
+  .cfg-search-input {
+    flex: 1;
+    padding: 7px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 12.5px;
+    background: #fff;
+    margin: 0;
+  }
+
+  .cfg-search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  }
+
+  .cfg-toolbar-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .cfg-toolbar-bottom::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cfg-filter-pills {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+
+  .prog-filter-pills {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .cfg-filter-pill {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .15s;
+  }
+
+  .cfg-filter-pill:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+
+  .cfg-filter-pill.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+  }
+
+  .prog-filter-pill {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #475569;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 11px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+
+  .prog-filter-pill:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+
+  .prog-filter-pill.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+  }
+
+  /* ── View Switcher Buttons (Phần 4: Tiến độ & Báo cáo) ── */
+  .view-switch-btn {
+    padding: 5px 11px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    background: transparent;
+    color: #64748b;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .view-switch-btn:hover {
+    background: rgba(255, 255, 255, 0.7);
+    color: #0f172a;
+  }
+
+  .view-switch-btn.active {
+    background: #ffffff;
+    color: #ea580c;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  }
+
+  .view-switch-btn[data-type="fanpage"].active {
+    color: #dc2626;
+  }
+
+  .view-switch-btn[data-type="all"].active {
+    color: #2563eb;
+  }
+
+  .view-switch-btn[data-type="links"].active {
+    color: #059669;
+  }
+
+  .prog-tab-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: #e2e8f0;
+    color: #475569;
+    transition: all 0.2s;
+  }
+
+  .view-switch-btn.active .prog-tab-badge {
+    background: #fff4ed;
+    color: #ea580c;
+    border: 1px solid #fdba74;
+  }
+
+  .view-switch-btn[data-type="fanpage"].active .prog-tab-badge {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+
+  .view-switch-btn[data-type="all"].active .prog-tab-badge {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+
+  /* ── Selector phân loại Tài khoản cá nhân vs Fanpage ở Phần 2 ── */
+  .cfg-type-selector-bar {
+    display: flex;
+    gap: 6px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 10px;
+  }
+
+  .cfg-type-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .cfg-type-btn:hover {
+    background: rgba(255, 255, 255, 0.7);
+    color: #0f172a;
+  }
+
+  .cfg-type-btn.active {
+    background: #ffffff;
+    color: #ea580c;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  }
+
+  .cfg-type-btn[data-type="fanpage"].active {
+    color: #dc2626;
+  }
+
+  .cfg-type-btn[data-type="all"].active {
+    color: #2563eb;
+  }
+
+  .cfg-type-icon {
+    font-size: 13.5px;
+  }
+
+  .cfg-type-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: #e2e8f0;
+    color: #475569;
+    transition: all 0.2s;
+  }
+
+  .cfg-type-btn.active .cfg-type-badge {
+    background: #fff4ed;
+    color: #ea580c;
+    border: 1px solid #fdba74;
+  }
+
+  .cfg-type-btn[data-type="fanpage"].active .cfg-type-badge {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+
+  .cfg-type-btn[data-type="all"].active .cfg-type-badge {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+
+  .shared-acc-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: all .15s;
+  }
+
+  .shared-acc-card:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+  }
+
+  .shared-acc-card.selected {
+    border-left: 3.5px solid #2563eb;
+  }
+
+  html.ntd-dark-theme .shared-acc-card {
+    background: #0f172a !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+  }
+
+  html.ntd-dark-theme .shared-acc-card:hover {
+    background: #1e293b !important;
+  }
+
+  html.ntd-dark-theme .shared-acc-card.selected {
+    border-left-color: #3b82f6 !important;
+  }
+
+  .shared-post-btn {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    line-height: 1.2;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .shared-post-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+  }
+
+  html.ntd-dark-theme .shared-post-btn {
+    background: linear-gradient(135deg, rgba(29, 78, 216, 0.4) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+    border: 1px solid rgba(59, 130, 246, 0.5) !important;
+    color: #93c5fd !important;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  }
+
+  html.ntd-dark-theme .shared-post-btn:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  }
+
+  .cfg-group-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    padding: 4px 6px 2px;
+    margin-top: 6px;
+    border-bottom: 1px dashed #e2e8f0;
+  }
+
+  .cfg-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .cfg-action-btn {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .15s;
+  }
+
+  .cfg-action-btn:hover {
+    background: #f1f5f9;
+  }
+
+  .cfg-action-btn.primary {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    font-weight: 700;
+  }
+
+  .cfg-action-btn.primary:hover {
+    background: #dbeafe;
+  }
+
+  /* Sắp xếp grid 2 cột cân xứng 1fr 1fr cho Bước 1 & Bước 2 */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+
+  @media (max-width: 850px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Hàng ngang cài đặt thực hiện ở Phần 3 */
+  .exec-inputs-row {
+    display: grid;
+    grid-template-columns: 1fr 1.3fr 1fr;
+    gap: 16px;
+    margin-bottom: 8px;
+    align-items: start;
+  }
+
+  @media (max-width: 850px) {
+    .exec-inputs-row {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+  }
+
+  /* Container danh sách tài khoản phần 2 (hiển thị tối đa 4 tài khoản, nếu nhiều hơn sẽ có thanh cuộn) */
+  #accountCategoryAssignList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 228px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 5px;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+
+  #accountCategoryAssignList::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  #accountCategoryAssignList::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+
+  #accountCategoryAssignList::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+
+  #accountCategoryAssignList::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  #accountCategoryAssignList>div:not(.cfg-acc-item) {
+    width: 100%;
+  }
+
+  /* Accordion Compact Account Item for Section 2 */
+  .cfg-acc-item {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 0;
+    overflow: hidden;
+    transition: all .15s;
+    flex-shrink: 0;
+  }
+
+  .cfg-acc-item:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  }
+
+  .cfg-acc-item.has-groups {
+    border-left: 3.5px solid #2563eb;
+  }
+
+  .cfg-acc-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    min-height: 48px;
+  }
+
+  .cfg-acc-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .cfg-acc-check-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+    transition: all .15s;
+  }
+
+  .cfg-acc-check-icon.checked {
+    background: var(--accent, #0f172a);
+    border-color: var(--accent, #0f172a);
+  }
+
+  .cfg-acc-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .cfg-acc-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text, #0f172a);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cfg-acc-sub {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cfg-acc-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .cfg-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 12px;
+    background: #f1f5f9;
+    color: #64748b;
+  }
+
+  .cfg-badge.active {
+    background: #e0f2fe;
+    color: #0284c7;
+  }
+
+  .cfg-chevron {
+    font-size: 14px;
+    font-weight: 700;
+    color: #94a3b8;
+    transition: transform .2s ease;
+    display: inline-block;
+  }
+
+  .cfg-acc-item.expanded .cfg-chevron {
+    transform: rotate(90deg);
+  }
+
+  .cfg-acc-drawer {
+    padding: 8px 12px 12px;
+    border-top: 1px solid #f1f5f9;
+    background: #fafbfc;
+  }
+
+  .cfg-drawer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #475569;
+  }
+
+  /* ── Post Tabs Navigation (Phần 1: Soạn bài) ── */
+  .post-tabs-nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .post-tab-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+  }
+
+  .post-tab-btn:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+  }
+
+  .post-tab-btn.active {
+    border-color: #ed6b22;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(237, 107, 34, 0.15);
+  }
+
+  .post-tab-btn.active .post-tab-title {
+    color: #ed6b22;
+    font-weight: 800;
+  }
+
+  .post-tab-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .post-tab-status {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: #e2e8f0;
+    color: #64748b;
+    transition: all .15s ease;
+    white-space: nowrap;
+  }
+
+  .post-tab-status.ready {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #86efac;
+  }
+
+  /* ── Account Post Selector Buttons (Phần 2: Cấu hình nhóm) ── */
+  .cfg-acc-post-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0 6px;
+    flex-shrink: 0;
+  }
+
+  .cfg-pbtn {
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+    cursor: pointer;
+    transition: all .15s ease;
+    line-height: 1.2;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .cfg-pbtn:hover {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+
+  .cfg-pbtn.active {
+    background: linear-gradient(135deg, #ed6b22, #f59332);
+    border-color: #d95a14;
+    color: #ffffff;
+    box-shadow: 0 2px 5px rgba(237, 107, 34, 0.35);
+  }
+
+  .cfg-no-posts-badge {
+    font-size: 10.5px;
+    color: #94a3b8;
+    font-style: italic;
+    padding: 2px 6px;
+  }
+
+  .cfg-drawer-post-picker {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 11.5px;
+  }
+
+  /* ── Section 4: Progress Dashboard (Dashboard Edition) ── */
+  .prog-master-bar {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .prog-filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .prog-acc-item {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 0;
+    overflow: hidden;
+    transition: all .15s;
+  }
+
+  .prog-acc-item:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  }
+
+  .prog-acc-item.running {
+    border-left: 3.5px solid #2563eb;
+  }
+
+  .prog-acc-item.waiting {
+    border-left: 3.5px solid #60a5fa;
+  }
+
+  .prog-acc-item.done {
+    border-left: 3.5px solid #16a34a;
+  }
+
+  .prog-acc-item.paused {
+    border-left: 3.5px solid #d97706;
+  }
+
+  .prog-acc-item.stopped,
+  .prog-acc-item.error {
+    border-left: 3.5px solid #dc2626;
+  }
+
+  .prog-acc-main {
+    padding: 12px 16px 10px;
+  }
+
+  .prog-acc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .prog-acc-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .prog-acc-name {
+    font-weight: 700;
+    font-size: 13.5px;
+    color: #0f172a;
+  }
+
+  .prog-daily-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: #059669;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
+
+  .prog-daily-tag.limit-hit {
+    color: #dc2626;
+    background: #fef2f2;
+    border-color: #fecaca;
+  }
+
+  .prog-pill-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .prog-pill-running {
+    background: #dbeafe;
+    color: #1d4ed8;
+  }
+
+  .prog-pill-waiting {
+    background: #eff6ff;
+    color: #3b82f6;
+  }
+
+  .prog-pill-done {
+    background: #dcfce7;
+    color: #15803d;
+  }
+
+  .prog-pill-paused {
+    background: #fef3c7;
+    color: #b45309;
+  }
+
+  .prog-pill-error {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .prog-pill-none {
+    background: #f1f5f9;
+    color: #64748b;
+  }
+
+  /* Dedicated Progress Bar */
+  .prog-bar-container {
+    margin-top: 6px;
+  }
+
+  .prog-bar-track {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .prog-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: #3b82f6;
+    transition: width .3s ease;
+  }
+
+  .prog-bar-fill.done {
+    background: #16a34a;
+  }
+
+  .prog-bar-fill.error {
+    background: #dc2626;
+  }
+
+  .prog-bar-fill.paused {
+    background: #f59e0b;
+  }
+
+  .prog-bar-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 5px;
+    font-size: 11px;
+    color: #64748b;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Actions Row for each account in section 4 */
+  .prog-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #f8fafc;
+    border-top: 1px solid #f1f5f9;
+    flex-wrap: wrap;
+  }
+
+  .prog-btn-group {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .prog-action-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    font-weight: 600;
+    color: #334155;
+    transition: all .15s;
+  }
+
+  .prog-action-btn:hover {
+    background: #f1f5f9;
+  }
+
+  .prog-action-btn.danger {
+    color: #dc2626;
+    border-color: #fca5a5;
+  }
+
+  .prog-action-btn.danger:hover {
+    background: #fef2f2;
+  }
+
+  .prog-action-btn.primary {
+    background: #2563eb;
+    color: #fff;
+    border-color: #2563eb;
+  }
+
+  .prog-action-btn.primary:hover {
+    background: #1d4ed8;
+  }
+
+  .prog-toggle-details-btn {
+    font-size: 11px;
+    color: #64748b;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .prog-toggle-details-btn:hover {
+    color: #0f172a;
+  }
+
+  .prog-job-drawer {
+    padding: 8px 16px 12px;
+    border-top: 1px solid #f1f5f9;
+    background: #fafbfc;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+
+  .prog-job-drawer ol {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 11.5px;
+    color: #475569;
+  }
+
+  .prog-job-drawer ol li {
+    margin-bottom: 4px;
+  }
+
+  .view-switch-btn {
+    background: transparent;
+    color: #475569;
+  }
+
+  .view-switch-btn.active {
+    background: #2563eb !important;
+    color: #fff !important;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+  }
+
+  /* Dark Mode Overrides for Section 2, 3, 4 & Modals */
+  body.ntd-dark-theme .as-break-box,
+  html.ntd-dark-theme .as-break-box {
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .as-break-box.as-limit-box,
+  html.ntd-dark-theme .as-break-box.as-limit-box {
+    background: rgba(16, 185, 129, 0.12) !important;
+    border: 1px solid rgba(16, 185, 129, 0.35) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .as-break-box.as-limit-box b,
+  html.ntd-dark-theme .as-break-box.as-limit-box b,
+  body.ntd-dark-theme .as-break-box.as-limit-box span b,
+  html.ntd-dark-theme .as-break-box.as-limit-box span b {
+    color: #34d399 !important;
+  }
+
+  body.ntd-dark-theme .as-maxposts-row,
+  html.ntd-dark-theme .as-maxposts-row {
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .as-maxposts-row label,
+  html.ntd-dark-theme .as-maxposts-row label,
+  body.ntd-dark-theme .as-maxposts-row span,
+  html.ntd-dark-theme .as-maxposts-row span {
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .break-inputs,
+  html.ntd-dark-theme .break-inputs,
+  body.ntd-dark-theme .break-inputs span,
+  html.ntd-dark-theme .break-inputs span {
+    color: #cbd5e1 !important;
+  }
+
+  body.ntd-dark-theme .break-inputs input,
+  html.ntd-dark-theme .break-inputs input,
+  body.ntd-dark-theme .as-maxposts-row input,
+  html.ntd-dark-theme .as-maxposts-row input {
+    background: rgba(10, 16, 30, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme .shared-post-btn,
+  html.ntd-dark-theme .shared-post-btn {
+    background: linear-gradient(135deg, rgba(29, 78, 216, 0.4) 0%, rgba(37, 99, 235, 0.25) 100%) !important;
+    border: 1px solid rgba(59, 130, 246, 0.5) !important;
+    color: #93c5fd !important;
+    border-radius: 6px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  }
+
+  body.ntd-dark-theme .shared-post-btn:hover,
+  html.ntd-dark-theme .shared-post-btn:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  }
+
+  body.ntd-dark-theme #sharedAccSelectedBadge,
+  html.ntd-dark-theme #sharedAccSelectedBadge {
+    background: rgba(234, 88, 12, 0.22) !important;
+    border: 1px solid rgba(251, 146, 60, 0.45) !important;
+    color: #fb923c !important;
+  }
+
+  body.ntd-dark-theme #filterPostedLinksBtn,
+  html.ntd-dark-theme #filterPostedLinksBtn {
+    background: rgba(37, 99, 235, 0.22) !important;
+    border: 1px solid rgba(96, 165, 250, 0.45) !important;
+    color: #93c5fd !important;
+  }
+
+  body.ntd-dark-theme #filterPostedLinksBtn:hover,
+  html.ntd-dark-theme #filterPostedLinksBtn:hover {
+    background: rgba(37, 99, 235, 0.35) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme #linksStatsText,
+  html.ntd-dark-theme #linksStatsText {
+    color: #94a3b8 !important;
+  }
+
+  body.ntd-dark-theme .cfg-pbtn,
+  html.ntd-dark-theme .cfg-pbtn {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #cbd5e1 !important;
+  }
+
+  body.ntd-dark-theme .cfg-pbtn:hover,
+  html.ntd-dark-theme .cfg-pbtn:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border-color: rgba(96, 165, 250, 0.45) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme .cfg-pbtn.active,
+  html.ntd-dark-theme .cfg-pbtn.active {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45) !important;
+  }
+
+  body.ntd-dark-theme .cfg-drawer-post-picker,
+  html.ntd-dark-theme .cfg-drawer-post-picker {
+    background: rgba(15, 23, 42, 0.85) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+  }
+
+  /* Danh mục nhóm: Danh sách tài khoản Accordion & Hộp chọn nhóm */
+  body.ntd-dark-theme .cfg-acc-item,
+  html.ntd-dark-theme .cfg-acc-item {
+    background: #0f172a !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .cfg-acc-item:hover,
+  html.ntd-dark-theme .cfg-acc-item:hover {
+    border-color: rgba(59, 130, 246, 0.35) !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  body.ntd-dark-theme .cfg-acc-name,
+  html.ntd-dark-theme .cfg-acc-name,
+  body.ntd-dark-theme .cfg-acc-name span,
+  html.ntd-dark-theme .cfg-acc-name span,
+  body.ntd-dark-theme .acc-assign-name,
+  html.ntd-dark-theme .acc-assign-name {
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .cfg-acc-sub,
+  html.ntd-dark-theme .cfg-acc-sub {
+    color: #94a3b8 !important;
+  }
+
+  body.ntd-dark-theme .cfg-fp-limit-text,
+  html.ntd-dark-theme .cfg-fp-limit-text {
+    color: #f87171 !important;
+  }
+
+  body.ntd-dark-theme .cfg-acc-check-icon,
+  html.ntd-dark-theme .cfg-acc-check-icon {
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+
+  body.ntd-dark-theme .cfg-acc-check-icon.checked,
+  html.ntd-dark-theme .cfg-acc-check-icon.checked {
+    background: #2563eb !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.5) !important;
+  }
+
+  body.ntd-dark-theme .cfg-acc-drawer,
+  html.ntd-dark-theme .cfg-acc-drawer {
+    background: #0b111e !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .cfg-drawer-actions,
+  html.ntd-dark-theme .cfg-drawer-actions,
+  body.ntd-dark-theme .cfg-drawer-actions span,
+  html.ntd-dark-theme .cfg-drawer-actions span {
+    color: #cbd5e1 !important;
+  }
+
+  body.ntd-dark-theme .select-all-cats-btn,
+  html.ntd-dark-theme .select-all-cats-btn,
+  body.ntd-dark-theme .deselect-all-cats-btn,
+  html.ntd-dark-theme .deselect-all-cats-btn {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #cbd5e1 !important;
+  }
+
+  body.ntd-dark-theme .select-all-cats-btn:hover,
+  html.ntd-dark-theme .select-all-cats-btn:hover,
+  body.ntd-dark-theme .deselect-all-cats-btn:hover,
+  html.ntd-dark-theme .deselect-all-cats-btn:hover {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme .cat-pill,
+  html.ntd-dark-theme .cat-pill {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #cbd5e1 !important;
+  }
+
+  body.ntd-dark-theme .cat-pill:hover,
+  html.ntd-dark-theme .cat-pill:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border-color: rgba(96, 165, 250, 0.4) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme .cat-pill.checked,
+  html.ntd-dark-theme .cat-pill.checked {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.45) !important;
+  }
+
+  body.ntd-dark-theme .cfg-badge,
+  html.ntd-dark-theme .cfg-badge {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #94a3b8 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+
+  body.ntd-dark-theme .cfg-badge.active,
+  html.ntd-dark-theme .cfg-badge.active {
+    background: rgba(37, 99, 235, 0.25) !important;
+    color: #93c5fd !important;
+    border-color: rgba(59, 130, 246, 0.45) !important;
+  }
+
+  body.ntd-dark-theme #cfgBulkPostAssignBar,
+  html.ntd-dark-theme #cfgBulkPostAssignBar {
+    background: rgba(15, 23, 42, 0.75) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .acc-assign-card,
+  html.ntd-dark-theme .acc-assign-card {
+    background: #0f172a !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  body.ntd-dark-theme .cfg-action-btn,
+  html.ntd-dark-theme .cfg-action-btn {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #e2e8f0 !important;
+  }
+
+  body.ntd-dark-theme .cfg-action-btn:hover,
+  html.ntd-dark-theme .cfg-action-btn:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme .cfg-action-btn.primary,
+  html.ntd-dark-theme .cfg-action-btn.primary {
+    background: rgba(37, 99, 235, 0.22) !important;
+    border-color: rgba(59, 130, 246, 0.45) !important;
+    color: #93c5fd !important;
+  }
+
+  body.ntd-dark-theme #btnViewQueuedLinksModal,
+  html.ntd-dark-theme #btnViewQueuedLinksModal {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+    border: 1px solid rgba(125, 211, 252, 0.35) !important;
+    color: #ffffff !important;
+  }
+
+  body.ntd-dark-theme #switchToTableViewBtn,
+  html.ntd-dark-theme #switchToTableViewBtn {
+    background: rgba(14, 165, 233, 0.16) !important;
+    border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    color: #38bdf8 !important;
+  }
+
+  body.ntd-dark-theme #queuedLinksModal .modal-card,
+  html.ntd-dark-theme #queuedLinksModal .modal-card {
+    background: #0f172a !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme #queuedLinksModal div[style*="background:#f8fafc"],
+  body.ntd-dark-theme #queuedLinksModal div[style*="background: #f8fafc"],
+  body.ntd-dark-theme #queuedLinksModal div[style*="background:#ffffff"],
+  body.ntd-dark-theme #queuedLinksModal div[style*="background: #ffffff"] {
+    background: #0b111e !important;
+  }
+
+  /* ── Chế độ Đăng bài bằng link (Link Preview) ── */
+  .post-link-mode-container {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1.5px solid #bfdbfe;
+    background: #f0f7ff;
+    transition: all 0.2s ease;
+  }
+  .post-link-mode-container.active {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  }
+  .post-link-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: #1d4ed8;
+    background: #dbeafe;
+    padding: 2px 9px;
+    border-radius: 12px;
+    border: 1px solid #93c5fd;
+  }
+  html.ntd-dark-theme .post-link-mode-container,
+  body.ntd-dark-theme .post-link-mode-container {
+    background: #0b1528 !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+  }
+  html.ntd-dark-theme .post-link-mode-container.active,
+  body.ntd-dark-theme .post-link-mode-container.active {
+    background: #0d1e3d !important;
+    border-color: #3b82f6 !important;
+  }
+  html.ntd-dark-theme #postLinkModeTitle,
+  body.ntd-dark-theme #postLinkModeTitle {
+    color: #93c5fd !important;
+  }
+  html.ntd-dark-theme #postLinkModeDesc,
+  body.ntd-dark-theme #postLinkModeDesc {
+    color: #94a3b8 !important;
+  }
+  html.ntd-dark-theme .post-link-badge,
+  body.ntd-dark-theme .post-link-badge {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #60a5fa !important;
+    border-color: rgba(59, 130, 246, 0.4) !important;
+  }
+
+  /* ── Facebook Post Background Theme Picker & Live Preview ── */
+  .fb-bg-picker-container {
+    margin-top: 10px;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+    transition: all 0.2s ease;
+  }
+
+  html.ntd-dark-theme .fb-bg-picker-container,
+  body.ntd-dark-theme .fb-bg-picker-container {
+    background: #0b111e !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .fb-bg-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .fb-bg-picker-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e293b;
+  }
+
+  html.ntd-dark-theme .fb-bg-picker-title,
+  body.ntd-dark-theme .fb-bg-picker-title {
+    color: #f1f5f9 !important;
+  }
+
+  .fb-bg-name-badge {
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563eb;
+    border: 1px solid rgba(37, 99, 235, 0.2);
+  }
+
+  html.ntd-dark-theme .fb-bg-name-badge,
+  body.ntd-dark-theme .fb-bg-name-badge {
+    background: rgba(59, 130, 246, 0.16) !important;
+    color: #60a5fa !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+  }
+
+  .fb-bg-char-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 12px;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    transition: all 0.2s ease;
+  }
+
+  .fb-bg-char-badge.ok {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: #86efac;
+  }
+
+  .fb-bg-char-badge.error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #f87171;
+    animation: pulse 1.2s infinite;
+  }
+
+  html.ntd-dark-theme .fb-bg-char-badge.default,
+  body.ntd-dark-theme .fb-bg-char-badge.default {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
+  .fb-bg-swatches-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0 4px 0;
+  }
+
+  .fb-bg-swatches-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .fb-bg-swatch {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    padding: 0;
+  }
+
+  .fb-bg-swatch:hover {
+    transform: scale(1.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    z-index: 2;
+  }
+
+  .fb-bg-swatch.active {
+    outline: 2.5px solid #3b82f6;
+    outline-offset: 2.5px;
+    transform: scale(1.12);
+    box-shadow: 0 0 0 2px #ffffff, 0 4px 14px rgba(59, 130, 246, 0.5) !important;
+  }
+
+  .fb-bg-swatch.none-swatch {
+    background: #ffffff;
+    border: 2px dashed #94a3b8;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  html.ntd-dark-theme .fb-bg-swatch.none-swatch,
+  body.ntd-dark-theme .fb-bg-swatch.none-swatch {
+    background: #1e293b !important;
+    border-color: #64748b !important;
+    color: #94a3b8 !important;
+  }
+
+  .fb-bg-swatch.active::after {
+    content: "✓";
+    position: absolute;
+    font-size: 14px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  }
+
+  .fb-bg-swatch.none-swatch.active::after {
+    color: #2563eb;
+    text-shadow: none;
+  }
+
+  .fb-bg-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    margin-top: 8px;
+    animation: fadeInDown 0.2s ease;
+  }
+
+  .fb-bg-alert.warning {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    color: #92400e;
+  }
+
+  .fb-bg-alert.info {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e40af;
+  }
+
+  html.ntd-dark-theme .fb-bg-alert.warning,
+  body.ntd-dark-theme .fb-bg-alert.warning {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+    color: #fcd34d !important;
+  }
+
+  html.ntd-dark-theme .fb-bg-alert.info,
+  body.ntd-dark-theme .fb-bg-alert.info {
+    background: rgba(59, 130, 246, 0.12) !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+    color: #93c5fd !important;
+  }
+
+  /* ── Live Textarea WYSIWYG Preview khi chọn nền màu ── */
+  textarea#text.has-fb-bg {
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    font-size: 19px !important;
+    line-height: 1.5 !important;
+    text-align: center !important;
+    padding: 34px 22px !important;
+    min-height: 190px !important;
+    border-radius: 14px !important;
+    border: 2.5px solid rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+    transition: background 0.25s ease, color 0.2s ease !important;
+  }
+
+  textarea#text.has-fb-bg::placeholder {
+    color: rgba(255, 255, 255, 0.72) !important;
+    font-weight: 500 !important;
+    text-shadow: none !important;
+  }
+</style>
+
+<body class="ntd-dark-theme">
+  <main>
+    <header style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <h1>Đăng bài</h1>
+      </div>
+      <!-- Nút xem nhanh Dashboard Hiệu suất dành cho Admin -->
+      <div id="panelAdminToggleWrap" style="display:none">
+        <button type="button" id="btnTogglePanelAdminDash" style="background:rgba(234,88,12,0.15);color:#fb923c;border:1px solid rgba(234,88,12,0.4);padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <span>📊 Bảng Giám Sát Hiệu Suất</span>
+          <span style="font-size:9.5px;background:#ea580c;color:#fff;padding:1px 5px;border-radius:4px">Admin</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Khu vực Bảng Giám Sát Hiệu Suất & Hoạt Động Hệ Thống (CHỈ HIỆN KHI LÀ ADMIN) -->
+    <div id="panelAdminDashboardSection" style="display:none;margin-bottom:24px">
+      <div class="card" style="border:1px solid rgba(234,88,12,0.3);box-shadow:0 8px 30px rgba(0,0,0,0.25);border-radius:16px;background:var(--card-bg,#0f172a);padding:20px">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg, #ea580c 0%, #c2410c 100%);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800">
+              📊
+            </div>
+            <div>
+              <h2 style="margin:0;font-size:16.5px;font-weight:800;color:#f8fafc;display:flex;align-items:center;gap:8px">
+                Giám Sát Hoạt Động &amp; Hiệu Suất Khách Hàng
+                <span style="font-size:10px;background:#ea580c;color:#fff;padding:2px 7px;border-radius:4px;font-weight:800">Admin Live</span>
+              </h2>
+              <span style="font-size:12px;color:#94a3b8">Dữ liệu thời gian thực được đồng bộ tự động từ Supabase</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button type="button" id="panelDashRefreshBtn" class="cfg-action-btn" style="padding:6px 12px;font-size:12px;border-radius:8px">
+              🔄 Tải lại
+            </button>
+            <button type="button" id="panelDashExportBtn" class="cfg-action-btn" style="padding:6px 12px;font-size:12px;border-radius:8px;border-color:#10b981;color:#34d399">
+              📥 Xuất CSV
+            </button>
+            <a href="manage.html" class="cfg-action-btn" style="padding:6px 14px;font-size:12px;border-radius:8px;text-decoration:none;background:#ea580c;color:#fff;font-weight:700">
+              ⚙️ Quản trị &amp; Phân quyền &rarr;
+            </a>
+          </div>
+        </div>
+
+        <!-- 6 KPI Summary Cards -->
+        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:12px;margin-bottom:18px">
+          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">👥 Tổng khách hàng</div>
+            <div id="panelKpiActiveUsers" style="font-size:22px;font-weight:900;color:#f8fafc">0</div>
+            <div style="font-size:11px;color:#94a3b8">trên tổng số <span id="panelKpiTotalUsers" style="font-weight:700">0</span> tài khoản</div>
+          </div>
+          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">📘 Nick FB cá nhân</div>
+            <div id="panelKpiTotalFb" style="font-size:22px;font-weight:900;color:#60a5fa">0</div>
+            <div style="font-size:11px;color:#94a3b8">tài khoản FB đang nuôi</div>
+          </div>
+          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">📄 Fanpage vệ tinh</div>
+            <div id="panelKpiTotalFanpages" style="font-size:22px;font-weight:900;color:#c084fc">0</div>
+            <div style="font-size:11px;color:#94a3b8">trang vệ tinh kết nối</div>
+          </div>
+          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">🚀 Bài đăng hôm nay</div>
+            <div id="panelKpiTodayPosts" style="font-size:22px;font-weight:900;color:#34d399">0</div>
+            <div style="font-size:11px;color:#94a3b8">lượt đăng nhóm thành công</div>
+          </div>
+          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">🔍 Quét số nhóm</div>
+            <div id="panelKpiGroupScans" style="font-size:22px;font-weight:900;color:#fb923c">0</div>
+            <div style="font-size:11px;color:#94a3b8">SĐT / bài viết thu thập</div>
+          </div>
+          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
+            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">🗺️ Quét Maps</div>
+            <div id="panelKpiMapsScans" style="font-size:22px;font-weight:900;color:#f97316">0</div>
+            <div style="font-size:11px;color:#94a3b8">cơ sở doanh nghiệp quét</div>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <input type="text" id="panelDashSearch" placeholder="Tìm theo tên hoặc ghi chú..." style="max-width:280px;padding:6px 12px;font-size:12.5px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#fff">
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <button type="button" class="panel-dash-pill active" data-pfilter="all" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(234,88,12,0.2);color:#fb923c;cursor:pointer;font-weight:700">Tất cả</button>
+            <button type="button" class="panel-dash-pill" data-pfilter="active-today" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Đăng nhập hôm nay</button>
+            <button type="button" class="panel-dash-pill" data-pfilter="has-fb" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Có nick FB</button>
+            <button type="button" class="panel-dash-pill" data-pfilter="has-posts" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Có đăng bài</button>
+            <button type="button" class="panel-dash-pill" data-pfilter="has-scans" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Có quét data</button>
+          </div>
+        </div>
+
+        <!-- Master Table -->
+        <div style="overflow-x:auto;max-height:360px">
+          <table class="report-table" style="width:100%;font-size:12.5px">
+            <thead>
+              <tr>
+                <th style="width:36px;text-align:center">#</th>
+                <th>Khách hàng &amp; Ghi chú</th>
+                <th style="text-align:center">Nick FB</th>
+                <th style="text-align:center">Fanpage</th>
+                <th style="text-align:center">Bài hôm nay</th>
+                <th style="text-align:center">Quét nhóm</th>
+                <th style="text-align:center">Quét Maps</th>
+                <th>Đăng nhập cuối</th>
+                <th>Hạn dùng &amp; Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="panelDashTbody">
+              <tr>
+                <td colspan="9" style="text-align:center;padding:20px;color:#94a3b8">Đang tải dữ liệu hoạt động...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h2 style="margin:0">1. Soạn bài</h2>
+          <span id="postSetupCountBadge"
+            style="font-size:11.5px;font-weight:700;color:#16a34a;background:#dcfce7;padding:3px 9px;border-radius:12px;border:1px solid #86efac">
+            Đã soạn 0/3 bài
+          </span>
+        </div>
+
+        <!-- Post Selector Tabs: Bài 1, Bài 2, Bài 3 -->
+        <div class="post-tabs-nav" id="postTabsNav">
+          <button type="button" class="post-tab-btn active" data-post="0" id="postTabBtn_0"
+            title="Chuyển sang soạn Bài 1">
+            <span class="post-tab-title">Bài 1</span>
+            <span class="post-tab-status" id="postTabStatus_0">Chưa soạn</span>
+          </button>
+          <button type="button" class="post-tab-btn" data-post="1" id="postTabBtn_1" title="Chuyển sang soạn Bài 2">
+            <span class="post-tab-title">Bài 2</span>
+            <span class="post-tab-status" id="postTabStatus_1">Chưa soạn</span>
+          </button>
+          <button type="button" class="post-tab-btn" data-post="2" id="postTabBtn_2" title="Chuyển sang soạn Bài 3">
+            <span class="post-tab-title">Bài 3</span>
+            <span class="post-tab-status" id="postTabStatus_2">Chưa soạn</span>
+          </button>
+        </div>
+
+        <label><span id="editorPostHeading" style="font-weight:700;color:#ed6b22">Nội dung Bài 1:</span>
+          <textarea id="text" rows="9" placeholder="Nhập nội dung muốn đăng cho bài viết này..."></textarea>
+        </label>
+
+        <!-- Chế độ Đăng bài bằng link (Link Preview) -->
+        <div id="postLinkModeContainer" class="post-link-mode-container">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;user-select:none">
+              <input type="checkbox" id="postLinkModeCheckbox" style="width:16px;height:16px;cursor:pointer;accent-color:#2563eb">
+              <span style="font-weight:700;font-size:12.5px;color:#1e40af" id="postLinkModeTitle">🔗 Đăng bài bằng link (Chia sẻ bài viết / Link Preview)</span>
+            </label>
+            <span id="postLinkModeBadge" class="post-link-badge" style="display:none">Đang kích hoạt</span>
+          </div>
+          <div id="postLinkModeDesc" style="font-size:11.5px;color:#64748b;margin-top:6px;line-height:1.45">
+            Dán đường link bài viết Facebook (hoặc web/video) vào ô soạn bài trên. Hệ thống sẽ tự động dán link vào nhóm, đợi Facebook tải xong khung bài viết xem trước, sau đó xóa đường link (chỉ để lại hiển thị nội dung trong bài viết của link) rồi đăng bài.
+          </div>
+        </div>
+
+        <!-- Facebook Post Background Theme Picker & Live Controls -->
+        <div id="fbBackgroundSection" class="fb-bg-picker-container">
+          <div class="fb-bg-picker-header">
+            <div class="fb-bg-picker-title">
+              <span class="fb-bg-icon">🎨</span>
+              <span>Màu nền Facebook</span>
+            </div>
+            <div class="fb-bg-char-count-wrap">
+              <span id="fbBgCharCountBadge" class="fb-bg-char-badge default"
+                title="Quy tắc Facebook: Nền màu chỉ hiển thị khi bài viết từ 1 đến 130 ký tự">
+                <span id="fbBgCharCountNum">0</span>/130 ký tự
+              </span>
+            </div>
+          </div>
+
+          <!-- Swatches Palette List -->
+          <div class="fb-bg-swatches-list" id="fbBgSwatchesList"></div>
+
+          <!-- Facebook Rules Alert Banners -->
+          <div id="fbBgLengthAlert" class="fb-bg-alert warning" style="display:none">
+            <span class="fb-bg-alert-icon">⚠️</span>
+            <div class="fb-bg-alert-content">
+              <b>Đã vượt quá 130 ký tự!</b> Theo nguyên tắc của Facebook, bài viết nền màu chỉ áp dụng cho nội dung ngắn
+              (tối đa 130 ký tự). Nếu để bài quá dài, Facebook sẽ tự động hủy nền màu và đăng dưới dạng chữ thường.
+            </div>
+          </div>
+
+          <div id="fbBgImageConflictAlert" class="fb-bg-alert info" style="display:none">
+            <span class="fb-bg-alert-icon">🚫</span>
+            <div class="fb-bg-alert-content">
+              <b>Quy tắc Facebook:</b> Bài đăng nền màu <b>không thể đính kèm ảnh</b>. Ô chọn ảnh phía dưới đã được tự
+              động khóa. Để tải ảnh, hãy chọn lại ô <b>Không màu</b>.
+            </div>
+          </div>
+        </div>
+
+        <!-- Banned Words Alert & Red Highlight Box -->
+        <div id="bannedWordsBox" class="banned-words-box" style="display:none">
+          <div class="banned-header">
+            <div class="banned-title">
+              <span id="bannedWordsCountText">Phát hiện từ cấm vi phạm chính sách Facebook</span>
+            </div>
+            <button type="button" id="removeBannedWordsBtn" class="banned-clean-btn"
+              title="Tự động xóa tất cả các từ cấm này khỏi bài viết">
+              Tự động xóa từ cấm
+            </button>
+          </div>
+          <p class="banned-desc">
+            Nội dung của bạn chứa các từ khóa cấm/nhạy cảm của Facebook bên dưới. <b>Nút đăng bài đã bị khóa</b> để bảo
+            vệ tài khoản không bị checkpoint hoặc khóa tính năng:
+          </p>
+          <div id="bannedWordsTags" class="banned-tags-list"></div>
+          <div style="margin-top:10px">
+            <span style="font-size:11.5px;font-weight:700;color:#991b1b">Vị trí các từ cấm trong bài (được bôi
+              đỏ):</span>
+            <div id="bannedHighlightedPreview" class="banned-preview-text"></div>
+          </div>
+        </div>
+
+        <div id="imageUploadSection" style="margin-top:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="margin:0">Ảnh đính kèm (<span id="editorImgHeading" style="font-weight:700;color:#ed6b22">Bài
+                1</span> - JPG/PNG/WebP, tối đa 4 MB)</label>
+            <span id="currentPostImgName" style="font-size:11.5px;color:#2563eb;font-weight:600"></span>
+          </div>
+          <div class="image-upload-wrap" id="imageUploadWrap">
+            <input id="image" type="file" accept="image/jpeg,image/png,image/webp">
+            <button type="button" id="removeImageBtn" class="image-clear-btn" title="Bỏ ảnh đã chọn"
+              style="display:none">✕</button>
+          </div>
+          <div id="fbBgImageDisabledNotice"
+            style="display:none;font-size:11px;color:#f97316;margin-top:4px;font-weight:600">
+            🚫 Đã khóa chọn ảnh do đang áp dụng nền màu Facebook (Nguyên tắc: Nền màu không dùng kèm ảnh).
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Cấu hình nhóm đăng bài (Cột phải, đối xứng với 1. Soạn bài) -->
+      <section id="sectionGroupConfig">
+        <h2>2. Cấu hình nhóm đăng bài</h2>
+
+        <!-- Mode Selector Tabs: Dùng chung nhóm vs Phân công theo danh mục -->
+        <div class="mode-tab-bar"
+          style="display:flex;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden;margin-bottom:14px">
+          <button type="button" id="tabModeShared"
+            style="flex:1;padding:9px 8px;font-size:12px;font-weight:700;cursor:pointer;border:none;text-align:center">
+            Dùng chung nhóm
+          </button>
+          <button type="button" id="tabModeCategories" class="active"
+            style="flex:1;padding:9px 8px;font-size:12px;font-weight:700;cursor:pointer;border:none;text-align:center">
+            Theo Danh mục nhóm
+          </button>
+        </div>
+
+        <!-- Pane 1: Phân công theo danh mục cho từng tài khoản (Dashboard Edition) -->
+        <div id="paneByCategories" style="display:block">
+          <!-- 2-Part Type Selector: Tài khoản cá nhân vs Fanpage -->
+          <div class="cfg-type-selector-bar" id="cfgTypeSelectorBar">
+            <button type="button" class="cfg-type-btn active" id="cfgTypeBtnPersonal" data-type="personal"
+              title="Chỉ quản lý và cấu hình các nick Facebook cá nhân">
+              <span class="cfg-type-title">Tài khoản cá nhân</span>
+              <span class="cfg-type-badge" id="cfgTypeCountPersonal">0</span>
+            </button>
+            <button type="button" class="cfg-type-btn" id="cfgTypeBtnFanpage" data-type="fanpage"
+              title="Chỉ quản lý và cấu hình các trang Fanpage (Max 5 bài/ngày)">
+              <span class="cfg-type-title">Trang Fanpage</span>
+              <span class="cfg-type-badge" id="cfgTypeCountFanpage">0</span>
+            </button>
+            <button type="button" class="cfg-type-btn" id="cfgTypeBtnAll" data-type="all"
+              title="Xem tất cả tài khoản cá nhân và Fanpage">
+              <span class="cfg-type-title">Tất cả</span>
+              <span class="cfg-type-badge" id="cfgTypeCountAll">0</span>
+            </button>
+          </div>
+
+          <!-- Toolbar: Search, Filters & Bulk Actions -->
+          <div class="cfg-toolbar">
+            <div class="cfg-toolbar-top">
+              <input type="text" id="cfgSearchAccountInput" placeholder="Tìm kiếm nick cá nhân..."
+                class="cfg-search-input">
+            </div>
+            <div class="cfg-toolbar-bottom">
+              <div class="cfg-filter-pills" id="cfgFilterPills">
+                <button type="button" class="cfg-filter-pill active" data-filter="all">Tất cả (<span
+                    id="cfgCountAll">0</span>)</button>
+                <button type="button" class="cfg-filter-pill" data-filter="selected">Đã chọn (<span
+                    id="cfgCountSelected">0</span>)</button>
+                <button type="button" class="cfg-filter-pill" data-filter="unselected">Chưa chọn (<span
+                    id="cfgCountUnselected">0</span>)</button>
+              </div>
+              <div class="cfg-bulk-actions">
+                <button type="button" id="cfgBulkSelectAllBtn" class="cfg-action-btn primary"
+                  title="Gán tất cả danh mục nhóm cho toàn bộ tài khoản">Chọn tất cả</button>
+                <button type="button" id="cfgBulkDeselectBtn" class="cfg-action-btn"
+                  title="Bỏ chọn danh mục nhóm của tất cả tài khoản">Bỏ chọn tất cả</button>
+              </div>
+            </div>
+            <!-- Fast bulk post assigner (khi có nhiều bài viết đã soạn) -->
+            <div id="cfgBulkPostAssignBar"
+              style="display:none;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:11.5px;color:#475569">
+              <span style="font-weight:600">Gán nhanh bài cho tất cả nick:</span>
+              <div id="cfgBulkPostButtons" style="display:flex;gap:4px"></div>
+            </div>
+          </div>
+
+          <!-- Compact Accordion Account List -->
+          <div id="accountCategoryAssignList">
+            <div style="color:#64748b;font-size:12px;text-align:center;padding:16px">Đang tải danh sách tài khoản &amp;
+              danh mục...</div>
+          </div>
+        </div>
+
+        <!-- Pane 2: Dùng danh sách nhóm chung -->
+        <div id="paneSharedLinks" style="display:none">
+          <div
+            style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:12px;font-weight:700;color:#334155">Nạp từ danh mục:</span>
+              <select id="categorySelect"
+                style="width:auto;display:inline-block;margin:0;padding:5px 10px;font-size:12px;border-radius:7px">
+                <option value="">-- Chọn danh mục nhóm để nạp --</option>
+              </select>
+              <button type="button" id="applyCategoryBtn" class="light"
+                style="padding:5px 10px;font-size:11.5px;border-radius:6px;cursor:pointer"
+                title="Ghi đè ô nhóm bằng danh mục đã chọn">Nạp nhóm</button>
+            </div>
+          </div>
+
+          <div
+            style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+            <label for="links" style="font-size:12px;font-weight:700;color:#334155;margin:0">
+              Mỗi dòng một link nhóm (dùng cho tài khoản không có nhóm riêng):
+            </label>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span id="linksStatsText" style="font-size:11.5px;color:#64748b;font-weight:600"></span>
+              <button type="button" id="filterPostedLinksBtn" class="report-btn"
+                style="background:#eff6ff;color:#2563eb;border:1px solid #93c5fd;font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:4px"
+                title="Tự động loại bỏ các nhóm đã đăng hôm qua (trong báo cáo/lịch sử), chỉ giữ lại các nhóm còn lại chưa đăng để tiếp tục chạy ngày thứ 2">
+                ⚡ Lọc bỏ nhóm đã đăng
+              </button>
+            </div>
+          </div>
+          <textarea id="links" rows="4" placeholder="https://www.facebook.com/groups/ten-nhom/"></textarea>
+          <label class="as-check-label" style="margin-top:6px;margin-bottom:12px">
+            <input type="checkbox" id="splitSharedGroups">
+            <span><b>Chia đều nhóm cho các tài khoản:</b> Mỗi nhóm trong danh sách chỉ 1 tài khoản đăng (tránh đăng
+              trùng lặp nhóm giữa các nick).</span>
+          </label>
+
+          <!-- Danh sách chọn tài khoản & Fanpage chạy chiến dịch cho nhóm chung -->
+          <div class="shared-accounts-box" style="border-top:1px dashed #cbd5e1;padding-top:12px">
+            <div
+              style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:12.5px;font-weight:700;color:#0f172a">
+                  Tài khoản &amp; Fanpage chạy nhóm chung:
+                </span>
+                <span class="cfg-badge" id="sharedAccSelectedBadge"
+                  style="background:#ffedd5;color:#c2410c;font-weight:700;padding:2px 8px;border-radius:12px;font-size:11.5px">
+                  Đã chọn: <span id="sharedSelectedCount">0</span>/<span id="sharedTotalCount">0</span>
+                </span>
+              </div>
+              <div class="cfg-bulk-actions">
+                <button type="button" id="sharedSelectAllBtn" class="cfg-action-btn primary"
+                  title="Chọn toàn bộ tài khoản và Fanpage">Chọn tất cả</button>
+                <button type="button" id="sharedDeselectAllBtn" class="cfg-action-btn" title="Bỏ chọn tất cả">Bỏ chọn
+                  tất cả</button>
+              </div>
+            </div>
+
+            <!-- 3-Tab Filter Bar (Tất cả, Nick cá nhân, Trang Fanpage) -->
+            <div class="cfg-type-selector-bar" id="sharedTypeSelectorBar" style="margin-bottom:8px">
+              <button type="button" class="cfg-type-btn active" id="sharedTypeBtnAll" data-type="all">
+                <span class="cfg-type-title">Tất cả</span>
+                <span class="cfg-type-badge" id="sharedTypeCountAll">0</span>
+              </button>
+              <button type="button" class="cfg-type-btn" id="sharedTypeBtnPersonal" data-type="personal">
+                <span class="cfg-type-title">Tài khoản cá nhân</span>
+                <span class="cfg-type-badge" id="sharedTypeCountPersonal">0</span>
+              </button>
+              <button type="button" class="cfg-type-btn" id="sharedTypeBtnFanpage" data-type="fanpage">
+                <span class="cfg-type-title">Trang Fanpage</span>
+                <span class="cfg-type-badge" id="sharedTypeCountFanpage">0</span>
+              </button>
+            </div>
+
+            <!-- Tìm kiếm nhanh tài khoản -->
+            <div style="margin-bottom:8px">
+              <input type="text" id="sharedSearchInput" placeholder="Tìm kiếm tài khoản hoặc Fanpage..."
+                class="cfg-search-input" style="font-size:12px;padding:6px 10px;width:100%">
+            </div>
+
+            <!-- Container danh sách tài khoản cho nhóm chung -->
+            <div id="sharedAccountList"
+              style="display:flex;flex-direction:column;gap:6px;max-height:190px;overflow-y:auto;overflow-x:hidden;padding-right:4px">
+              <div style="color:#64748b;font-size:12px;text-align:center;padding:12px">Đang tải danh sách tài khoản...
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Cách thực hiện (Trải dài ngang full-width ở dưới Bước 1 & 2) -->
+      <section id="sectionExecution" style="grid-column: 1 / -1;">
+        <h2>3. Cách thực hiện</h2>
+        <div class="exec-inputs-row">
+          <label style="margin-bottom:0">Chế độ đăng bài<select id="mode">
+              <option value="preview">Thử: điền bài, không bấm Đăng</option>
+              <option value="auto">Tự động: điền bài và bấm Đăng</option>
+            </select></label>
+
+          <label style="margin-bottom:0">Phối hợp nhiều tài khoản<select id="accountOrder">
+              <option value="round_robin">Xen kẽ: Luân phiên từng nick đăng 1 nhóm (Khuyên dùng)</option>
+              <option value="sequential">Tuần tự: Đăng hết nhóm nick này rồi sang nick tiếp theo</option>
+              <option value="parallel">Song song thông minh: Tự động xếp hàng luân phiên các nick</option>
+            </select></label>
+
+          <label style="margin-bottom:0">Bắt đầu lúc (để trống: chạy ngay)<input id="when"
+              type="datetime-local"></label>
+        </div>
+
+        <!-- Anti-Spam Card (Collapsible & Optimized) -->
+        <div class="anti-spam-card" id="antiSpamCard">
+          <div class="as-header" id="asToggleHeader" title="Bấm để bật hoặc tắt hiển thị phần chống spam">
+            <div class="as-header-left">
+              <span class="as-title-text">Chống Spam &amp; Bảo vệ tài khoản</span>
+              <span class="as-summary-badge" id="asSummaryBadge">60-90s · 20 bài/ngày · Auto-skip</span>
+            </div>
+            <button type="button" class="as-toggle-btn" id="asToggleBtn" aria-expanded="true">
+              <span id="asToggleBtnText">Thu gọn</span>
+              <span class="as-arrow" id="asToggleArrow">▲</span>
+            </button>
+          </div>
+
+          <div class="as-body" id="asBody">
+            <!-- Khoảng cách ngẫu nhiên -->
+            <div class="as-section-item">
+              <div class="as-item-header">
+                <span class="as-item-title">
+                  Khoảng cách ngẫu nhiên giữa 2 nhóm:
+                  <span class="as-note-btn"
+                    title="Hệ thống chọn ngẫu nhiên trong khoảng này để tạo nhịp điệu tự nhiên như người dùng thật.">
+                    <span class="as-note-badge">i</span>
+                    <span class="as-tooltip">Hệ thống chọn ngẫu nhiên trong khoảng này để tạo nhịp điệu tự nhiên như
+                      người dùng thật.</span>
+                  </span>
+                </span>
+                <div class="range-inputs">
+                  <span>Từ</span>
+                  <input id="gapMin" type="number" min="30" value="60">
+                  <span>đến</span>
+                  <input id="gapMax" type="number" min="30" value="90">
+                  <span>giây</span>
+                </div>
+              </div>
+              <input id="gap" type="hidden" value="60">
+            </div>
+
+            <!-- Các tính năng chống spam & bảo vệ tài khoản cốt lõi luôn bật mặc định (ẩn khỏi giao diện) -->
+            <div style="display:none">
+              <input type="checkbox" id="randomTag" checked>
+              <input type="checkbox" id="humanBehavior" checked>
+              <input type="checkbox" id="autoSkipOnError" checked>
+            </div>
+
+            <!-- Nghỉ ngắt quãng & Giới hạn ngày xếp gọn -->
+            <div class="as-split-row">
+              <div class="as-break-box">
+                <label class="as-check-label" style="margin:0">
+                  <input type="checkbox" id="enableBreak" checked>
+                  <span><b>Tự động nghỉ ngắt quãng:</b></span>
+                </label>
+                <div class="break-inputs" id="breakSettingsRow">
+                  <span>Đăng xong</span>
+                  <input id="breakAfter" type="number" min="1" value="5" style="width:55px">
+                  <span>nhóm, nghỉ</span>
+                  <input id="breakMinutes" type="number" min="1" value="10" style="width:55px">
+                  <span>phút.</span>
+                </div>
+              </div>
+
+              <div class="as-break-box as-limit-box">
+                <label class="as-check-label" style="margin:0">
+                  <input type="checkbox" id="enableDailyLimit" checked>
+                  <span><b style="color:#15803d">Giới hạn mỗi ngày:</b></span>
+                </label>
+                <div class="break-inputs" id="dailyLimitRow">
+                  <span>Tối đa</span>
+                  <input id="dailyLimit" type="number" min="1" max="100" value="20" style="width:55px;font-weight:700">
+                  <span>bài/ngày (Nick cá nhân: 20 · Fanpage: tối đa 5 bài/ngày).</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Giới hạn số nhóm mỗi lần chạy -->
+            <div class="as-maxposts-row">
+              <label
+                style="margin:0;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;font-weight:600">
+                <span>Giới hạn nhóm mỗi lần chạy:</span>
+                <input id="maxPosts" type="number" min="1" placeholder="Để trống: đăng hết nhóm"
+                  style="width:190px;margin-top:0;padding:7px 10px;font-size:12.5px">
+              </label>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Prominent Resume Banner: xuất hiện rõ ràng khi có chiến dịch tạm dừng dở dang -->
+        <div id="resumeNoticeBanner"
+          style="display:none;margin-top:14px;margin-bottom:12px;padding:12px 16px;border-radius:12px;background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);border:2px solid #10b981;box-shadow:0 4px 14px rgba(16,185,129,0.2);align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:800;font-size:13.5px;color:#065f46;display:flex;align-items:center;gap:7px">
+              <span>Chiến dịch đang tạm dừng dở dang</span>
+            </div>
+            <p id="resumeNoticeText" style="margin:2px 0 0;font-size:12px;color:#047857;line-height:1.4">
+              Đã lưu lại vị trí nhóm đang dừng. Bấm nút bên cạnh để tiếp tục đăng tiếp các nhóm còn lại!
+            </p>
+          </div>
+          <button type="button" id="bannerResumeBtn"
+            style="background:#10b981;color:#fff;font-weight:800;font-size:13px;padding:8px 16px;border:none;border-radius:8px;cursor:pointer;box-shadow:0 3px 8px rgba(16,185,129,0.35);display:inline-flex;align-items:center;gap:6px">
+            ▶ Tiếp tục chạy ngay
+          </button>
+        </div>
+
+        <!-- Cảnh báo cấm bấm đăng bài tại Phần 3 khi phát hiện từ cấm -->
+        <div id="bannedActionAlert"
+          style="display:none;margin-top:14px;margin-bottom:12px;padding:12px 16px;border-radius:12px;background:#fff5f5;border:2px solid #ef4444;box-shadow:0 4px 14px rgba(239,68,68,0.15);align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div>
+              <div style="font-weight:800;font-size:13.5px;color:#991b1b">Nội dung bài viết chứa từ cấm vi phạm chính
+                sách Facebook!</div>
+              <p id="bannedActionAlertDesc" style="margin:2px 0 0;font-size:12px;color:#b91c1c">Nút bấm đăng bài đã bị
+                khóa. Hãy xóa các từ vi phạm trước khi bắt đầu.</p>
+            </div>
+          </div>
+          <button type="button" id="jumpToBannedBtn"
+            style="background:#ef4444;color:#fff;font-weight:800;font-size:12px;padding:7px 14px;border:none;border-radius:8px;cursor:pointer">
+            Xem từ cấm tại Bước 1
+          </button>
+        </div>
+
+        <!-- Master Control Action Bar (Các nút điều khiển chiến dịch tại Phần 3) -->
+        <div class="bulk-actions" style="margin-top:14px;margin-bottom:12px">
+          <button id="startAllBtn">▶ Bắt đầu tất cả tài khoản</button>
+          <button type="button" id="resumeAllBtn"
+            style="display:none;background:#ecfdf5;border:1.5px solid #10b981;color:#047857;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;align-items:center;gap:6px">▶
+            Tiếp tục chạy tiếp</button>
+          <button type="button" id="pauseAllBtn"
+            style="display:none;background:#fef3c7;border:1.5px solid #f59e0b;color:#b45309;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;align-items:center;gap:6px">⏸
+            Tạm dừng tất cả</button>
+          <button type="button" id="retryErrorsBtn"
+            style="display:none;background:#fef2f2;border:1.5px solid #ef4444;color:#dc2626;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;align-items:center;gap:6px">🔄
+            Thử lại các nick lỗi</button>
+          <button id="stopAllBtn" style="display:none">⏹ Dừng tất cả</button>
+          <button id="save" class="light">💾 Lưu bản nháp</button>
+        </div>
+        <p id="message" role="status"></p>
+      </section>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- 4. TIẾN ĐỘ & BÁO CÁO KẾT QUẢ ĐĂNG BÀI (TINH GỌN HỢP NHẤT)                 -->
+    <!-- ========================================================================= -->
+    <section id="campaignProgressSection" class="report-section">
+      <div class="report-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <h2 style="margin:0;font-size:18px;font-weight:800;color:#0f172a">4. Tiến độ &amp; Báo cáo kết quả</h2>
+              <span class="acc-count" id="accCount">0 tài khoản</span>
+            </div>
+          </div>
+        </div>
+        <div class="report-actions">
+          <button type="button" id="btnViewQueuedLinksHeader" class="report-btn outline"
+            style="border-color:#0284c7;color:#0284c7;font-weight:700"
+            title="Xem danh sách toàn bộ các link bài / nhóm sẽ đăng">
+            📋 Link bài để đăng (<span id="hdrQueuedCount">0</span>)
+          </button>
+          <button type="button" id="btnViewPostedLinksHeader" class="report-btn success"
+            style="background:#16a34a;color:#fff;font-weight:700;display:inline-flex;align-items:center;gap:6px"
+            title="Xem danh sách toàn bộ các link bài viết đã đăng thành công">
+            <span>🔗 Link bài viết đã đăng (<span id="hdrPostedCount">0</span>)</span>
+          </button>
+          <button type="button" id="copySuccessLinksBtn" class="report-btn outline"
+            title="Sao chép toàn bộ danh sách link bài viết đã đăng thành công vào bộ nhớ tạm">
+            📋 Sao chép link bài đã đăng
+          </button>
+          <button type="button" id="exportPostedTxtBtn" class="report-btn outline"
+            style="border-color:#16a34a;color:#15803d;font-weight:700"
+            title="Xuất file TXT chứa danh sách đường link các bài viết đã đăng">
+            📄 Xuất TXT bài đã đăng
+          </button>
+          <button type="button" id="exportReportCsvBtn" class="report-btn outline"
+            title="Xuất file Excel (.csv) chi tiết kết quả báo cáo">
+            📥 Xuất Excel (CSV)
+          </button>
+          <button type="button" id="clearReportBtn" class="report-btn danger"
+            title="Xóa toàn bộ lịch sử báo cáo &amp; làm mới tiến độ">
+            Xóa báo cáo
+          </button>
+        </div>
+      </div>
+
+      <!-- Unified Master KPI Metric Cards -->
+      <div class="report-kpi-grid">
+        <div class="report-kpi-card total" id="dashKpiCardAccounts"
+          title="Bấm để xem và quản lý Tiến độ Tài khoản cá nhân">
+          <div class="kpi-info">
+            <span class="kpi-val" id="dashKpiPersonal">0</span>
+            <span class="kpi-lbl" title="Tài khoản cá nhân">Nick cá nhân</span>
+            <span id="dashKpiAccounts" style="display:none">0</span>
+          </div>
+        </div>
+        <div class="report-kpi-card total" id="dashKpiCardFanpages" style="border-left: 3px solid #dc2626;"
+          title="Bấm để xem và quản lý Tiến độ Trang Fanpage">
+          <div class="kpi-info">
+            <span class="kpi-val" id="dashKpiFanpages" style="color:#dc2626">0</span>
+            <span class="kpi-lbl" title="Trang Fanpage">Trang Fanpage</span>
+          </div>
+        </div>
+        <div class="report-kpi-card total" id="kpiCardTotal" title="Tổng số link nhóm cần đăng">
+          <div class="kpi-info">
+            <span class="kpi-val" id="reportCountTotal">0</span>
+            <span class="kpi-lbl" title="Tổng link nhóm cần đăng">Tổng link nhóm</span>
+            <span id="dashKpiSelectedGroups" style="display:none">0</span>
+          </div>
+        </div>
+        <div class="report-kpi-card waiting" id="dashKpiCardRunning" title="Số nick / nhóm đang xử lý">
+          <div class="kpi-info">
+            <span class="kpi-val" id="dashKpiRunning">0</span>
+            <span class="kpi-lbl" title="Đang chạy">Đang chạy</span>
+            <span id="reportCountWaiting" style="display:none">0</span>
+          </div>
+        </div>
+        <div class="report-kpi-card success" id="kpiCardSuccess" title="Bấm để lọc các nhóm đã đăng thành công">
+          <div class="kpi-info">
+            <span class="kpi-val" id="reportCountSuccess">0</span>
+            <span class="kpi-lbl" title="Đã đăng thành công">Đã thành công</span>
+          </div>
+        </div>
+        <div class="report-kpi-card error" id="kpiCardError" title="Bấm để lọc các nhóm không đăng được / lỗi">
+          <div class="kpi-info">
+            <span class="kpi-val" id="reportCountError">0</span>
+            <span class="kpi-lbl" title="Không đăng được hoặc bị lỗi">Lỗi / Chặn</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Note thông tin & Xem link các bài để đăng -->
+      <div id="progQueuedLinksNote" class="notice"
+        style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:12px 18px;border-radius:10px;background:#f0f9ff;border:1px solid #bae6fd">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:20px;line-height:1">📌</span>
+          <div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-weight:700;color:#0369a1;font-size:13.5px">Danh sách link bài để đăng:</span>
+              <span id="progQueuedNoteBadge"
+                style="font-size:11px;font-weight:700;background:#0284c7;color:#fff;padding:1px 7px;border-radius:10px">0
+                link</span>
+            </div>
+            <div id="progQueuedNoteDesc" style="font-size:12.5px;color:#334155;margin-top:2px">
+              Đang có <b>0</b> link nhóm được phân công sẵn sàng đăng cho các tài khoản.
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button type="button" id="btnViewQueuedLinksModal" class="report-btn primary"
+            style="background:#0284c7;color:#fff;border:none;padding:7px 14px;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+            <span>👁️ Xem danh sách link để đăng</span>
+          </button>
+          <button type="button" id="btnCopyAllQueuedLinks" class="report-btn outline"
+            style="padding:7px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:5px"
+            title="Sao chép toàn bộ danh sách link cần đăng vào bộ nhớ tạm">
+            <span>📋 Sao chép link</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Section 4 Controls & Toolbars -->
+      <div style="margin-bottom:10px">
+        <!-- Toolbar for View 1: Theo tài khoản / Fanpage -->
+        <div id="toolbarAccountsView"
+          style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <button type="button" id="switchToTableViewBtn" class="cfg-action-btn"
+              style="font-size:12px;font-weight:700;color:#0284c7;background:#f0f9ff;border:1px solid #bae6fd;cursor:pointer;display:inline-flex;align-items:center;gap:5px"
+              title="Chuyển sang xem bảng chi tiết từng link và link bài viết đã đăng">
+              <span>📋 Xem bảng chi tiết từng link</span>
+            </button>
+          </div>
+          <button type="button" id="toggleAllJobDetailsBtn" class="cfg-action-btn" style="font-size:11.5px">
+            <span>Mở rộng chi tiết</span>
+          </button>
+        </div>
+
+        <!-- Toolbar for View 2: Bảng chi tiết từng link -->
+        <div id="toolbarLinksView"
+          style="display:none;align-items:center;justify-content:space-between;width:100%;gap:8px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding-bottom:12px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button type="button" id="backToCardsBtn" class="cfg-action-btn"
+              style="font-size:12px;font-weight:700;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;cursor:pointer"
+              title="Quay lại giao diện thẻ tiến độ">
+              <span>Xem thẻ tiến độ</span>
+            </button>
+            <div class="filter-pills" id="reportStatusFilters">
+              <button type="button" class="filter-pill active" data-filter="all">Tất cả (<span
+                  id="pillCountAll">0</span>)</button>
+              <button type="button" class="filter-pill success" data-filter="success">Đã đăng (<span
+                  id="pillCountSuccess">0</span>)</button>
+              <button type="button" class="filter-pill waiting" data-filter="waiting">Đang chờ (<span
+                  id="pillCountWaiting">0</span>)</button>
+              <button type="button" class="filter-pill error" data-filter="error">Lỗi (<span
+                  id="pillCountError">0</span>)</button>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label
+              style="margin:0;font-size:12px;font-weight:600;color:#475569;display:flex;align-items:center;gap:6px">
+              <span>Lọc loại:</span>
+              <select id="reportEntityTypeFilter"
+                style="width:auto;margin:0;padding:5px 10px;font-size:12px;border-radius:6px">
+                <option value="all">Tất cả (Cá nhân &amp; Fanpage)</option>
+                <option value="personal">Chỉ nick cá nhân</option>
+                <option value="fanpage">Chỉ trang Fanpage</option>
+              </select>
+            </label>
+            <label
+              style="margin:0;font-size:12px;font-weight:600;color:#475569;display:flex;align-items:center;gap:6px">
+              <span>Lọc nick:</span>
+              <select id="reportAccountFilter"
+                style="width:auto;margin:0;padding:5px 10px;font-size:12px;border-radius:6px">
+                <option value="all">Tất cả tài khoản</option>
+              </select>
+            </label>
+            <input type="text" id="reportSearchInput" placeholder="Tìm link nhóm..."
+              style="width:160px;margin:0;padding:5px 10px;font-size:12px;border-radius:6px">
+          </div>
+        </div>
+      </div>
+
+      <!-- Pane 1: Theo tài khoản / Fanpage (Compact Cards Grid / List) -->
+      <div id="paneAccountStatusView" style="display:block">
+
+        <div id="noAccountsNotice" class="no-accounts-notice" style="display:none">
+          Chưa có tài khoản nào. <a id="addAccLink" href="#">Thêm tài khoản ngay →</a>
+        </div>
+        <div id="accStatusList"></div>
+      </div>
+
+      <!-- Pane 2: Bảng chi tiết từng link -->
+      <div id="paneLinksTableView" style="display:none">
+        <div class="report-table-wrap">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th style="width:45px;text-align:center">#</th>
+                <th style="width:140px">Tài khoản</th>
+                <th>Link bài viết đã đăng</th>
+                <th style="width:150px;text-align:center">Kết quả</th>
+                <th>Chi tiết / Ghi chú phản hồi</th>
+                <th style="width:95px;text-align:center">Thời gian</th>
+              </tr>
+            </thead>
+            <tbody id="reportTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal: Xem toàn bộ link các bài để đăng & link bài viết đã đăng -->
+    <div id="queuedLinksModal" class="modal-overlay"
+      style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);z-index:99999;align-items:center;justify-content:center;padding:20px">
+      <div class="modal-card"
+        style="background:#ffffff;border-radius:14px;width:100%;max-width:880px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);overflow:hidden">
+        <!-- Modal Header -->
+        <div
+          style="padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;background:#f8fafc;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="modalHeaderIcon" style="font-size:22px">📋</span>
+            <div>
+              <h3 id="modalQueuedTitle" style="margin:0;font-size:16px;font-weight:800;color:#0f172a">Danh sách link
+              </h3>
+              <span id="modalQueuedSubtitle" style="font-size:12px;color:#64748b">Tổng số 0 link</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="display:flex;align-items:center;background:#e2e8f0;padding:3px;border-radius:8px;gap:3px">
+              <button type="button" id="modalTabQueued"
+                style="padding:5px 12px;font-size:12px;font-weight:700;border:none;border-radius:6px;cursor:pointer;background:#fff;color:#0284c7;transition:all 0.15s ease">
+                📋 Link bài để đăng (<span id="modalTabQueuedCount">0</span>)
+              </button>
+              <button type="button" id="modalTabPosted"
+                style="padding:5px 12px;font-size:12px;font-weight:700;border:none;border-radius:6px;cursor:pointer;background:transparent;color:#64748b;transition:all 0.15s ease">
+                🔗 Link bài viết đã đăng (<span id="modalTabPostedCount">0</span>)
+              </button>
+            </div>
+            <button type="button" id="closeQueuedLinksModalBtn"
+              style="background:none;border:none;font-size:20px;color:#64748b;cursor:pointer;padding:4px 8px;border-radius:6px"
+              title="Đóng">✕</button>
+          </div>
+        </div>
+
+        <!-- Modal Toolbar / Filters -->
+        <div
+          style="padding:12px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#ffffff">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:240px">
+            <input type="text" id="modalQueuedSearchInput" placeholder="Tìm kiếm link bài viết, nhóm hoặc tài khoản..."
+              style="margin:0;padding:7px 12px;font-size:12.5px;border:1px solid #cbd5e1;border-radius:6px;width:100%">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select id="modalQueuedAccFilter"
+              style="margin:0;padding:6px 10px;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;width:auto">
+              <option value="all">Tất cả tài khoản</option>
+            </select>
+            <button type="button" id="modalCopyFilteredLinksBtn" class="cfg-action-btn"
+              style="padding:6px 12px;font-size:12px;font-weight:600;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer"
+              title="Sao chép toàn bộ link đang hiển thị vào bộ nhớ tạm">
+              📋 Sao chép link
+            </button>
+            <button type="button" id="modalExportTxtBtn" class="cfg-action-btn"
+              style="padding:6px 12px;font-size:12px;font-weight:600;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer"
+              title="Tải file .TXT chứa danh sách link">
+              📄 Xuất file TXT
+            </button>
+            <button type="button" id="modalExportCsvBtn" class="cfg-action-btn"
+              style="padding:6px 12px;font-size:12px;font-weight:600;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:6px;cursor:pointer"
+              title="Tải file Excel (.csv) chi tiết">
+              📥 Xuất Excel (CSV)
+            </button>
+          </div>
+        </div>
+
+        <!-- Modal Body / Table -->
+        <div style="flex:1;overflow-y:auto;padding:0 20px 10px">
+          <table class="report-table" style="width:100%;margin-top:10px">
+            <thead>
+              <tr id="modalQueuedTableHeader">
+                <th style="width:45px;text-align:center">#</th>
+                <th style="width:160px">Tài khoản</th>
+                <th style="width:75px;text-align:center">Bài viết</th>
+                <th id="modalColHeaderTarget">Đường link nhóm để đăng bài</th>
+                <th style="width:115px;text-align:center">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="modalQueuedTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Modal Footer -->
+        <div
+          style="padding:12px 20px;border-top:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;background:#f8fafc">
+          <span id="modalQueuedFooterCount" style="font-size:12px;color:#64748b;font-weight:600">Hiển thị 0 link</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button type="button" id="modalSwitchToFullTableBtn" class="cfg-action-btn"
+              style="padding:7px 14px;font-size:12px;font-weight:700;color:#0369a1;background:#e0f2fe;border:1px solid #7dd3fc;border-radius:6px;cursor:pointer">
+              📊 Mở chế độ bảng đầy đủ
+            </button>
+            <button type="button" id="modalCloseBottomBtn" class="cfg-action-btn"
+              style="padding:7px 14px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer">
+              Đóng
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+  <script type="module" src="panel.js"></script>
+  <script type="module" src="sidebar.js"></script>
+</body>
+
+</html>

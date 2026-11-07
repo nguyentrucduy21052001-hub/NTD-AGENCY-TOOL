@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1923">
+<title>NTD Agency – Tạo Key</title>
+<script src="web_adapter.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #0f1923; color: #e8edf4;
+    font: 15px/1.6 system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+  .logo {
+    background: #ed6b22; color: #fff; border-radius: 14px;
+    width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 22px; flex-shrink: 0;
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header p  { margin: 0; color: #68758b; font-size: 13px; }
+  .card { background: #1a2635; border: 1px solid #2a3a50; border-radius: 18px; padding: 28px 30px; margin-bottom: 18px; }
+  .card h2 { margin: 0 0 20px; font-size: 16px; color: #ed6b22; display: flex; align-items: center; gap: 8px; }
+  label { display: block; font-weight: 600; color: #b0bcc8; margin-bottom: 16px; font-size: 13px; }
+  input[type="text"], input[type="password"], input[type="date"] {
+    display: block; width: 100%; margin-top: 6px; padding: 11px 14px;
+    border: 1px solid #2a3a50; border-radius: 9px; background: #0f1923; color: #e8edf4;
+    font: 14px/1 system-ui, sans-serif; outline: none; transition: border-color .2s;
+  }
+  input.mono { font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: .4px; }
+  input:focus { border-color: #ed6b22; }
+  input::placeholder { color: #3a4a5a; }
+  .mid-hint { font-size: 11px; color: #4a6a8a; margin-top: 5px; padding-left: 2px; }
+  button {
+    width: 100%; padding: 12px; border: 0; border-radius: 10px;
+    background: #ed6b22; color: #fff; font: 600 14px system-ui, sans-serif;
+    cursor: pointer; transition: background .2s, transform .1s; margin-top: 4px;
+  }
+  button:hover { background: #d55a14; }
+  button:active { transform: scale(.98); }
+  button.secondary { background: #2a3a50; color: #b0bcc8; margin-top: 10px; }
+  button.secondary:hover { background: #354d6a; color: #fff; }
+  .key-box {
+    background: #0a1118; border: 1px solid #2a3a50; border-radius: 10px;
+    padding: 14px 16px; font: 13px/1.7 'Courier New', monospace;
+    word-break: break-all; color: #4ade80; letter-spacing: .3px;
+    margin-top: 18px; min-height: 52px; display: none;
+  }
+  .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .msg.err { color: #f87171; }
+  .msg.ok  { color: #4ade80; }
+  #histList { list-style: none; padding: 0; margin: 0; }
+  #histList li { padding: 10px 0; border-bottom: 1px solid #2a3a50; font-size: 12px; color: #7a8a9a; overflow-wrap: anywhere; }
+  #histList li:last-child { border-bottom: 0; }
+  #histList li b { color: #b0bcc8; display: block; margin-bottom: 3px; }
+  #histList li code { background: #0a1118; padding: 3px 6px; border-radius: 5px; font-size: 11px; color: #4ade80; display: block; margin-top: 4px; }
+  #loginSection { display: block; }
+  #mainSection  { display: none; }
+  .lock { font-size: 36px; text-align: center; margin-bottom: 14px; }
+  .card-title { text-align: center; font-size: 18px; margin: 0 0 20px; color: #e8edf4; }
+  footer { text-align: center; color: #2a3a50; font-size: 11px; margin-top: 24px; }
+  .info-box {
+    background: #0d2a1a; border: 1px solid #1a4a2a; border-radius: 10px;
+    padding: 12px 16px; font-size: 12px; color: #4ade80; margin-bottom: 20px; line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" style="font-size:17px;letter-spacing:-0.5px">NTD</div>
+    <div>
+      <h1>NTD Agency</h1>
+      <p>Công cụ tạo License Key (giới hạn theo máy)</p>
+    </div>
+  </header>
+
+  <div id="loginSection">
+    <div class="card">
+      <div class="lock">🔒</div>
+      <p class="card-title">Xác thực để tiếp tục</p>
+      <label>Mật khẩu
+        <input id="passInput" type="password" placeholder="Nhập mật khẩu…" autocomplete="current-password">
+      </label>
+      <button id="loginBtn">Đăng nhập</button>
+      <p id="loginMsg" class="msg err" style="text-align:center"></p>
+    </div>
+  </div>
+
+  <div id="mainSection">
+    <div class="info-box">
+      🖥️ <b>Key giới hạn theo máy</b> — Mỗi key chỉ hoạt động trên 1 máy tính cụ thể.<br>
+      Người dùng cần gửi <b>Mã máy</b> (hiển thị trên trang kích hoạt của extension) để bạn tạo key.
+    </div>
+
+    <div class="card">
+      <h2>🔑 Tạo License Key mới</h2>
+      <label>Tên người dùng / tài khoản
+        <input id="username" type="text" placeholder="VD: nguyen_van_a">
+      </label>
+      <label>Mã máy (Machine ID) của người dùng
+        <input id="machineId" type="text" class="mono" placeholder="Dán mã máy người dùng gửi cho bạn…">
+        <div class="mid-hint">⚠️ Phải đúng mã máy — sai 1 ký tự key sẽ không hoạt động trên máy đó.</div>
+      </label>
+      <label>Ngày hết hạn
+        <input id="expiry" type="date">
+      </label>
+      <button id="genBtn">Tạo Key</button>
+      <p id="genMsg" class="msg"></p>
+      <div id="keyBox" class="key-box"></div>
+      <button id="copyBtn" class="secondary" style="display:none">📋 Sao chép key</button>
+    </div>
+
+    <div class="card">
+      <h2>📋 Lịch sử key đã tạo</h2>
+      <ul id="histList"><li style="color:#3a4a5a;padding:6px 0">Chưa có key nào.</li></ul>
+      <button id="clearBtn" class="secondary" style="margin-top:14px">🗑️ Xóa lịch sử</button>
+    </div>
+  </div>
+
+  <footer>NTD Agency · Công cụ tạo key · Chạy hoàn toàn trên máy của bạn · Không kết nối server</footer>
+</div>
+
+<script>
+const SECRET = 'DuyPosterHmac@2025#ChangeThisSecret!';
+const DEFAULT_PASS = 'DuyAdmin@2025';
+const enc = new TextEncoder();
+const $ = id => document.getElementById(id);
+
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', enc.encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+async function hmacHex(msg) {
+  const ck = await crypto.subtle.importKey('raw', enc.encode(SECRET), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', ck, enc.encode(msg));
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+// Key format: username|YYYYMMDD|machineId|hmac32hex
+async function generateKey(username, expiry, machineId) {
+  const payload = username.trim() + '|' + expiry + '|' + machineId.trim();
+  return payload + '|' + (await hmacHex(payload)).slice(0, 32);
+}
+
+// Login
+async function tryLogin() {
+  const pass = $('passInput').value;
+  if (!pass) { $('loginMsg').textContent = 'Nhập mật khẩu.'; return; }
+  if (await sha256hex(pass) === await sha256hex(DEFAULT_PASS)) {
+    sessionStorage.setItem('dg_auth','1');
+    $('loginSection').style.display = 'none';
+    $('mainSection').style.display  = 'block';
+    renderHistory();
+  } else {
+    $('loginMsg').textContent = '❌ Sai mật khẩu.';
+    $('passInput').value = ''; $('passInput').focus();
+  }
+}
+$('loginBtn').onclick = tryLogin;
+$('passInput').onkeydown = e => { if(e.key==='Enter') tryLogin(); };
+if (sessionStorage.getItem('dg_auth')==='1') {
+  $('loginSection').style.display='none'; $('mainSection').style.display='block'; renderHistory();
+}
+
+// Default expiry +30 days
+const d30 = new Date(); d30.setDate(d30.getDate()+30);
+$('expiry').value = d30.toISOString().slice(0,10);
+
+// Generate
+$('genBtn').onclick = async () => {
+  const username  = $('username').value.trim();
+  const machineId = $('machineId').value.trim();
+  const expiryRaw = $('expiry').value;
+  const msgEl = $('genMsg');
+  msgEl.className='msg'; msgEl.textContent='';
+  $('keyBox').style.display='none'; $('copyBtn').style.display='none';
+  if (!username)         { msgEl.className='msg err'; msgEl.textContent='⚠️ Nhập tên người dùng.'; return; }
+  if (!machineId)        { msgEl.className='msg err'; msgEl.textContent='⚠️ Nhập Mã máy (Machine ID).'; return; }
+  if (machineId.length<16){ msgEl.className='msg err'; msgEl.textContent='⚠️ Mã máy không hợp lệ.'; return; }
+  if (!expiryRaw)        { msgEl.className='msg err'; msgEl.textContent='⚠️ Chọn ngày hết hạn.'; return; }
+  if (new Date(expiryRaw)<new Date()) { msgEl.className='msg err'; msgEl.textContent='⚠️ Ngày hết hạn phải ở tương lai.'; return; }
+  const expiry = expiryRaw.replace(/-/g,'');
+  const key = await generateKey(username, expiry, machineId);
+  $('keyBox').textContent=key; $('keyBox').style.display='block'; $('copyBtn').style.display='block';
+  msgEl.className='msg ok'; msgEl.textContent=`✅ Key tạo cho: ${username} · Máy: ${machineId.slice(0,8)}…`;
+  const pad = n => String(n).padStart(2, '0');
+  const now = new Date();
+  const at = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const hist=JSON.parse(localStorage.getItem('dg_hist')||'[]');
+  hist.unshift({username,machineId,expiry:expiryRaw,key,at});
+  localStorage.setItem('dg_hist',JSON.stringify(hist.slice(0,50)));
+  renderHistory();
+};
+
+$('copyBtn').onclick = async () => {
+  await navigator.clipboard.writeText($('keyBox').textContent);
+  $('copyBtn').textContent='✅ Đã sao chép!';
+  setTimeout(()=>{ $('copyBtn').textContent='📋 Sao chép key'; },2000);
+};
+
+function renderHistory() {
+  const hist=JSON.parse(localStorage.getItem('dg_hist')||'[]');
+  const ul=$('histList'); ul.replaceChildren();
+  if(!hist.length){ul.innerHTML='<li style="color:#3a4a5a;padding:6px 0">Chưa có key nào.</li>';return;}
+  for(const h of hist){
+    const li=document.createElement('li');
+    li.innerHTML=`<b>👤 ${h.username} · Hết hạn: ${h.expiry} · Máy: ${(h.machineId||'?').slice(0,12)}… · ${h.at}</b><code>${h.key}</code>`;
+    ul.append(li);
+  }
+}
+$('clearBtn').onclick=()=>{if(confirm('Xóa toàn bộ lịch sử?')){localStorage.removeItem('dg_hist');renderHistory();}};
+</script>
+</body>
+</html>

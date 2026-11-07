@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#070b14">
+<title>Quản lý tài khoản – NTD Agency</title>
+<script src="web_adapter.js"></script>
+<script>
+  (function() {
+    var t = localStorage.getItem('ntd_theme') || 'dark';
+    var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (isDark) {
+      document.documentElement.classList.add('ntd-dark-theme');
+      document.documentElement.style.backgroundColor = '#070b14';
+      document.documentElement.style.colorScheme = 'dark';
+      new MutationObserver(function(_, obs) {
+        if (document.body) {
+          document.body.classList.add('ntd-dark-theme');
+          document.body.style.backgroundColor = '#070b14';
+          obs.disconnect();
+        }
+      }).observe(document.documentElement, { childList: true });
+    } else {
+      document.documentElement.classList.remove('ntd-dark-theme');
+      document.documentElement.style.backgroundColor = '#f3f5fa';
+      document.documentElement.style.colorScheme = 'light';
+      new MutationObserver(function(_, obs) {
+        if (document.body) {
+          document.body.classList.remove('ntd-dark-theme');
+          obs.disconnect();
+        }
+      }).observe(document.documentElement, { childList: true });
+    }
+  })();
+</script>
+<style id="ntd-anti-flicker">
+  html.ntd-dark-theme,
+  html.ntd-dark-theme body,
+  body.ntd-dark-theme {
+    background-color: #070b14 !important;
+    background: #070b14 !important;
+    color: #f8fafc !important;
+    color-scheme: dark !important;
+  }
+  html.ntd-dark-theme {
+    --bg: #070b14 !important;
+    --surface: #0b111e !important;
+    --card-bg: #0f172a !important;
+    --bg-page: #070b14 !important;
+    --border: rgba(255, 255, 255, 0.08) !important;
+    --text: #f8fafc !important;
+    --text-muted: #94a3b8 !important;
+  }
+  html.ntd-dark-theme .card,
+  html.ntd-dark-theme .stat-card,
+  html.ntd-dark-theme .grid section,
+  html.ntd-dark-theme section,
+  html.ntd-dark-theme .setting-box,
+  html.ntd-dark-theme .as-card,
+  html.ntd-dark-theme .modal-content,
+  html.ntd-dark-theme .dash-kpi-card,
+  html.ntd-dark-theme .acc-status-card {
+    background-color: #0b111e !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    color: #f8fafc !important;
+  }
+</style>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="sidebar.css">
+</head>
+<style>
+  :root {
+    --bg: #f3f5fa;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --accent: #ed6b22;
+    --accent-hover: #d95a14;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --success: #10b981;
+    --danger: #ef4444;
+    --warn: #f59e0b;
+    --primary-soft: #fff4ed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    margin: 0;
+  }
+  main {
+    max-width: 840px;
+    margin: 30px auto;
+    padding: 0 24px 60px;
+  }
+
+  .pg-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .pg-title h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 800;
+    color: #0f172a;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 26px 28px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  }
+  .card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 18px;
+  }
+
+  /* Method tabs */
+  .method-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    overflow: hidden;
+    background: #f1f5f9;
+  }
+  .method-tab {
+    flex: 1;
+    padding: 11px 8px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #f8fafc;
+    color: #64748b;
+    border: none;
+    transition: color .15s, box-shadow .15s;
+  }
+  .method-tab.active {
+    background: linear-gradient(135deg, #ed6b22, #f59332);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(237,107,34,0.25);
+  }
+  .method-tab:not(.active):hover {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+
+  label {
+    display: block;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  label span {
+    display: block;
+    margin-bottom: 6px;
+  }
+  input[type=text], input[type=password], input[type=email], textarea {
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #0f172a;
+    border-radius: 9px;
+    padding: 10px 13px;
+    font-size: 13px;
+    resize: vertical;
+    outline: none;
+    transition: all .2s;
+  }
+  input:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(237,107,34,0.12);
+  }
+  textarea {
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 20px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all .2s;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg,#ed6b22,#f59332);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(237,107,34,0.25);
+  }
+  .btn-primary:hover {
+    opacity: .92;
+    transform: translateY(-1px);
+  }
+  .btn-primary:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn-light {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+  }
+  .btn-light:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+
+  .hint {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 11px;
+    padding: 14px 16px;
+    font-size: 12.5px;
+    color: #1e40af;
+    line-height: 1.7;
+    margin-bottom: 16px;
+  }
+  .hint code {
+    background: #dbeafe;
+    color: #1d4ed8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .hint b {
+    color: #1e3a8a;
+  }
+
+  /* Progress overlay during login */
+  .login-progress {
+    display: none;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 11px;
+    padding: 18px 20px;
+    margin-top: 14px;
+  }
+  .login-progress.show {
+    display: block;
+  }
+  .spin {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ed6b22;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-steps {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .progress-steps li {
+    padding: 3px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .step-done { color: var(--success); font-weight: 600; }
+  .step-active { color: var(--warn); font-weight: 600; }
+  .step-wait { color: #94a3b8; }
+
+  /* Account list (hiển thị tối đa 5 tài khoản, cuộn nếu nhiều hơn) */
+  .acc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 590px;
+    overflow-y: auto;
+    padding-right: 6px;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+  .acc-list::-webkit-scrollbar { width: 6px; }
+  .acc-list::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
+  .acc-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+  .acc-list::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  .acc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: start;
+    transition: all .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+  .acc-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  }
+  .acc-name {
+    font-weight: 700;
+    font-size: 14.5px;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 700;
+  }
+  .badge-ok { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+  .badge-warn { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+  .badge-run { background: #fff4ed; color: #ea580c; border: 1px solid #fdba74; }
+  .badge-pass { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .acc-meta {
+    font-size: 12.5px;
+    color: #64748b;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .acc-groups {
+    font-size: 11px;
+    color: #475569;
+    margin-top: 6px;
+    font-family: monospace;
+    max-height: 44px;
+    overflow: hidden;
+    white-space: pre;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 4px 8px;
+  }
+  .acc-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .icon-btn {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #64748b;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all .15s;
+  }
+  .icon-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+  }
+  .icon-btn.del:hover {
+    background: #fef2f2;
+    border-color: #f87171;
+    color: #dc2626;
+  }
+  .icon-btn.edit-btn:hover {
+    background: #fff4ed;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .acc-edit-box {
+    grid-column: 1 / -1;
+    margin-top: 14px;
+    padding: 16px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 10px;
+    animation: fadeIn .2s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: #64748b;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+  }
+  .empty-state .emoji { font-size: 44px; margin-bottom: 12px; }
+
+  #msg { font-size: 13px; margin-top: 10px; min-height: 20px; font-weight: 600; }
+  .msg-ok { color: #059669; }
+  .msg-err { color: #dc2626; }
+
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-header h2 { font-size: 17px; font-weight: 700; color: #0f172a; margin: 0; }
+  .count-badge { background: #e2e8f0; color: #475569; font-size: 12px; font-weight: 600; padding: 3px 11px; border-radius: 20px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  #tokenInfoBox {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 13px 15px;
+    margin-bottom: 12px;
+    font-size: 12.5px;
+  }
+  #tokenInfoBox code {
+    background: #e2e8f0;
+    color: #0f172a;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .pane { display: none; }
+  .pane.show { display: block; }
+</style>
+<body class="ntd-dark-theme">
+<main>
+  <div class="pg-header">
+    <div class="pg-title">
+      <h1>Quản lý tài khoản cá nhân</h1>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="card-title">Thêm tài khoản cá nhân mới (Nick / VIA)</p>
+
+    <!-- Method selector -->
+    <div class="method-tabs">
+      <button class="method-tab active" id="tabPass">Tài khoản &amp; Mật khẩu</button>
+      <button class="method-tab" id="tabCookie">Nhập VIA, Token &amp; Cookies</button>
+    </div>
+
+    <!-- Tên hiển thị (chung) -->
+    <label id="accNameWrapper"><span>Tên hiển thị</span>
+      <input type="text" id="accName" placeholder="VD: Nguyễn Văn A, nick1, acc_chinh...">
+    </label>
+
+    <!-- === Pane 1: Password === -->
+    <div class="pane show" id="panePass">
+      <label><span>Email hoặc số điện thoại Facebook</span>
+        <input type="email" id="fbEmail" placeholder="email@gmail.com hoặc 09xxxxxxxx" autocomplete="off">
+      </label>
+      <label><span>Mật khẩu</span>
+        <input type="password" id="fbPass" placeholder="Nhập mật khẩu..." autocomplete="new-password">
+      </label>
+      <label><span>Mã 2FA Secret Key (tùy chọn - tự động giải mã không cần nhập tay)</span>
+        <input type="text" id="fb2FA" placeholder="Ví dụ: JBSWY3DPEHPK3PXP... (hoặc để trống)" autocomplete="off">
+      </label>
+
+      <!-- Progress steps -->
+      <div class="login-progress" id="loginProgress">
+        <div><span class="spin"></span><span id="progressTitle">Đang đăng nhập…</span></div>
+        <ul class="progress-steps">
+          <li id="step1" class="step-wait">○ Mở tab Facebook</li>
+          <li id="step2" class="step-wait">○ Tải trang đăng nhập</li>
+          <li id="step3" class="step-wait">○ Điền thông tin đăng nhập</li>
+          <li id="step4" class="step-wait">○ Lấy cookies phiên</li>
+          <li id="step_2fa" class="step-wait" style="display:none;color:#fbbf24">Nhập mã 2FA trên tab Facebook...</li>
+          <li id="step5" class="step-wait">○ Lưu tài khoản</li>
+        </ul>
+      </div>
+
+      <div class="row">
+        <button class="btn btn-primary" id="loginBtn">🔑 Đăng nhập &amp; Thêm tài khoản</button>
+        <button class="btn btn-light" id="clearPassFormBtn">Xóa</button>
+      </div>
+    </div>
+
+    <!-- === Pane 2: Token & Cookies === -->
+    <div class="pane" id="paneCookie">
+      <!-- Card nổi bật: Lấy tự động Token & Cookie từ Facebook -->
+      <div style="background:linear-gradient(135deg, rgba(237,107,34,0.08), rgba(245,147,50,0.04));border:1px solid #fdba74;border-radius:12px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-weight:700;color:#ea580c;font-size:13.5px;display:flex;align-items:center;gap:6px">
+              <span>Lấy Token &amp; Cookies tự động từ Facebook</span>
+              <span style="font-size:10px;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;padding:2px 8px;border-radius:10px;font-weight:700">Khuyên dùng</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">
+              Quét tab Facebook đang mở trên Chrome để lấy Token (EAAB / EAAG), bắt đầy đủ Cookies và điền Tên tài khoản chuẩn 100%!
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" id="fetchTokenCookieBtn" style="font-weight:700;padding:8px 16px;border-radius:8px">
+            Lấy Token &amp; Cookie ngay
+          </button>
+        </div>
+      </div>
+
+      <label>
+        <span style="display:flex;align-items:center;justify-content:space-between">
+          <span>Dán dòng VIA (UID|Pass|2FA|Cookie|Token), mã Token hoặc Cookies:</span>
+          <span id="tokenBadge" style="display:none;font-size:11px;font-weight:700"></span>
+        </span>
+        <textarea id="accCookies" rows="4" placeholder="Dán toàn bộ dòng VIA (UID|Pass|2FA|Cookie|Token), hoặc mã Token (EAAB, EAAG), hoặc Cookies vào đây..."></textarea>
+      </label>
+
+      <!-- VIA & Token breakdown preview -->
+      <div id="tokenInfoBox" style="display:none">
+        <div style="font-weight:700;color:#ea580c;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+          <span>Chi tiết dữ liệu nhận diện được:</span>
+        </div>
+        <div id="tokenInfoContent" style="color:var(--text);line-height:1.6"></div>
+      </div>
+
+      <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="autoLoginAfterAdd" checked style="width:16px;height:16px;accent-color:#f97316;cursor:pointer">
+        <label for="autoLoginAfterAdd" style="margin:0;font-size:12px;cursor:pointer;color:var(--text);font-weight:600">
+          Tự động đăng nhập nick này vào Facebook trên trình duyệt ngay sau khi thêm
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="addCookieBtn">➕ Thêm &amp; Đăng nhập</button>
+        <button class="btn btn-light" id="clearCookieFormBtn">Xóa</button>
+      </div>
+    </div>
+
+    <p id="msg"></p>
+  </div>
+
+  <div class="section-header">
+    <h2>Danh sách tài khoản cá nhân (Nick / VIA)</h2>
+    <span class="count-badge" id="countBadge">0 tài khoản cá nhân</span>
+  </div>
+
+  <!-- Auto-sync Status Banner -->
+  <div class="auto-sync-banner" style="display:flex;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:12px 16px;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#10b981;box-shadow:0 0 8px rgba(16,185,129,0.3);flex-shrink:0"></span>
+      <div>
+        <div style="font-weight:700;font-size:13px;color:#047857;display:flex;align-items:center;gap:6px">
+          Tự động cập nhật cookie: ĐANG BẬT
+          <span style="font-size:10px;background:#d1fae5;color:#047857;border:1px solid #6ee7b7;padding:1px 6px;border-radius:10px">Thời gian thực</span>
+        </div>
+        <div style="font-size:12px;color:#065f46;margin-top:2px">
+          Extension tự động bắt và làm mới cookie khi bạn mở/lướt Facebook, đăng nhập hoặc chuyển nick mà không cần bấm thủ công.
+        </div>
+      </div>
+    </div>
+    <button type="button" class="btn btn-light" id="forceSyncAllBtn" title="Quét ngay phiên Facebook đang mở trên Chrome để đồng bộ vào danh sách" style="font-size:11px;padding:6px 12px;border:1px solid #059669;color:#059669;font-weight:700;white-space:nowrap;background:#ffffff">
+      Quét &amp; Đồng bộ ngay
+    </button>
+  </div>
+  <div class="acc-list" id="accList">
+    <div class="empty-state">
+      <p>Chưa có tài khoản Facebook cá nhân nào. Hãy thêm tài khoản đầu tiên!</p>
+    </div>
+  </div>
+</main>
+<script type="module" src="accounts.js"></script>
+<script type="module" src="sidebar.js"></script>
+</body>
+</html>

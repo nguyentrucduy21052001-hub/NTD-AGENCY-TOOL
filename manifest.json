@@ -1,0 +1,87 @@
+{
+  "manifest_version": 3,
+  "name": "NTD Agency",
+  "version": "0.4.4",
+  "description": "Soạn nội dung và đăng lần lượt vào các nhóm Facebook bạn chọn. Hỗ trợ nhiều tài khoản: Xen kẽ, Tuần tự hoặc Song song.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "scripting",
+    "cookies",
+    "tabs",
+    "browsingData",
+    "power"
+  ],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://facebook.com/*",
+    "https://bytebin.lucko.me/*",
+    "https://dpaste.com/*",
+    "https://www.google.com/*",
+    "https://www.google.com.vn/*",
+    "https://bot-api.zaloplatforms.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Mở NTD Agency"
+  },
+  "options_ui": {
+    "page": "manage.html",
+    "open_in_tab": true
+  },
+  "options_page": "panel.html",
+  "content_scripts": [
+    {
+      "matches": ["*://*.facebook.com/search/*", "*://*.facebook.com/groups/*"],
+      "js": ["fb_scroll_hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fb_scroll_hook.js",
+        "fb_group_extract.js",
+        "activate.html",
+        "activate.js",
+        "manage.html",
+        "manage.js",
+        "license.js",
+        "panel.html",
+        "panel.js",
+        "groups.html",
+        "groups.js",
+        "accounts.html",
+        "accounts.js",
+        "fanpages.html",
+        "fanpages.js",
+        "maps.html",
+        "maps.js",
+        "maps_extract.js",
+        "maps_batch.js",
+        "maps_export.js",
+        "maps_notify.js",
+        "settings.html",
+        "settings.js",
+        "warmup.html",
+        "warmup.js",
+        "warmup_content.js",
+        "login_helper.js",
+        "sync_helper.js",
+        "style.css",
+        "sidebar.css",
+        "sidebar.js",
+        "theme_toggle.js",
+        "GoogleAppsScript_Code.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

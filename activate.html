@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NTD Agency – Đăng nhập tài khoản</title>
+  <script src="web_adapter.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    :root {
+      --primary: #ed6b22;
+      --primary-hover: #d55a14;
+      --primary-light: #fff7ed;
+      --border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-sub: #64748b;
+      --bg-page: #f8fafc;
+      --card-bg: #ffffff;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --border: #334155;
+        --text-main: #f8fafc;
+        --text-sub: #94a3b8;
+        --bg-page: #0f172a;
+        --card-bg: #1e293b;
+      }
+    }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      box-sizing: border-box;
+    }
+
+    .activate-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.08);
+      box-sizing: border-box;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    .logo {
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      color: white;
+      border-radius: 14px;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      letter-spacing: -0.5px;
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);
+      flex-shrink: 0;
+    }
+
+    .brand-text h1 {
+      font-size: 20px;
+      font-weight: 800;
+      margin: 0 0 3px;
+      color: var(--text-main);
+    }
+
+    .brand-text .sub {
+      color: var(--text-sub);
+      font-size: 13px;
+      margin: 0;
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 16px;
+      text-align: left;
+    }
+
+    .input-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 7px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 12px;
+      color: #94a3b8;
+      font-size: 16px;
+      pointer-events: none;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 11px 12px 11px 38px;
+      font-size: 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      background: #ffffff;
+      color: #0f172a;
+      box-sizing: border-box;
+      transition: all 0.2s;
+      outline: none;
+    }
+
+    .form-control:focus {
+      border-color: #ea580c;
+      box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15);
+    }
+
+    .toggle-pwd-btn {
+      position: absolute;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px 8px;
+    }
+
+    /* Buttons */
+    .btn-submit {
+      width: 100%;
+      padding: 13px;
+      font-size: 15px;
+      font-weight: 700;
+      margin-top: 8px;
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+      transition: transform 0.1s, box-shadow 0.2s, background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-submit:hover {
+      background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+      box-shadow: 0 6px 16px rgba(234, 88, 12, 0.35);
+    }
+
+    .btn-submit:active {
+      transform: scale(0.99);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    .btn-primary-soft {
+      width: 100%;
+      padding: 11px;
+      font-size: 13.5px;
+      font-weight: 700;
+      border: 1.5px solid #16a34a;
+      border-radius: 9px;
+      background: #22c55e;
+      color: #ffffff;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-decoration: none;
+      box-sizing: border-box;
+    }
+
+    .btn-primary-soft:hover {
+      background: #16a34a;
+    }
+
+    .btn-outline-danger {
+      width: 100%;
+      padding: 9px;
+      font-size: 12.5px;
+      font-weight: 600;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      background: #fff;
+      color: #dc2626;
+      cursor: pointer;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .btn-outline-danger:hover {
+      background: #fef2f2;
+      border-color: #f87171;
+    }
+
+    /* Status message */
+    #loginMsg {
+      margin: 14px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      text-align: left;
+      padding: 10px 14px;
+      border-radius: 8px;
+      display: none;
+    }
+
+    #loginMsg.err {
+      display: block;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+    }
+
+    #loginMsg.ok {
+      display: block;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+    }
+
+    /* Active status banner (nếu đã đăng nhập thành công) */
+    .active-status-card {
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 20px;
+      text-align: left;
+      display: none;
+    }
+
+    .active-status-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #166534;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .active-status-desc {
+      font-size: 12.5px;
+      color: #15803d;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+
+    /* Machine ID row */
+    .machine-box {
+      margin-top: 20px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 10px;
+      text-align: left;
+    }
+
+    .machine-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 5px;
+    }
+
+    .machine-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+      flex: 1;
+      word-break: break-all;
+    }
+
+    .copy-btn-sm {
+      background: #e2e8f0;
+      color: #334155;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .copy-btn-sm:hover {
+      background: #cbd5e1;
+    }
+
+    /* Sync block */
+    .sync-card {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: #fffaf5;
+      border: 1px solid #fed7aa;
+      border-radius: 10px;
+      text-align: center;
+    }
+
+    /* Server config collapse */
+    .config-toggle-btn {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 11.5px;
+      cursor: pointer;
+      margin-top: 14px;
+      text-decoration: underline;
+      display: inline-block;
+    }
+
+    .config-toggle-btn:hover {
+      color: #ea580c;
+    }
+
+    .server-config-box {
+      display: none;
+      margin-top: 10px;
+      padding: 12px;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      text-align: left;
+    }
+
+    footer {
+      color: var(--text-sub);
+      font-size: 11.5px;
+      margin-top: 20px;
+      line-height: 1.4;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="activate-card">
+    <!-- Brand Header -->
+    <div class="header-brand">
+      <div class="logo">NTD</div>
+      <div class="brand-text">
+        <h1>NTD Agency</h1>
+        <p class="sub">Đăng nhập tài khoản &amp; Quản trị bản quyền</p>
+      </div>
+    </div>
+
+    <!-- Banner thông báo nếu đã có tài khoản đang đăng nhập hợp lệ -->
+    <div id="alreadyActiveCard" class="active-status-card">
+      <div class="active-status-title">
+        <span>Bạn đang đăng nhập hệ thống</span>
+      </div>
+      <div id="alreadyActiveDesc" class="active-status-desc">
+        Đang tải thông tin tài khoản...
+      </div>
+      <a id="goToPanelBtn" href="panel.html" class="btn-primary-soft">
+        Vào Bảng Điều Khiển Chính (Đăng bài)
+      </a>
+      <button type="button" id="cardLogoutBtn" class="btn-outline-danger">
+        Đăng xuất tài khoản này
+      </button>
+    </div>
+
+    <!-- Form Đăng nhập Tài khoản & Mật khẩu -->
+    <div id="loginFormSection">
+      <div class="form-group">
+        <label for="usernameInput" class="input-label">
+          <span>Tên tài khoản</span>
+        </label>
+        <div class="input-wrapper">
+          <input type="text" id="usernameInput" class="form-control" style="padding-left:14px"
+            placeholder="Nhập tên tài khoản được cấp..." autocomplete="username" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="passwordInput" class="input-label">
+          <span>Mật khẩu</span>
+        </label>
+        <div class="input-wrapper">
+          <input type="password" id="passwordInput" class="form-control" style="padding-left:14px"
+            placeholder="Nhập mật khẩu..." autocomplete="current-password">
+          <button type="button" id="togglePasswordBtn" class="toggle-pwd-btn" title="Hiện/Ẩn mật khẩu">Ẩn/Hiện</button>
+        </div>
+      </div>
+
+      <button type="button" class="btn-submit" id="submitLoginBtn">
+        <span>Đăng nhập vào hệ thống</span>
+      </button>
+    </div>
+
+    <div id="loginMsg"></div>
+
+    <!-- Hộp hỗ trợ nhanh khi bị lỗi ghim mã máy khác -->
+    <div id="lockedMachineBox"
+      style="display:none;margin-top:10px;padding:12px 14px;background:#fff7ed;border:1.5px solid #fdba74;border-radius:10px;text-align:left;">
+      <div style="font-size:12.5px;font-weight:700;color:#c2410c;margin-bottom:4px">Bạn là Quản trị viên (hoặc vừa cập
+        nhật bản mới)?</div>
+      <div style="font-size:11.5px;color:#9a3412;line-height:1.45;margin-bottom:8px">
+        Bấm nút bên dưới để tự động Reset mã máy trên Google Sheets và liên kết máy này ngay lập tức (không cần vào
+        Sheet xóa thủ công)!
+      </div>
+      <button type="button" id="quickResetMidBtn"
+        style="width:100%;background:#ea580c;color:#fff;border:none;padding:9px;border-radius:8px;font-weight:700;font-size:12.5px;cursor:pointer;box-shadow:0 2px 6px rgba(234,88,12,0.25);display:flex;align-items:center;justify-content:center;gap:6px">
+        Mở khóa &amp; Reset mã máy tài khoản này ngay
+      </button>
+    </div>
+
+    <!-- Khôi phục dữ liệu bản cũ 1 chạm -->
+    <div class="sync-card">
+      <div style="font-size:12px;color:#c2410c;font-weight:700;margin-bottom:2px">
+        Bạn vừa nâng cấp hoặc chuyển máy mới?
+      </div>
+      <div style="font-size:11.5px;color:#9a3412;margin-bottom:8px">
+        Khôi phục toàn bộ tài khoản Facebook và nhóm chỉ trong 1 chạm!
+      </div>
+      <button type="button" id="openSyncModalBtn"
+        style="background:#ea580c;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;width:100%;box-shadow:0 2px 6px rgba(234,88,12,0.25);display:inline-flex;align-items:center;justify-content:center;gap:6px">
+        Cập nhật dữ liệu cũ trực tiếp (1-Chạm)
+      </button>
+    </div>
+
+    <!-- Machine ID Box -->
+    <div class="machine-box">
+      <div style="font-size:11.5px;font-weight:700;color:#475569">Mã máy thiết bị của bạn:</div>
+      <div class="machine-row">
+        <span class="machine-val" id="machineIdDisplay">Đang tải mã máy…</span>
+        <button type="button" class="copy-btn-sm" id="copyMidBtn" title="Sao chép mã máy">Sao chép</button>
+        <button type="button" class="copy-btn-sm" id="editMidBtn" title="Nhập mã máy cũ nếu bạn muốn dùng lại mã cũ">Đổi
+          mã</button>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:4px">
+        Cung cấp mã máy này cho Quản trị viên nếu bạn muốn đổi sang máy tính khác.
+      </div>
+    </div>
+
+    <!-- Cài đặt máy chủ Google Sheets (Đã tích hợp cố định URL & Ẩn đi) -->
+    <div style="display:none !important;">
+      <button type="button" id="toggleServerConfigBtn" class="config-toggle-btn">
+        ⚙️ Cài đặt máy chủ Google Sheets (Dành cho Quản trị viên)
+      </button>
+      <div id="serverConfigBox" class="server-config-box">
+        <div style="font-size:12px;font-weight:700;color:#334155;margin-bottom:6px">
+          URL Google Apps Script Web App:
+        </div>
+        <input type="text" id="scriptUrlInput" class="form-control"
+          style="padding-left:12px;font-size:12px;margin-bottom:8px"
+          placeholder="https://script.google.com/macros/s/.../exec"
+          value="https://script.google.com/macros/s/AKfycbyifsMdaPU67IZBWQlCzYd94Ds4oRtWE2w_TRdlNZMsmYvE0gGmZv2bC2mhuYNKzkKH/exec">
+        <div style="display:flex;gap:6px">
+          <button type="button" id="saveScriptUrlBtn"
+            style="flex:1;background:#2563eb;color:#fff;border:none;padding:7px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">💾
+            Lưu URL</button>
+          <button type="button" id="testScriptUrlBtn"
+            style="background:#e2e8f0;color:#334155;border:none;padding:7px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">⚡
+            Kiểm tra</button>
+        </div>
+        <div id="serverConfigMsg" style="font-size:11.5px;margin-top:6px;display:none"></div>
+      </div>
+    </div>
+
+    <footer>
+      Mỗi tài khoản được cấp quyền sử dụng trên 1 thiết bị. Gia hạn dễ dàng bởi Quản trị viên.
+    </footer>
+  </div>
+
+  <script src="web_adapter.js"></script>
+  <script>
+    (function () {
+      const SUPABASE_URL = 'https://jwketbnfapscggpvnbui.supabase.co';
+      const SUPABASE_KEY = 'sb_publishable_HK-WyUKi4lK9RBJvSrf4Kg_i920nRCv';
+
+      // 1. Tạo hoặc lấy Machine ID ngay lập tức (không để bị treo ở "Đang tải mã máy...")
+      let mid = localStorage.getItem('dg_machine_id');
+      if (!mid || mid.length < 8) {
+        mid = 'mid_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+        localStorage.setItem('dg_machine_id', mid);
+      }
+      const midEl = document.getElementById('machineIdDisplay');
+      if (midEl) {
+        midEl.textContent = mid;
+      }
+
+      // Nút copy mã máy
+      const copyBtn = document.getElementById('copyMidBtn');
+      if (copyBtn) {
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(mid).then(() => alert('Đã sao chép mã máy: ' + mid));
+        };
+      }
+
+      // Hiện / ẩn mật khẩu
+      const pwdInput = document.getElementById('passwordInput');
+      const togglePwdBtn = document.getElementById('togglePasswordBtn');
+      if (togglePwdBtn && pwdInput) {
+        togglePwdBtn.onclick = () => {
+          pwdInput.type = pwdInput.type === 'password' ? 'text' : 'password';
+        };
+      }
+
+      // 2. Xử lý Đăng nhập trực tiếp (Hoạt động cho cả file:/// lẫn http/https)
+      const btn = document.getElementById('submitLoginBtn');
+      const uInput = document.getElementById('usernameInput');
+      const pInput = document.getElementById('passwordInput');
+      const msgEl = document.getElementById('loginMsg');
+
+      if (btn) {
+        btn.onclick = async () => {
+          const username = (uInput?.value || '').trim();
+          const password = (pInput?.value || '').trim();
+
+          if (!username || !password) {
+            if (msgEl) {
+              msgEl.className = 'msg-box err';
+              msgEl.style.display = 'block';
+              msgEl.textContent = 'Vui lòng nhập cả Tên tài khoản và Mật khẩu.';
+            }
+            return;
+          }
+
+          btn.disabled = true;
+          btn.innerHTML = '<span>⏳ Đang kiểm tra đăng nhập…</span>';
+          if (msgEl) {
+            msgEl.className = 'msg-box';
+            msgEl.style.display = 'block';
+            msgEl.style.background = '#1e3a5f';
+            msgEl.style.color = '#93c5fd';
+            msgEl.textContent = 'Đang kết nối tới Supabase…';
+          }
+
+          try {
+            // Gọi trực tiếp Supabase REST API
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}&select=*`, {
+              method: 'GET',
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(`Supabase phản hồi lỗi HTTP ${res.status}: ${text}`);
+            }
+
+            const users = await res.json();
+            if (!users || users.length === 0) {
+              throw new Error('Tài khoản không tồn tại trên hệ thống.');
+            }
+
+            const user = users[0];
+            if (user.password !== password) {
+              throw new Error('Mật khẩu không chính xác.');
+            }
+
+            if (user.status === 'locked' || user.status === 'khoa') {
+              throw new Error('Tài khoản này đã bị khóa bởi Quản trị viên.');
+            }
+
+            const expiryDate = new Date(user.expiry_date || user.expiry);
+            if (expiryDate < new Date()) {
+              throw new Error('Tài khoản đã hết hạn sử dụng. Vui lòng liên hệ Admin để gia hạn.');
+            }
+
+            // Cập nhật machine_id nếu chưa có
+            if (!user.machine_id) {
+              fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}`, {
+                method: 'PATCH',
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ machine_id: mid, last_login: new Date().toISOString() })
+              }).catch(() => {});
+            }
+
+            const userRole = (user.role || 'member').toLowerCase() === 'admin' ? 'admin' : 'member';
+
+            const licenseData = {
+              username: user.username,
+              role: userRole,
+              expiry: expiryDate.toISOString(),
+              expiryFormatted: expiryDate.toLocaleDateString('vi-VN'),
+              machineId: mid,
+              source: 'supabase',
+              lastChecked: Date.now()
+            };
+
+            // Lưu vào storage & localStorage
+            if (window.chrome && window.chrome.storage && window.chrome.storage.local) {
+              await window.chrome.storage.local.set({ license: licenseData, machineId: mid });
+            }
+            localStorage.setItem('ntd_store_license', JSON.stringify(licenseData));
+            localStorage.setItem('dg_machine_id', mid);
+
+            if (msgEl) {
+              msgEl.className = 'msg-box ok';
+              msgEl.style.display = 'block';
+              msgEl.textContent = `Đăng nhập thành công! Xin chào ${user.username} [${userRole.toUpperCase()}]. Đang chuyển hướng…`;
+            }
+
+            setTimeout(() => {
+              window.location.href = 'panel.html';
+            }, 800);
+
+          } catch (err) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>Đăng nhập vào hệ thống</span>';
+            if (msgEl) {
+              msgEl.className = 'msg-box err';
+              msgEl.style.display = 'block';
+              msgEl.textContent = 'Lỗi: ' + (err.message || String(err));
+            }
+          }
+        };
+
+        // Nhấn Enter để đăng nhập
+        [uInput, pInput].forEach(inp => {
+          inp?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') btn.click();
+          });
+        });
+      }
+
+      // Hiển thị thông báo nếu đang mở bằng file:///
+      if (window.location.protocol === 'file:') {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:rgba(234,88,12,0.15);border:1px solid rgba(234,88,12,0.4);color:#fdba74;padding:10px 14px;border-radius:10px;font-size:12px;margin-bottom:14px;text-align:left;line-height:1.5';
+        banner.innerHTML = '💡 <b>Khuyên dùng:</b> Để chạy đầy đủ mọi tính năng trên máy tính mà không bị giới hạn bảo mật file của trình duyệt, bạn hãy nhấp đúp vào file <b>CHAY_WEBSITE.bat</b> trong thư mục này nhé!';
+        const card = document.querySelector('.activate-card');
+        if (card) card.insertBefore(banner, card.firstChild);
+      }
+    })();
+  </script>
+  <script type="module" src="activate.js"></script>
+</body>
+
+</html>
