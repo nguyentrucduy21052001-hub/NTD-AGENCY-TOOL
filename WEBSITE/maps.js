@@ -848,8 +848,12 @@ async function fetchWebPlacesForQuery(query, limit = 50) {
   }
 }
 
+let isDirectScrapingRunning = false;
+let mapsTabWindow = null;
+
 async function runMapsScraperDirectly() {
-  if (running && !mapsStop) return;
+  if (isDirectScrapingRunning) return;
+  isDirectScrapingRunning = true;
   running = true;
   mapsStop = false;
   state.isScanning = true;
@@ -979,12 +983,23 @@ async function runMapsScraperDirectly() {
         }
       }
     } else {
-      // ── CHẾ ĐỘ WEB PLATFORM (Tìm kiếm doanh nghiệp & SĐT trực tuyến) ──
-      log(`⚡ Đang quét dữ liệu doanh nghiệp & SĐT trên nền tảng Web...`);
+      // ── CHẾ ĐỘ WEB PLATFORM (Tự động mở tab Google Maps & thu thập dữ liệu) ──
+      log(`⚡ Đang kích hoạt quét Google Maps trên nền tảng Web...`);
 
       while (j.index < j.queries.length && !mapsStop) {
         const query = j.queries[j.index];
-        log(`[${j.index + 1}/${j.queries.length}] Đang quét dữ liệu cho: "${query}"...`);
+        const mapsUrl = 'https://www.google.com/maps/search/' + encodeURIComponent(query) + '?hl=vi';
+        log(`[${j.index + 1}/${j.queries.length}] Đang mở tab Google Maps tìm kiếm: "${query}"...`);
+
+        try {
+          if (!mapsTabWindow || mapsTabWindow.closed) {
+            mapsTabWindow = window.open(mapsUrl, 'ntd_maps_tab');
+          } else {
+            mapsTabWindow.location.href = mapsUrl;
+          }
+        } catch (_) {
+          mapsTabWindow = window.open(mapsUrl, 'ntd_maps_tab');
+        }
 
         const places = await fetchWebPlacesForQuery(query, limit);
         if (mapsStop) break;
@@ -1047,6 +1062,7 @@ async function runMapsScraperDirectly() {
   } catch (err) {
     log('Lỗi tiến trình quét Maps: ' + err.message);
   } finally {
+    isDirectScrapingRunning = false;
     running = false;
     state.isScanning = false;
     await saveState();
@@ -1895,6 +1911,17 @@ function setupEventListeners() {
       phoneTypes
     };
 
+    // Mở ngay tab Google Maps trong luồng click của người dùng để không bị Chrome chặn pop-up
+    const firstQ = queries[0] || 'Google Maps';
+    const firstUrl = 'https://www.google.com/maps/search/' + encodeURIComponent(firstQ) + '?hl=vi';
+    try {
+      if (!mapsTabWindow || mapsTabWindow.closed) {
+        mapsTabWindow = window.open(firstUrl, 'ntd_maps_tab');
+      } else {
+        mapsTabWindow.location.href = firstUrl;
+      }
+    } catch (_) {}
+
     await saveState();
     runLoop();
   };
@@ -1951,7 +1978,16 @@ function setupEventListeners() {
 
     const currentQ = state.job?.queries?.[state.job?.index || 0] || 'Google Maps';
     const mapsUrl = 'https://www.google.com/maps/search/' + encodeURIComponent(currentQ) + '?hl=vi';
-    window.open(mapsUrl, '_blank');
+    if (!mapsTabWindow || mapsTabWindow.closed) {
+      mapsTabWindow = window.open(mapsUrl, 'ntd_maps_tab');
+    } else {
+      try {
+        mapsTabWindow.focus();
+        mapsTabWindow.location.href = mapsUrl;
+      } catch (_) {
+        mapsTabWindow = window.open(mapsUrl, 'ntd_maps_tab');
+      }
+    }
     log('Đã mở tab Google Maps tìm kiếm: ' + currentQ);
   };
 

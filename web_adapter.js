@@ -285,22 +285,43 @@
   };
 
   // ── 3. TABS & SCRIPTING EMULATION ───────────────────────────────────────────
+  let _webManagedTabWin = null;
   window.chrome.tabs = window.chrome.tabs || {
     async create({ url, active }) {
       console.log('[WebAdapter chrome.tabs.create]', url);
-      const w = window.open(url, '_blank');
+      try {
+        _webManagedTabWin = window.open(url, 'ntd_maps_tab');
+        if (active && _webManagedTabWin) _webManagedTabWin.focus();
+      } catch (_) {}
       return { id: Date.now(), url, active: Boolean(active) };
     },
     async get(tabId) {
-      return { id: tabId, url: window.location.href };
+      return { id: tabId, url: window.location.href, status: 'complete' };
     },
     async update(tabId, props) {
       if (props && props.url) {
-        window.open(props.url, '_blank');
+        try {
+          if (!_webManagedTabWin || _webManagedTabWin.closed) {
+            _webManagedTabWin = window.open(props.url, 'ntd_maps_tab');
+          } else {
+            _webManagedTabWin.location.href = props.url;
+          }
+        } catch (_) {
+          _webManagedTabWin = window.open(props.url, 'ntd_maps_tab');
+        }
       }
-      return { id: tabId, ...props };
+      if (props && props.active && _webManagedTabWin) {
+        try { _webManagedTabWin.focus(); } catch (_) {}
+      }
+      return { id: tabId, ...props, status: 'complete' };
     },
     async remove(tabId) {
+      try {
+        if (_webManagedTabWin && !_webManagedTabWin.closed) {
+          _webManagedTabWin.close();
+        }
+      } catch (_) {}
+      _webManagedTabWin = null;
       return true;
     },
     async query() {
