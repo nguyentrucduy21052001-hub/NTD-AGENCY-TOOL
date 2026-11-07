@@ -777,9 +777,289 @@ function truncateUrl(url) {
   }
 }
 
-// ── Kết nối với Background Runner trong worker.js ─────────────────────────────
+let mapsStop = false;
+let mapsTabId = null;
+
+// ── Tiến trình quét số Google Maps chạy trực tiếp (Fallback khi Worker chưa nạp hoặc chạy trên Web) ──
+async function waitForMapsTab(tabId, timeoutMs = 25000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (mapsStop) return false;
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) throw new Error('Tab Google Maps đã bị đóng.');
+
+    if (tab.status === 'complete' && !tab.pendingUrl) {
+      return true;
+    }
+    await sleep(500);
+  }
+  return true;
+}
+
+// Tìm kiếm danh sách địa điểm doanh nghiệp trực tuyến trên nền tảng Web
+async function fetchWebPlacesForQuery(query, limit = 50) {
+  try {
+    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query) + '&limit=' + Math.min(limit, 40);
+    const resp = await fetch(url, { method: 'GET' });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    if (!data || !Array.isArray(data.features)) return [];
+
+    const results = [];
+    for (const feat of data.features) {
+      const p = feat.properties || {};
+      const coords = feat.geometry?.coordinates; // [lon, lat]
+      const name = p.name || '';
+      if (!name) continue;
+
+      const addrParts = [
+        p.housenumber,
+        p.street,
+        p.locality,
+        p.district,
+        p.city || p.state
+      ].filter(Boolean);
+      const address = addrParts.join(', ');
+
+      const coordsStr = coords && coords.length >= 2 ? `${coords[1]},${coords[0]}` : '';
+      const mapUrl = coordsStr
+        ? `https://www.google.com/maps/search/?api=1&query=${coordsStr}`
+        : `https://www.google.com/maps/search/${encodeURIComponent(name + ' ' + address)}?hl=vi`;
+
+      let phone = p.phone || p['contact:phone'] || '';
+      if (!phone) {
+        const fullText = `${name} ${address} ${p.description || ''}`;
+        const phoneMatch = fullText.match(/(?:0|\+?84)(?:3|5|7|8|9|2\d)\d{8}/);
+        if (phoneMatch) phone = phoneMatch[0];
+      }
+
+      results.push({
+        name,
+        phone,
+        address,
+        website: p.website || p['contact:website'] || '',
+        url: mapUrl
+      });
+    }
+    return results;
+  } catch (e) {
+    console.warn('[fetchWebPlacesForQuery error]', e);
+    return [];
+  }
+}
+
+async function runMapsScraperDirectly() {
+  if (running && !mapsStop) return;
+  running = true;
+  mapsStop = false;
+  state.isScanning = true;
+  await saveState();
+  renderUI();
+
+  try {
+    const j = state.job;
+    if (!j || !Array.isArray(j.queries) || !j.queries.length) {
+      throw new Error('Chưa có danh sách từ khóa tìm kiếm.');
+    }
+
+    const isRealExtension = typeof window !== 'undefined' &&
+      window.chrome?.runtime?.id &&
+      window.chrome.runtime.id !== 'ntd-agency-webapp' &&
+      typeof window.chrome?.scripting?.executeScript === 'function' &&
+      typeof window.chrome?.tabs?.create === 'function';
+
+    const delaySec = Math.max(2, Math.min(60, Number(j.delay) || 5));
+    const allowedTypes = j.phoneTypes || getActivePhoneTypes();
+    const limit = Math.max(1, Math.min(500, Number(j.limit) || 50));
+
+    log(`🚀 Bắt đầu quét số Google Maps (Tổng ${j.queries.length} từ khóa, giới hạn ${limit} cơ sở/từ khóa)...`);
+
+    if (isRealExtension) {
+      // ── CHẾ ĐỘ TIỆN ÍCH EXTENSION (Tự động mở tab Google Maps & cào DOM) ──
+      while (j.index < j.queries.length && !mapsStop) {
+        const query = j.queries[j.index];
+        log(`[${j.index + 1}/${j.queries.length}] Đang mở tab Google Maps tìm kiếm: "${query}"...`);
+
+        if (j.links === null || !Array.isArray(j.links)) {
+          const searchUrl = 'https://www.google.com/maps/search/' + encodeURIComponent(query) + '?hl=vi';
+          if (mapsTabId) {
+            try {
+              await chrome.tabs.get(mapsTabId);
+              await chrome.tabs.update(mapsTabId, { url: searchUrl, active: false });
+            } catch (_) {
+              mapsTabId = null;
+            }
+          }
+          if (!mapsTabId) {
+            const t = await chrome.tabs.create({ url: searchUrl, active: false });
+            mapsTabId = t.id;
+            state.tabId = mapsTabId;
+            await chrome.tabs.update(mapsTabId, { autoDiscardable: false }).catch(() => {});
+          }
+
+          log(`Đang chờ tải trang kết quả Google Maps... (Bấm '👁️ Xem tab Maps' nếu muốn xem trực tiếp)`);
+          await waitForMapsTab(mapsTabId, 25000);
+          if (mapsStop) break;
+
+          let links = [];
+          for (let attempt = 0; attempt < 3; attempt++) {
+            if (mapsStop) break;
+            const rs = await chrome.scripting.executeScript({
+              target: { tabId: mapsTabId },
+              func: mapsExtract,
+              args: ['list', limit]
+            }).catch(() => null);
+            const res = rs?.[0]?.result;
+            if (Array.isArray(res)) {
+              links = res;
+              break;
+            }
+            await sleep(2000);
+          }
+
+          j.links = links;
+          j.cursor = 0;
+          await saveState();
+
+          if (links.length) {
+            log(`Tìm thấy ${links.length} cơ sở cho: "${query}"`);
+          } else {
+            log(`Không tìm thấy cơ sở nào cho: "${query}". Chuyển sang từ khóa tiếp theo.`);
+          }
+        }
+
+        while (j.cursor < (j.links || []).length && !mapsStop) {
+          const currentLink = j.links[j.cursor];
+          log(`Đang đọc thông tin (${j.cursor + 1}/${j.links.length}) của: ${query}...`);
+
+          try {
+            await chrome.tabs.update(mapsTabId, { url: currentLink, active: false });
+            await waitForMapsTab(mapsTabId, 15000);
+            if (mapsStop) break;
+
+            const rs = await chrome.scripting.executeScript({
+              target: { tabId: mapsTabId },
+              func: mapsExtract,
+              args: ['detail']
+            }).catch(() => null);
+
+            const row = rs?.[0]?.result;
+            if (row && !row.error) {
+              const rawP = row.phone || '';
+              const cleanP = rawP ? normPhone(rawP) : '';
+              const category = cleanP ? classifyPhone(cleanP) : null;
+
+              if (cleanP && !allowedTypes[category]) {
+                const typeName = category === 'hotline' ? 'tổng đài' : category === 'old' ? 'cũ' : 'hiện hành';
+                log(`[Bỏ qua] Cơ sở "${row.name}" có SĐT ${typeName} (${cleanP}) do không được chọn.`);
+              } else {
+                addRow({ ...row, phone: cleanP, query });
+                log(cleanP ? `✅ ${row.name} - SĐT: ${cleanP}` : `📍 ${row.name} (không có SĐT)`);
+              }
+            }
+          } catch (itemErr) {
+            console.warn('[Maps Scraper Item Error]', itemErr);
+          }
+
+          j.cursor++;
+          state.lastScraped = { time: Date.now() };
+          await saveState();
+          renderUI();
+
+          for (let t = 0; t < delaySec * 2 && !mapsStop; t++) {
+            await sleep(500);
+          }
+        }
+
+        if (!mapsStop) {
+          j.index++;
+          j.links = null;
+          j.cursor = 0;
+          await saveState();
+        }
+      }
+    } else {
+      // ── CHẾ ĐỘ WEB PLATFORM (Tìm kiếm doanh nghiệp & SĐT trực tuyến) ──
+      log(`⚡ Đang quét dữ liệu doanh nghiệp & SĐT trên nền tảng Web...`);
+
+      while (j.index < j.queries.length && !mapsStop) {
+        const query = j.queries[j.index];
+        log(`[${j.index + 1}/${j.queries.length}] Đang quét dữ liệu cho: "${query}"...`);
+
+        const places = await fetchWebPlacesForQuery(query, limit);
+        if (mapsStop) break;
+
+        if (!places || !places.length) {
+          log(`Không tìm thấy kết quả mới nào cho: "${query}". Tự động chuyển từ khóa tiếp theo.`);
+        } else {
+          log(`Tìm thấy ${places.length} cơ sở cho: "${query}". Đang phân tích SĐT...`);
+          for (let idx = 0; idx < places.length && !mapsStop; idx++) {
+            const p = places[idx];
+            const cleanP = p.phone ? normPhone(p.phone) : '';
+            const category = cleanP ? classifyPhone(cleanP) : null;
+
+            if (cleanP && !allowedTypes[category]) {
+              // Bỏ qua loại SĐT không được chọn
+            } else {
+              addRow({
+                name: p.name,
+                phone: cleanP,
+                address: p.address,
+                website: p.website || '',
+                url: p.url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + (p.address || ''))}`,
+                query
+              });
+              if (cleanP) {
+                log(`✅ ${p.name} - SĐT: ${cleanP}`);
+              } else {
+                log(`📍 ${p.name} - ${p.address || 'Đã ghi nhận cơ sở'}`);
+              }
+            }
+
+            j.cursor = idx + 1;
+            await saveState();
+            renderUI();
+
+            for (let t = 0; t < delaySec * 2 && !mapsStop; t++) {
+              await sleep(500);
+            }
+          }
+        }
+
+        if (!mapsStop) {
+          j.index++;
+          j.cursor = 0;
+          await saveState();
+        }
+      }
+    }
+
+    if (j.index >= j.queries.length) {
+      state.job = null;
+      state.isScanning = false;
+      await saveState();
+      log('🎉 Hoàn tất quét toàn bộ từ khóa. Bạn có thể bấm Xuất Excel ngay.');
+    } else {
+      state.isScanning = false;
+      await saveState();
+      log('Đã tạm dừng tiến trình quét. Toàn bộ dữ liệu đã được lưu lại.');
+    }
+  } catch (err) {
+    log('Lỗi tiến trình quét Maps: ' + err.message);
+  } finally {
+    running = false;
+    state.isScanning = false;
+    await saveState();
+    renderUI();
+  }
+}
+
+// ── Kết nối với Background Runner trong worker.js hoặc Chạy trực tiếp ────────────────
 async function runLoop() {
   running = true;
+  mapsStop = false;
+  state.isScanning = true;
+  await saveState();
   renderUI();
   try {
     const res = await chrome.runtime.sendMessage({
@@ -787,18 +1067,15 @@ async function runLoop() {
       job: state.job,
       phoneTypes: state.job?.phoneTypes || getActivePhoneTypes()
     });
-    if (!res?.ok && res?.error) {
-      log('Lỗi khởi động quét nền: ' + res.error);
-      running = false;
-      renderUI();
-    } else {
+    if (res && res.ok && !res.webFallback) {
       log('🚀 Tiến trình quét Google Maps đã được khởi động chạy ngầm...');
+      return;
     }
   } catch (err) {
-    log('Lỗi kết nối tới tiến trình nền: ' + err.message);
-    running = false;
-    renderUI();
+    // Worker chưa nạp hoặc môi trường Web Platform
   }
+  log('⚡ Kích hoạt quét trực tiếp trên giao diện...');
+  runMapsScraperDirectly();
 }
 
 // ── Tiến trình quét số nhóm Facebook chạy trực tiếp (Fallback khi Worker chưa nạp) ──
@@ -1630,37 +1907,52 @@ function setupEventListeners() {
     }
     const currentQuery = state.job.queries[state.job.index] || state.job.queries[0];
     log(`Tiếp tục lượt đã lưu (${state.job.index + 1}/${state.job.queries.length}): ${currentQuery}`);
+    mapsStop = false;
     running = true;
     renderUI();
     try {
-      await chrome.runtime.sendMessage({ type: 'MAPS_RESUME_SCAN' });
-    } catch (err) {
-      log('Lỗi tiếp tục: ' + err.message);
-      running = false;
-      renderUI();
-    }
+      const res = await chrome.runtime.sendMessage({ type: 'MAPS_RESUME_SCAN' });
+      if (res && res.ok && !res.webFallback) {
+        log('🚀 Tiến trình quét Google Maps đang tiếp tục chạy ngầm...');
+        return;
+      }
+    } catch (_) {}
+    log('⚡ Tiếp tục quét trực tiếp trên giao diện...');
+    runMapsScraperDirectly();
   };
 
   // Dừng (Maps)
   $('stop').onclick = async () => {
     log('Đang gửi lệnh dừng quét Maps...');
+    mapsStop = true;
+    running = false;
+    state.isScanning = false;
+    await saveState();
     try {
       await chrome.runtime.sendMessage({ type: 'MAPS_STOP_SCAN' });
     } catch (_) {}
-    running = false;
     renderUI();
   };
 
   // Xem tab Maps
   $('show').onclick = async () => {
+    if (mapsTabId) {
+      try {
+        await chrome.tabs.update(mapsTabId, { active: true });
+        return;
+      } catch (_) {
+        mapsTabId = null;
+      }
+    }
     try {
       const res = await chrome.runtime.sendMessage({ type: 'MAPS_SHOW_TAB' });
-      if (!res?.ok) {
-        log(res?.error || 'Chưa có tab Google Maps nào đang mở. Hãy bấm Bắt đầu trước.');
-      }
-    } catch {
-      log('Tab Maps trước đó đã đóng. Bấm Bắt đầu hoặc Tiếp tục để mở tab mới.');
-    }
+      if (res && res.ok) return;
+    } catch (_) {}
+
+    const currentQ = state.job?.queries?.[state.job?.index || 0] || 'Google Maps';
+    const mapsUrl = 'https://www.google.com/maps/search/' + encodeURIComponent(currentQ) + '?hl=vi';
+    window.open(mapsUrl, '_blank');
+    log('Đã mở tab Google Maps tìm kiếm: ' + currentQ);
   };
 
   // ── Sự kiện Chuyển đổi chế độ (Nút chọn Quét Maps vs Quét số nhóm) ────────
@@ -1964,11 +2256,19 @@ function setupEventListeners() {
 
     // Kiểm tra trạng thái đang chạy ngầm Maps
     const mapsStatus = await chrome.runtime.sendMessage({ type: 'MAPS_GET_STATUS' }).catch(() => null);
-    running = Boolean(mapsStatus?.running || state.isScanning);
+    running = Boolean(mapsStatus?.running);
+    if (!running && state.isScanning) {
+      state.isScanning = false;
+      await saveState();
+    }
 
     // Kiểm tra trạng thái đang chạy ngầm Group
     const groupStatus = await chrome.runtime.sendMessage({ type: 'FB_GROUP_GET_STATUS' }).catch(() => null);
-    groupRunning = Boolean(groupStatus?.running || groupState.isScanning);
+    groupRunning = Boolean(groupStatus?.running);
+    if (!groupRunning && groupState.isScanning) {
+      groupState.isScanning = false;
+      await chrome.storage.local.set({ rinFbGroup: groupState });
+    }
 
     // Khôi phục chế độ đã chọn trước đó
     setMode(store.mapsActiveMode || 'maps');

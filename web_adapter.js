@@ -242,6 +242,30 @@
         });
       }
 
+      // Xử lý fallback tức thì cho các tác vụ nền khi chạy trên Web Platform
+      if (!handled && message?.type) {
+        if (message.type === 'MAPS_GET_STATUS' || message.type === 'FB_GROUP_GET_STATUS' || message.type === 'WARMUP_GET_STATUS') {
+          setTimeout(() => { if (!resolved) sendResponse({ ok: true, running: false }); }, 20);
+          return;
+        }
+        if (message.type === 'MAPS_STOP_SCAN' || message.type === 'FB_GROUP_STOP_SCAN' || message.type === 'WARMUP_STOP') {
+          setTimeout(() => { if (!resolved) sendResponse({ ok: true, stopped: true }); }, 20);
+          return;
+        }
+        if (message.type === 'MAPS_SHOW_TAB' || message.type === 'FB_GROUP_SHOW_TAB' || message.type === 'WARMUP_SHOW_TAB') {
+          setTimeout(() => { if (!resolved) sendResponse({ ok: false, error: 'Web Platform mode' }); }, 20);
+          return;
+        }
+        if (message.type.startsWith('MAPS_') || message.type.startsWith('FB_GROUP_') || message.type.startsWith('WARMUP_')) {
+          setTimeout(() => {
+            if (!resolved) {
+              sendResponse({ ok: false, webFallback: true, error: 'Web environment: using direct tab runner' });
+            }
+          }, 150);
+          return;
+        }
+      }
+
       // Timeout dự phòng nếu không có handler phản hồi
       setTimeout(() => {
         if (!resolved) {
