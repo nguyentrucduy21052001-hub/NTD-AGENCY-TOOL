@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>Cài đặt – NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function() {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+        new MutationObserver(function(_, obs) {
+          if (document.body) {
+            document.body.classList.add('ntd-dark-theme');
+            document.body.style.backgroundColor = '#070b14';
+            obs.disconnect();
+          }
+        }).observe(document.documentElement, { childList: true });
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+        new MutationObserver(function(_, obs) {
+          if (document.body) {
+            document.body.classList.remove('ntd-dark-theme');
+            obs.disconnect();
+          }
+        }).observe(document.documentElement, { childList: true });
+      }
+    })();
+  </script>
+  <style id="ntd-anti-flicker">
+    html.ntd-dark-theme,
+    html.ntd-dark-theme body,
+    body.ntd-dark-theme {
+      background-color: #070b14 !important;
+      background: #070b14 !important;
+      color: #f8fafc !important;
+      color-scheme: dark !important;
+    }
+    html.ntd-dark-theme {
+      --bg: #070b14 !important;
+      --surface: #0b111e !important;
+      --card-bg: #0f172a !important;
+      --bg-page: #070b14 !important;
+      --border: rgba(255, 255, 255, 0.08) !important;
+      --text: #f8fafc !important;
+      --text-muted: #94a3b8 !important;
+    }
+    html.ntd-dark-theme .card,
+    html.ntd-dark-theme .stat-card,
+    html.ntd-dark-theme .grid section,
+    html.ntd-dark-theme section,
+    html.ntd-dark-theme .setting-box,
+    html.ntd-dark-theme .as-card,
+    html.ntd-dark-theme .modal-content,
+    html.ntd-dark-theme .dash-kpi-card,
+    html.ntd-dark-theme .acc-status-card {
+      background-color: #0b111e !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      color: #f8fafc !important;
+    }
+  </style>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    :root {
+      --bg: #f3f5fa;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --accent: #ed6b22;
+      --accent-hover: #d95a14;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --info: #3b82f6;
+      --primary-soft: #fff4ed;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 880px;
+      margin: 28px auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Header ── */
+    .settings-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 26px;
+    }
+    .settings-header-icon {
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, #ed6b22 0%, #f59332 100%);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      box-shadow: 0 6px 18px rgba(237, 107, 34, 0.25);
+      flex-shrink: 0;
+    }
+    .settings-header-icon svg { width: 28px; height: 28px; }
+    .settings-title h1 {
+      margin: 0;
+      font-size: 25px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .settings-title p {
+      margin: 3px 0 0;
+      font-size: 13.5px;
+      color: var(--text-muted);
+    }
+
+    /* ── Collapsible Setting Cards (Tối giản danh mục) ── */
+    .settings-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .setting-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+      overflow: hidden;
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .setting-card:hover {
+      border-color: #cbd5e1;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .setting-card.open {
+      border-color: #fdba74;
+      box-shadow: 0 6px 20px rgba(237,107,34,0.08);
+    }
+
+    .setting-card-header {
+      padding: 16px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      cursor: pointer;
+      user-select: none;
+      transition: background .15s ease;
+    }
+    .setting-card-header:hover {
+      background: #fafcff;
+    }
+    .setting-card.open .setting-card-header {
+      background: #fffaf5;
+      border-bottom: 1px solid #fed7aa;
+    }
+
+    .setting-header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: 1;
+    }
+    .setting-item-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .setting-item-icon svg { width: 22px; height: 22px; }
+    .setting-item-icon.orange { background: #fff4ed; color: #ea580c; }
+    .setting-item-icon.blue { background: #eff6ff; color: #2563eb; }
+    .setting-item-icon.green { background: #f0fdf4; color: #16a34a; }
+    .setting-item-icon.purple { background: #faf5ff; color: #9333ea; }
+    .setting-item-icon.slate { background: #f1f5f9; color: #475569; }
+
+    .setting-header-text h3 {
+      margin: 0;
+      font-size: 15.5px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .setting-header-text p {
+      margin: 2px 0 0;
+      font-size: 12.5px;
+      color: var(--text-muted);
+    }
+
+    .setting-header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .setting-badge {
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .setting-badge.active {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+    }
+    .setting-badge.success {
+      background: #f0fdf4;
+      color: #15803d;
+      border-color: #bbf7d0;
+    }
+
+    .setting-chevron {
+      width: 20px;
+      height: 20px;
+      color: #94a3b8;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+    }
+    .setting-card.open .setting-chevron {
+      transform: rotate(180deg);
+      color: var(--accent);
+    }
+
+    /* ── Content Drawer / Body (Sổ ra trang tính năng) ── */
+    .setting-card-body {
+      display: none;
+      padding: 22px 24px 26px;
+      background: var(--surface);
+      animation: fadeIn .2s ease;
+    }
+    .setting-card.open .setting-card-body {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Form controls */
+    label {
+      display: block;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    label span {
+      display: block;
+      margin-bottom: 6px;
+    }
+    input[type=text], input[type=password], input[type=number], textarea, select {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: #0f172a;
+      border-radius: 9px;
+      padding: 10px 14px;
+      font-size: 13.5px;
+      outline: none;
+      transition: all .2s;
+      font-family: inherit;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(237,107,34,0.12);
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 13.5px;
+      color: #1e293b;
+      margin-bottom: 12px;
+      user-select: none;
+    }
+    .checkbox-label input[type=checkbox] {
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 10px 18px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed !important;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: #e2e8f0;
+    }
+    .btn-danger {
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: #fee2e2;
+    }
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    /* Guide Box */
+    details.guide-box {
+      margin-top: 20px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+    }
+    details.guide-box summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #334155;
+      user-select: none;
+    }
+    details.guide-box ol {
+      margin: 12px 0 0;
+      padding-left: 20px;
+      color: #475569;
+    }
+    details.guide-box li {
+      margin-bottom: 8px;
+      line-height: 1.55;
+    }
+
+    /* Grid 2 cột form */
+    .form-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    @media (max-width: 640px) {
+      .form-grid-2 { grid-template-columns: 1fr; }
+    }
+
+    /* Info table */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 600px) {
+      .info-grid { grid-template-columns: 1fr; }
+    }
+    .info-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .info-label {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    /* Theme Selector (Chế độ ban đêm) */
+    .theme-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-top: 10px;
+    }
+    @media (max-width: 620px) {
+      .theme-picker-grid { grid-template-columns: 1fr; }
+    }
+    .theme-choice-card {
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      cursor: pointer;
+      position: relative;
+      background: var(--surface);
+      transition: all .2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      user-select: none;
+    }
+    .theme-choice-card:hover {
+      border-color: #cbd5e1;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+    .theme-choice-card.active {
+      border-color: var(--accent);
+      background: var(--primary-soft);
+      box-shadow: 0 4px 16px rgba(237,107,34,0.15);
+    }
+    .theme-choice-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14.5px;
+      color: var(--text);
+    }
+    .theme-choice-desc {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .theme-check-badge {
+      display: none;
+      align-self: flex-start;
+      font-size: 11px;
+      font-weight: 700;
+      color: #ea580c;
+      background: #ffedd5;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .theme-choice-card.active .theme-check-badge {
+      display: inline-block;
+    }
+
+    /* Mockup preview nhỏ */
+    .theme-choice-preview {
+      height: 72px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .theme-choice-preview.light-preview {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+    .light-preview .preview-bar {
+      height: 16px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .light-preview .preview-content {
+      padding: 6px;
+      display: flex;
+      gap: 6px;
+    }
+    .light-preview .preview-box {
+      width: 22px;
+      height: 38px;
+      background: #fed7aa;
+      border-radius: 4px;
+    }
+    .light-preview .preview-lines {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      justify-content: center;
+    }
+    .light-preview .preview-lines span:first-child {
+      height: 8px; width: 80%; background: #94a3b8; border-radius: 4px;
+    }
+    .light-preview .preview-lines span:last-child {
+      height: 6px; width: 50%; background: #cbd5e1; border-radius: 4px;
+    }
+
+    .theme-choice-preview.dark-preview {
+      background: #090d16;
+      border-color: #243248;
+    }
+    .dark-preview .preview-bar {
+      height: 16px;
+      background: #131b2e;
+      border-bottom: 1px solid #243248;
+    }
+    .dark-preview .preview-content {
+      padding: 6px;
+      display: flex;
+      gap: 6px;
+    }
+    .dark-preview .preview-box {
+      width: 22px;
+      height: 38px;
+      background: #2a1f1a;
+      border: 1px solid #ea580c;
+      border-radius: 4px;
+    }
+    .dark-preview .preview-lines {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      justify-content: center;
+    }
+    .dark-preview .preview-lines span:first-child {
+      height: 8px; width: 80%; background: #334155; border-radius: 4px;
+    }
+    .dark-preview .preview-lines span:last-child {
+      height: 6px; width: 50%; background: #1e293b; border-radius: 4px;
+    }
+
+    /* Status Box & Tip Box */
+    .status-box {
+      font-size: 12.5px;
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      line-height: 1.5;
+      border: 1px solid transparent;
+      transition: all .2s ease;
+    }
+    .status-box.info {
+      background: #eff6ff;
+      color: #1e40af;
+      border-color: #bfdbfe;
+    }
+    .status-box.success {
+      background: #f0fdf4;
+      color: #15803d;
+      border-color: #bbf7d0;
+    }
+    .status-box.warning {
+      background: #fffbeb;
+      color: #b45309;
+      border-color: #fde68a;
+    }
+    .status-box.danger {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+    .status-box.neutral {
+      background: #f8fafc;
+      color: #64748b;
+      border-color: #e2e8f0;
+    }
+
+    .tip-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 12.5px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .tip-box.orange {
+      background: #fff7ed;
+      border-color: #fed7aa;
+      color: #c2410c;
+    }
+</style>
+</head>
+<body class="ntd-dark-theme">
+<main>
+  <!-- ── Header ── -->
+  <header class="settings-header">
+    <div class="settings-header-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </div>
+    <div class="settings-title">
+      <h1>Cài đặt hệ thống</h1>
+    </div>
+  </header>
+
+  <!-- ── Danh sách Cài đặt Tối giản (Bấm vào sổ ra trang tính năng) ── -->
+  <div class="settings-list">
+
+    <!-- ── MỤC 1: Chạy nền & Thông báo Zalo cá nhân ── -->
+    <div class="setting-card open" id="cardZalo">
+      <div class="setting-card-header" data-target="cardZalo">
+        <div class="setting-header-left">
+          <div class="setting-item-icon blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+          </div>
+          <div class="setting-header-text">
+            <h3>Thông báo Zalo cá nhân</h3>
+          </div>
+        </div>
+        <div class="setting-header-right">
+          <span class="setting-badge" id="infoZaloState">Chưa bật</span>
+          <svg class="setting-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </div>
+      <div class="setting-card-body">
+        <label class="checkbox-label">
+          <input type="checkbox" id="zaloEnabled">
+          <span><b>Gửi thông báo Zalo cá nhân:</b> Báo khi dừng, lỗi hoặc khi hoàn thành chiến dịch</span>
+        </label>
+
+        <!-- Các tùy chọn gửi thông báo chi tiết -->
+        <div id="zaloSubOptions" style="margin: -6px 0 16px 28px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; transition: opacity .2s ease;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="zaloNotifyFbDone" checked style="accent-color: var(--accent); width: 16px; height: 16px;">
+            <span>Báo khi <b>hoàn thành</b> chiến dịch Đăng bài Facebook</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="zaloNotifyFbError" checked style="accent-color: var(--accent); width: 16px; height: 16px;">
+            <span>Báo khi đăng bài Facebook <b>bị lỗi hoặc Facebook hạn chế/spam</b></span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="zaloNotifyMaps" checked style="accent-color: var(--accent); width: 16px; height: 16px;">
+            <span>Báo khi dừng, lỗi hoặc hoàn tất <b>Quét số Google Maps</b></span>
+          </label>
+        </div>
+
+        <label>
+          <span>Bot Token:</span>
+          <input id="zaloToken" type="password" autocomplete="off" placeholder="Nhập Token của Bot riêng từ Zalo Bot Manager">
+        </label>
+
+        <label>
+          <span>Mã cuộc trò chuyện (Chat ID - không phải SĐT):</span>
+          <input id="zaloChat" type="text" placeholder="Bấm Ghép Zalo của tôi để lấy tự động">
+        </label>
+
+        <div class="btn-group">
+          <button id="saveZalo" class="btn btn-secondary">Lưu cài đặt</button>
+          <button id="pairZalo" class="btn btn-primary">Ghép Zalo của tôi</button>
+          <button id="testZalo" class="btn btn-secondary">Gửi thử</button>
+          <button id="forgetZalo" class="btn btn-danger">Xóa kết nối</button>
+        </div>
+
+        <p id="zaloStatus" class="status-box info">
+          Chưa kết nối thông báo Zalo.
+        </p>
+
+        <!-- Hướng dẫn tạo bot -->
+        <details class="guide-box">
+          <summary>Hướng dẫn bật thông báo đến Zalo cá nhân (5 bước)</summary>
+          <ol>
+            <li>Mở Zalo trên điện thoại, tìm OA <b>Zalo Bot Manager</b>, chọn <b>Tạo bot</b> và đặt tên (ví dụ: <i>Bot NTD Thông Báo</i>).</li>
+            <li>Sao chép <b>Bot Token</b> do Zalo gửi, dán vào ô <b>Bot Token</b> ở trên.</li>
+            <li>Bấm nút <b>Ghép Zalo của tôi</b>. Tiện ích hiện một mã ngẫu nhiên; dùng Zalo cá nhân nhắn đúng mã đó vào tin nhắn với bot trong vòng 60 giây.</li>
+            <li>Khi ghép xong, tích chọn <b>Gửi thông báo Zalo cá nhân</b>, bấm <b>Lưu cài đặt</b> rồi bấm <b>Gửi thử</b> để kiểm tra tin nhắn về điện thoại.</li>
+            <li>Khi đăng bài Facebook hoặc quét Google Maps, nếu hoàn thành hoặc gặp lỗi/cảnh báo Facebook, bot sẽ tự động gửi thông báo tức thì đến Zalo của bạn.</li>
+          </ol>
+        </details>
+      </div>
+    </div>
+    <!-- ── MỤC 2: Chạy nền & Tối ưu hệ thống ── -->
+    <div class="setting-card" id="cardPower">
+      <div class="setting-card-header" data-target="cardPower">
+        <div class="setting-header-left">
+          <div class="setting-item-icon orange">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <div class="setting-header-text">
+            <h3>Chạy nền &amp; Giữ máy hoạt động</h3>
+          </div>
+        </div>
+        <div class="setting-header-right">
+          <span class="setting-badge success" id="infoPowerState">Đang bật</span>
+          <svg class="setting-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </div>
+      <div class="setting-card-body">
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <!-- 1. Giữ máy thức -->
+          <div style="padding:14px 16px; border:1px solid var(--border); border-radius:12px; background:#fff">
+            <label class="checkbox-label" style="font-size:14.5px; font-weight:700; margin-bottom: 4px;">
+              <input type="checkbox" id="keepAwake" checked>
+              <span>Giữ máy thức khi đang tác vụ (Sleep Prevention)</span>
+            </label>
+            <p id="powerStatus" style="font-size:12.5px; margin: 0 0 0 28px; color:var(--text-muted)">
+              Cho phép màn hình tắt nhưng máy tính không rơi vào chế độ ngủ (Sleep) khi đang quét Maps hoặc đăng bài / nuôi tài khoản.
+            </p>
+          </div>
+
+          <!-- 2. Chạy ngầm 100% -->
+          <div style="padding:14px 16px; border:1.5px solid rgba(16,185,129,0.35); border-radius:12px; background:rgba(16,185,129,0.03)">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start">
+              <label class="checkbox-label" style="font-size:14.5px; font-weight:700; margin-bottom: 4px;">
+                <input type="checkbox" id="chkBackgroundMode" checked>
+                <span style="color:#059669">Chạy ngầm 100% (Không nhảy màn hình, không chiếm tiêu điểm)</span>
+              </label>
+              <span style="background:#dcfce7; color:#15803d; font-size:11px; padding:3px 8px; border-radius:6px; font-weight:700; white-space:nowrap; margin-left:8px">Mặc định</span>
+            </div>
+            <p style="font-size:12.5px; margin: 0 0 0 28px; color:var(--text-muted)">
+              Tab Facebook chạy ẩn bên dưới. Bạn thoải mái làm việc, gõ văn bản trên Word/Excel, lướt web... mà không bao giờ bị nhảy trang Facebook làm phiền.
+            </p>
+          </div>
+
+          <!-- 3. Tự động đóng tab khi xong -->
+          <div style="padding:14px 16px; border:1px solid var(--border); border-radius:12px; background:#fff">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start">
+              <label class="checkbox-label" style="font-size:14.5px; font-weight:700; margin-bottom: 4px;">
+                <input type="checkbox" id="chkAutoCloseTab" checked>
+                <span>Tự động đóng tab nuôi khi hoàn tất hoặc bấm Dừng</span>
+              </label>
+              <span style="background:#f1f5f9; color:#475569; font-size:11px; padding:3px 8px; border-radius:6px; font-weight:700; white-space:nowrap; margin-left:8px">Tiết kiệm RAM</span>
+            </div>
+            <p style="font-size:12.5px; margin: 0 0 0 28px; color:var(--text-muted)">
+              Giải phóng bộ nhớ RAM và dọn dẹp sạch tab trình duyệt sau khi chạy xong.
+            </p>
+          </div>
+        </div>
+
+        <div class="tip-box" style="margin-top:16px">
+          <b>Mẹo chạy đêm:</b> Bạn có thể tắt màn hình hoặc hạ độ sáng xuống thấp nhất; chỉ cần cắm sạc và giữ trình duyệt mở, tiện ích sẽ tự động duy trì nguồn để hoàn thành toàn bộ chiến dịch.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── MỤC 3: Cấu hình Đăng bài & An toàn Facebook ── -->
+    <div class="setting-card" id="cardSafety">
+      <div class="setting-card-header" data-target="cardSafety">
+        <div class="setting-header-left">
+          <div class="setting-item-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          </div>
+          <div class="setting-header-text">
+            <h3>Cấu hình Đăng bài &amp; An toàn tài khoản</h3>
+          </div>
+        </div>
+        <div class="setting-header-right">
+          <span class="setting-badge">An toàn</span>
+          <svg class="setting-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </div>
+      <div class="setting-card-body">
+        <div class="form-grid-2">
+          <div>
+            <label>
+              <span>Giới hạn bài group mặc định / tài khoản / ngày:</span>
+              <input id="cfgDailyLimit" type="number" min="1" max="100" value="20">
+            </label>
+            <p style="font-size:12px;margin-top:-8px">Khuyến nghị tối đa 20 bài/ngày cho nick cá nhân và 5 bài/ngày cho Fanpage.</p>
+          </div>
+          <div>
+            <label>
+              <span>Khoảng cách chờ mặc định giữa 2 bài (giây):</span>
+              <input id="cfgDefaultGap" type="number" min="60" max="1200" value="180">
+            </label>
+            <p style="font-size:12px;margin-top:-8px">Tối thiểu 60 giây, khuyến nghị 180 - 300 giây để tránh bị Facebook đánh dấu.</p>
+          </div>
+        </div>
+
+        <label class="checkbox-label">
+          <input type="checkbox" id="cfgHumanBehavior" checked>
+          <span><b>Mô phỏng hành vi người thật:</b> Di chuyển chuột, cuộn nhẹ và gõ chữ tự nhiên ngẫu nhiên</span>
+        </label>
+
+        <label class="checkbox-label">
+          <input type="checkbox" id="cfgAutoSkip" checked>
+          <span><b>Tự động bỏ qua nhóm lỗi:</b> Tự động chuyển ngay sang nhóm tiếp theo nếu nhóm bị chặn hoặc kiểm duyệt</span>
+        </label>
+
+        <div class="btn-group">
+          <button id="saveSafetyBtn" class="btn btn-primary">Lưu cấu hình an toàn</button>
+        </div>
+        <p id="safetyMsg" style="font-size:12.5px;color:#16a34a;margin-top:10px;display:none"></p>
+      </div>
+    </div>
+
+    <!-- ── MỤC 4: Sao lưu & Khôi phục dữ liệu ── -->
+    <div class="setting-card" id="cardBackup">
+      <div class="setting-card-header" data-target="cardBackup">
+        <div class="setting-header-left">
+          <div class="setting-item-icon purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </div>
+          <div class="setting-header-text">
+            <h3>Sao lưu &amp; Khôi phục dữ liệu</h3>
+          </div>
+        </div>
+        <div class="setting-header-right">
+          <span class="setting-badge">JSON</span>
+          <svg class="setting-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </div>
+      <div class="setting-card-body">
+        <p style="font-size:13px;margin-top:0;line-height:1.6">
+          Sao lưu toàn bộ dữ liệu (tài khoản cá nhân, Fanpage, các danh mục nhóm Facebook và dữ liệu Maps) thành tệp tin JSON an toàn. Bạn có thể nạp lại khi đổi máy tính hoặc cài lại trình duyệt.
+        </p>
+
+        <div class="btn-group">
+          <button id="exportBackupBtn" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Xuất file sao lưu (Export JSON)
+          </button>
+
+          <button id="importBackupBtn" class="btn btn-secondary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            Nạp file sao lưu (Import JSON)
+          </button>
+          <input type="file" id="importFileInput" accept=".json" style="display:none">
+        </div>
+        <p id="backupMsg" style="font-size:12.5px;color:#16a34a;margin-top:10px;display:none"></p>
+      </div>
+    </div>
+
+    <!-- ── MỤC 5: Thông tin hệ thống & Bản quyền ── -->
+    <div class="setting-card" id="cardSystem">
+      <div class="setting-card-header" data-target="cardSystem">
+        <div class="setting-header-left">
+          <div class="setting-item-icon slate">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+          </div>
+          <div class="setting-header-text">
+            <h3>Thông tin hệ thống &amp; Bản quyền</h3>
+          </div>
+        </div>
+        <div class="setting-header-right">
+          <span class="setting-badge success">Mới nhất</span>
+          <svg class="setting-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </div>
+      <div class="setting-card-body">
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Phiên bản tiện ích:</span>
+            <span class="info-val">NTD Agency Pro</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Nền tảng thực thi:</span>
+            <span class="info-val">Manifest V3 (Chromium)</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Trình duyệt tương thích:</span>
+            <span class="info-val">Google Chrome &amp; Cốc Cốc</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Trạng thái kết nối:</span>
+            <span class="info-val" style="color:#16a34a">Hoạt động tốt</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script type="module" src="settings.js"></script>
+<script type="module" src="sidebar.js"></script>
+</body>
+</html>

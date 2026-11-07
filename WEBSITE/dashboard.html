@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>Dashboard Giám sát Hoạt động – NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function () {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --primary-gradient: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      --bg-page: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+    }
+
+    html:not(.ntd-dark-theme) {
+      --bg-page: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-sub: #64748b;
+    }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px 20px 80px;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .dash-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .dash-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .dash-logo-badge {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #fff;
+      border-radius: 12px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+    }
+
+    .dash-badge-tag {
+      background: rgba(2, 132, 199, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(2, 132, 199, 0.3);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .btn-action-dash {
+      background: var(--primary-gradient);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .btn-action-dash:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary-dash {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .btn-secondary-dash:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kpi-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(2, 132, 199, 0.4);
+    }
+
+    .kpi-icon-wrap {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      color: var(--text-sub);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .kpi-value {
+      font-size: 26px;
+      font-weight: 900;
+      color: var(--text-main);
+      line-height: 1.1;
+      margin-bottom: 4px;
+    }
+
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--text-sub);
+    }
+
+    /* Filter & Search Bar */
+    .filter-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .search-input-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 240px;
+      max-width: 420px;
+    }
+
+    .search-input-wrap input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.15);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px 12px 8px 34px;
+      font-size: 13px;
+      color: var(--text-main);
+      box-sizing: border-box;
+      outline: none;
+    }
+
+    html:not(.ntd-dark-theme) .search-input-wrap input {
+      background: #f1f5f9;
+    }
+
+    .search-input-wrap input:focus {
+      border-color: var(--primary);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      color: var(--text-sub);
+      pointer-events: none;
+    }
+
+    .filter-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .pill-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-sub);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .pill-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    .pill-btn.active {
+      background: rgba(2, 132, 199, 0.2);
+      border-color: #0284c7;
+      color: #38bdf8;
+      font-weight: 700;
+    }
+
+    /* Activity Table */
+    .table-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .dash-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .dash-table th {
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text-sub);
+      font-weight: 700;
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--card-border);
+      white-space: nowrap;
+    }
+
+    html:not(.ntd-dark-theme) .dash-table th {
+      background: #f8fafc;
+    }
+
+    .dash-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--card-border);
+      vertical-align: middle;
+    }
+
+    .dash-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    html:not(.ntd-dark-theme) .dash-table tr:hover td {
+      background: #f1f5f9;
+    }
+
+    .user-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-avatar-circle {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(2, 132, 199, 0.2) 0%, rgba(14, 165, 233, 0.1) 100%);
+      border: 1px solid rgba(2, 132, 199, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #38bdf8;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .user-name-title {
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .user-note-sub {
+      font-size: 11.5px;
+      color: var(--text-sub);
+      margin-top: 2px;
+    }
+
+    /* Badges */
+    .metric-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12.5px;
+      min-width: 32px;
+      letter-spacing: 0.2px;
+    }
+
+    .badge-zero {
+      background: rgba(148, 163, 184, 0.1);
+      color: #94a3b8;
+    }
+
+    .badge-blue {
+      background: rgba(2, 132, 199, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(2, 132, 199, 0.3);
+    }
+
+    .badge-green {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-orange {
+      background: rgba(249, 115, 22, 0.15);
+      color: #fb923c;
+      border: 1px solid rgba(249, 115, 22, 0.3);
+    }
+
+    .badge-purple {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .tag-admin {
+      background: #ea580c;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .tag-member {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-sub);
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    .status-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .status-pill.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-pill.expired {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .pulse-dot-green {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+
+    .pulse-dot-red {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+
+    .relative-time {
+      font-size: 11px;
+      color: var(--text-sub);
+      margin-top: 2px;
+    }
+
+    /* Unauthorized Alert */
+    #unauthorizedAlert {
+      max-width: 540px;
+      margin: 80px auto;
+      text-align: center;
+      background: var(--card-bg);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 16px;
+      padding: 36px 24px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Loading Spinner */
+    .table-loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-sub);
+    }
+
+    .dash-spinner {
+      display: inline-block;
+      width: 32px;
+      height: 32px;
+      border: 3px solid rgba(2, 132, 199, 0.2);
+      border-top-color: #0284c7;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Cảnh báo nếu không có quyền Admin -->
+  <div id="unauthorizedAlert" style="display:none">
+    <div style="font-size:48px;margin-bottom:12px">🚫</div>
+    <h2 style="color:#ef4444;margin:0 0 10px;font-size:20px;font-weight:800">Từ chối truy cập</h2>
+    <p style="color:var(--text-sub);font-size:14px;line-height:1.6;margin:0 0 20px">
+      Trang Dashboard chỉ dành riêng cho tài khoản Quản trị viên (Admin). Đang chuyển hướng bạn về trang chủ...
+    </p>
+    <a href="panel.html" class="btn-action-dash">Quay lại Bảng điều khiển</a>
+  </div>
+
+  <!-- Nội dung Dashboard chính cho Admin -->
+  <main id="dashboardMainContent" style="display:none">
+    <!-- Header -->
+    <header class="dash-header">
+      <div class="dash-title-wrap">
+        <div class="dash-logo-badge">📊</div>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <h1 style="font-size:22px;font-weight:900;margin:0;letter-spacing:-0.4px">Dashboard Giám Sát Hoạt Động</h1>
+            <span class="dash-badge-tag">⚡ Live Telemetry</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-sub)">
+            Theo dõi thời gian thực số lượng nick FB, Fanpage, bài đăng và lượt cào dữ liệu của từng khách hàng.
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center">
+        <button type="button" class="btn-secondary-dash" id="refreshBtn" title="Tải lại số liệu mới nhất từ cơ sở dữ liệu">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          Làm mới
+        </button>
+        <button type="button" class="btn-secondary-dash" id="exportCsvBtn" title="Xuất báo cáo hoạt động sang file CSV">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Xuất CSV
+        </button>
+        <a href="manage.html" class="btn-action-dash" title="Chuyển sang trang Quản trị & Phân quyền">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          Quản lý tài khoản
+        </a>
+      </div>
+    </header>
+
+    <!-- 6 KPI Summary Cards -->
+    <div class="kpi-grid">
+      <!-- KPI 1: Khách hàng -->
+      <div class="kpi-card">
+        <div class="kpi-icon-wrap" style="background:rgba(2,132,199,0.15);color:#38bdf8">👥</div>
+        <div class="kpi-label">Tổng khách hàng</div>
+        <div class="kpi-value" id="kpiActiveUsers">0</div>
+        <div class="kpi-sub">trên tổng số <span id="kpiTotalUsers" style="font-weight:700">0</span> tài khoản</div>
+      </div>
+
+      <!-- KPI 2: Nick Facebook -->
+      <div class="kpi-card">
+        <div class="kpi-icon-wrap" style="background:rgba(59,130,246,0.15);color:#60a5fa">📘</div>
+        <div class="kpi-label">Nick FB cá nhân</div>
+        <div class="kpi-value" id="kpiTotalFb">0</div>
+        <div class="kpi-sub">tài khoản FB đang nuôi</div>
+      </div>
+
+      <!-- KPI 3: Fanpage vệ tinh -->
+      <div class="kpi-card">
+        <div class="kpi-icon-wrap" style="background:rgba(168,85,247,0.15);color:#c084fc">📄</div>
+        <div class="kpi-label">Fanpage vệ tinh</div>
+        <div class="kpi-value" id="kpiTotalFanpages">0</div>
+        <div class="kpi-sub">trang vệ tinh kết nối</div>
+      </div>
+
+      <!-- KPI 4: Bài đăng hôm nay -->
+      <div class="kpi-card">
+        <div class="kpi-icon-wrap" style="background:rgba(16,185,129,0.15);color:#34d399">🚀</div>
+        <div class="kpi-label">Bài đăng hôm nay</div>
+        <div class="kpi-value" id="kpiTodayPosts">0</div>
+        <div class="kpi-sub">lượt đăng nhóm thành công</div>
+      </div>
+
+      <!-- KPI 5: Quét số nhóm hôm nay -->
+      <div class="kpi-card">
+        <div class="kpi-icon-wrap" style="background:rgba(249,115,22,0.15);color:#fb923c">🔍</div>
+        <div class="kpi-label">Quét số nhóm hôm nay</div>
+        <div class="kpi-value" id="kpiGroupScans">0</div>
+        <div class="kpi-sub">SĐT / bài viết thu thập</div>
+      </div>
+
+      <!-- KPI 6: Quét Google Maps hôm nay -->
+      <div class="kpi-card">
+        <div class="kpi-icon-wrap" style="background:rgba(234,88,12,0.15);color:#f97316">🗺️</div>
+        <div class="kpi-label">Quét Maps hôm nay</div>
+        <div class="kpi-value" id="kpiMapsScans">0</div>
+        <div class="kpi-sub">cơ sở doanh nghiệp cào được</div>
+      </div>
+    </div>
+
+    <!-- Thanh tìm kiếm & bộ lọc nhanh -->
+    <div class="filter-bar">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="userSearchInput" placeholder="Tìm theo tên tài khoản hoặc ghi chú..." autocomplete="off">
+      </div>
+      <div class="filter-pills">
+        <button type="button" class="pill-btn active" data-filter="all">Tất cả</button>
+        <button type="button" class="pill-btn" data-filter="active-today">Đăng nhập hôm nay</button>
+        <button type="button" class="pill-btn" data-filter="has-fb">Có nick FB (&gt;0)</button>
+        <button type="button" class="pill-btn" data-filter="has-posts">Có đăng bài hôm nay</button>
+        <button type="button" class="pill-btn" data-filter="has-scans">Có cào dữ liệu</button>
+        <button type="button" class="pill-btn" data-filter="admin">Admin</button>
+        <button type="button" class="pill-btn" data-filter="member">Khách hàng</button>
+      </div>
+    </div>
+
+    <!-- Bảng tổng hợp hoạt động chi tiết -->
+    <div class="table-container">
+      <table class="dash-table">
+        <thead>
+          <tr>
+            <th style="width:40px;text-align:center">#</th>
+            <th>Khách hàng &amp; Ghi chú</th>
+            <th style="text-align:center">Nick FB</th>
+            <th style="text-align:center">Fanpage</th>
+            <th style="text-align:center">Bài đăng hôm nay</th>
+            <th style="text-align:center">Quét số nhóm</th>
+            <th style="text-align:center">Quét Google Maps</th>
+            <th>Đăng nhập cuối</th>
+            <th>Hạn sử dụng</th>
+            <th style="text-align:right">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="activityTableBody">
+          <tr>
+            <td colspan="10" class="table-loading">
+              <div class="dash-spinner"></div>
+              <div>Đang tải dữ liệu hoạt động từ Supabase...</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script type="module" src="dashboard.js"></script>
+  <script type="module" src="sidebar.js"></script>
+</body>
+
+</html>

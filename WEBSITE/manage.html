@@ -1,0 +1,990 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <title>Quản trị Hệ thống &amp; Phân quyền – NTD Agency</title>
+  <script src="web_adapter.js"></script>
+  <script>
+    (function () {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    :root {
+      --primary: #ed6b22;
+      --primary-hover: #d55a14;
+      --primary-gradient: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      --bg-page: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+    }
+
+    html:not(.ntd-dark-theme) {
+      --bg-page: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-sub: #64748b;
+    }
+
+    body {
+      background: var(--bg-page);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px 20px 80px;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    /* KPI Dashboard Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .kpi-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(234, 88, 12, 0.4);
+    }
+
+    .kpi-icon-wrap {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      color: var(--text-sub);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .kpi-value {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--text-main);
+      line-height: 1.1;
+      margin-bottom: 4px;
+    }
+
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--text-sub);
+    }
+
+    /* Filter Bar for Dashboard */
+    .dash-filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .dash-search-input {
+      position: relative;
+      flex: 1;
+      min-width: 240px;
+      max-width: 380px;
+    }
+
+    .dash-search-input input {
+      margin-top: 0;
+      padding: 8px 12px 8px 34px;
+      font-size: 13px;
+    }
+
+    .dash-search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      color: var(--text-sub);
+      pointer-events: none;
+    }
+
+    .dash-filter-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .dash-pill-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-sub);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .dash-pill-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    .dash-pill-btn.active {
+      background: rgba(234, 88, 12, 0.2);
+      border-color: #ea580c;
+      color: #fb923c;
+      font-weight: 700;
+    }
+
+    /* Activity Metric Badges */
+    .metric-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+      min-width: 28px;
+    }
+
+    .badge-zero {
+      background: rgba(148, 163, 184, 0.1);
+      color: #94a3b8;
+    }
+
+    .badge-blue {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .badge-green {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-orange {
+      background: rgba(249, 115, 22, 0.15);
+      color: #fb923c;
+      border: 1px solid rgba(249, 115, 22, 0.3);
+    }
+
+    .badge-purple {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .user-avatar-sm {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(249, 115, 22, 0.1) 100%);
+      border: 1px solid rgba(234, 88, 12, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #fb923c;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .admin-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .admin-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .admin-logo-badge {
+      background: var(--primary-gradient);
+      color: #fff;
+      border-radius: 12px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);
+    }
+
+    .admin-badge-tag {
+      background: rgba(234, 88, 12, 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(234, 88, 12, 0.3);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    /* Tab switcher */
+    .admin-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 10px;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-sub);
+      font-weight: 700;
+      font-size: 13.5px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .tab-btn.active {
+      color: #fff;
+      background: var(--primary-gradient);
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .card h2 {
+      color: var(--primary);
+      margin: 0 0 8px;
+      font-size: 17px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card p.sub {
+      font-size: 13px;
+      color: var(--text-sub);
+      margin: 0 0 18px;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      color: var(--text-sub);
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="date"],
+    select,
+    textarea {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px 14px;
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text-main);
+      font: 14px system-ui, sans-serif;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color .2s;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--primary);
+    }
+
+    .btn-primary {
+      background: var(--primary-gradient);
+      color: #fff;
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 18px;
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.25);
+      transition: transform .1s, filter .15s;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      padding: 10px 16px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background .15s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 700px) {
+      .row-2,
+      .row-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .msg-box {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+      line-height: 1.5;
+    }
+
+    .msg-box.ok {
+      display: block;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .msg-box.err {
+      display: block;
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .msg-box.info {
+      display: block;
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+    }
+
+    /* User Table */
+    .user-table-wrap {
+      overflow-x: auto;
+      margin-top: 14px;
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+    }
+
+    table.user-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      text-align: left;
+    }
+
+    table.user-table th {
+      background: rgba(0, 0, 0, 0.25);
+      color: var(--primary);
+      padding: 12px 14px;
+      font-weight: 700;
+      border-bottom: 1px solid var(--card-border);
+      white-space: nowrap;
+    }
+
+    table.user-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--card-border);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    table.user-table tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge-role-admin {
+      background: #ea580c;
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-role-member {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-sub);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .badge-active {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-expired {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-locked {
+      color: #cbd5e1;
+      background: rgba(100, 116, 139, 0.3);
+      border: 1px solid #475569;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* SQL Code Box */
+    .sql-code-box {
+      background: #020617;
+      color: #cbd5e1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      overflow-x: auto;
+      max-height: 280px;
+      line-height: 1.5;
+      margin-top: 10px;
+    }
+
+    .action-btn-sm {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 5px;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: opacity 0.15s;
+    }
+
+    .action-btn-sm:hover {
+      opacity: 0.85;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <!-- Header -->
+    <header class="admin-header">
+      <div class="admin-title-wrap">
+        <div class="admin-logo-badge">⚡</div>
+        <div>
+          <h1 style="margin:0;font-size:20px;font-weight:800">Quản trị Hệ thống &amp; Phân quyền</h1>
+          <p style="margin:2px 0 0;font-size:13px;color:var(--text-sub)">
+            Quản lý tài khoản, phân quyền Admin/Member và đồng bộ cơ sở dữ liệu Supabase.
+          </p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="admin-badge-tag">👑 Quyền Quản trị viên (Admin)</span>
+        <a href="panel.html" class="btn-secondary" style="font-size:12px;padding:6px 12px">← Quay lại Đăng bài</a>
+      </div>
+    </header>
+
+    <!-- Error Alert if Non-Admin accesses directly -->
+    <div id="unauthorizedAlert" class="msg-box err" style="display:none;margin-bottom:20px">
+      ⚠️ <b>Quyền truy cập bị từ chối!</b> Trang Quản trị & Phân quyền chỉ dành riêng cho tài khoản Quản trị viên (Admin). Bạn sẽ được chuyển hướng về trang chủ sau 2 giây...
+    </div>
+
+    <!-- Admin Content Container -->
+    <div id="adminMainContent">
+      <!-- 6 KPI Summary Cards (Luôn hiển thị ở đầu trang để theo dõi hiệu suất) -->
+      <div class="kpi-grid">
+        <!-- KPI 1: Khách hàng -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(234,88,12,0.15);color:#fb923c">👥</div>
+          <div class="kpi-label">Tổng khách hàng</div>
+          <div class="kpi-value" id="kpiActiveUsers">0</div>
+          <div class="kpi-sub">trên tổng số <span id="kpiTotalUsers" style="font-weight:700">0</span> tài khoản</div>
+        </div>
+
+        <!-- KPI 2: Nick Facebook -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(59,130,246,0.15);color:#60a5fa">📘</div>
+          <div class="kpi-label">Nick FB cá nhân</div>
+          <div class="kpi-value" id="kpiTotalFb">0</div>
+          <div class="kpi-sub">tài khoản FB đang nuôi</div>
+        </div>
+
+        <!-- KPI 3: Fanpage vệ tinh -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(168,85,247,0.15);color:#c084fc">📄</div>
+          <div class="kpi-label">Fanpage vệ tinh</div>
+          <div class="kpi-value" id="kpiTotalFanpages">0</div>
+          <div class="kpi-sub">trang vệ tinh kết nối</div>
+        </div>
+
+        <!-- KPI 4: Bài đăng hôm nay -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(16,185,129,0.15);color:#34d399">🚀</div>
+          <div class="kpi-label">Bài đăng hôm nay</div>
+          <div class="kpi-value" id="kpiTodayPosts">0</div>
+          <div class="kpi-sub">lượt đăng nhóm thành công</div>
+        </div>
+
+        <!-- KPI 5: Quét số nhóm hôm nay -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(249,115,22,0.15);color:#fb923c">🔍</div>
+          <div class="kpi-label">Quét số nhóm hôm nay</div>
+          <div class="kpi-value" id="kpiGroupScans">0</div>
+          <div class="kpi-sub">SĐT / bài viết thu thập</div>
+        </div>
+
+        <!-- KPI 6: Quét Google Maps hôm nay -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(234,88,12,0.15);color:#f97316">🗺️</div>
+          <div class="kpi-label">Quét Maps hôm nay</div>
+          <div class="kpi-value" id="kpiMapsScans">0</div>
+          <div class="kpi-sub">cơ sở doanh nghiệp cào được</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <nav class="admin-tabs" role="tablist">
+        <button type="button" class="tab-btn active" id="tabBtnDashboard" data-tab="tabDashboard">
+          📊 Dashboard Hoạt động
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnUsers" data-tab="tabUsers">
+          👥 Phân quyền &amp; Người dùng
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnSupabase" data-tab="tabSupabase">
+          ⚡ Cơ sở dữ liệu Supabase
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnSheets" data-tab="tabSheets">
+          📈 Bảng tính Google Sheets &amp; Đồng bộ
+        </button>
+      </nav>
+
+      <!-- TAB 1: DASHBOARD HOẠT ĐỘNG (TELEMETRY KPI) -->
+      <section id="tabDashboard" class="tab-pane">
+
+        <!-- Bảng giám sát hoạt động chi tiết -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div>
+              <h2 style="margin:0 0 4px">Giám sát Hoạt động từng Khách hàng</h2>
+              <span id="dashSourceBadge" style="font-size:12px;color:var(--text-sub)">Cập nhật từ Supabase theo thời gian thực</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button type="button" class="btn-secondary" id="refreshDashBtn" style="padding:7px 14px;font-size:12px">
+                🔄 Làm mới
+              </button>
+              <button type="button" class="btn-secondary" id="exportDashCsvBtn" style="padding:7px 14px;font-size:12px;border-color:#10b981;color:#34d399">
+                📥 Xuất CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Thanh tìm kiếm & bộ lọc nhanh -->
+          <div class="dash-filter-bar">
+            <div class="dash-search-input">
+              <span class="dash-search-icon">🔍</span>
+              <input type="text" id="dashSearchInput" placeholder="Tìm kiếm theo tên tài khoản hoặc ghi chú..." autocomplete="off">
+            </div>
+            <div class="dash-filter-pills">
+              <button type="button" class="dash-pill-btn active" data-dashfilter="all">Tất cả</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="active-today">Đăng nhập hôm nay</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-fb">Có nick FB (&gt;0)</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-posts">Có đăng bài hôm nay</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-scans">Có cào dữ liệu</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="admin">Admin</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="member">Khách hàng</button>
+            </div>
+          </div>
+
+          <!-- Table Container -->
+          <div class="user-table-wrap">
+            <table class="user-table" id="dashActivityTable">
+              <thead>
+                <tr>
+                  <th style="width:36px;text-align:center">#</th>
+                  <th>Khách hàng &amp; Ghi chú</th>
+                  <th style="text-align:center">Nick FB</th>
+                  <th style="text-align:center">Fanpage</th>
+                  <th style="text-align:center">Bài hôm nay</th>
+                  <th style="text-align:center">Quét nhóm</th>
+                  <th style="text-align:center">Quét Maps</th>
+                  <th>Đăng nhập cuối</th>
+                  <th>Hạn dùng &amp; Trạng thái</th>
+                  <th style="text-align:right">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="dashActivityTbody">
+                <tr>
+                  <td colspan="10" style="text-align:center;padding:24px;color:var(--text-sub)">
+                    Đang nạp dữ liệu hoạt động...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: PHÂN QUYỀN & NGƯỜI DÙNG -->
+      <section id="tabUsers" class="tab-pane" style="display:none">
+        <!-- 1. Tạo tài khoản mới kèm Phân quyền -->
+        <div class="card">
+          <h2>1. Thêm tài khoản mới &amp; Phân quyền</h2>
+          <p class="sub">Tạo tài khoản mới và chọn ngay vai trò: Thành viên (Member) hoặc Quản trị viên (Admin).</p>
+
+          <div class="row-3">
+            <label>Tên tài khoản
+              <input id="newUsername" type="text" placeholder="VD: nam_marketing, admin2…">
+            </label>
+            <label>Mật khẩu đăng nhập
+              <input id="newPassword" type="text" placeholder="Nhập mật khẩu cấp cho khách…">
+            </label>
+            <label>Vai trò phân quyền
+              <select id="newRoleSelect" style="font-weight:700">
+                <option value="member" selected>👤 Thành viên (Member)</option>
+                <option value="admin">⭐ Quản trị viên (Admin)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row-2">
+            <label>Thời hạn sử dụng
+              <select id="quickDaysSelect">
+                <option value="30" selected>30 ngày (1 tháng)</option>
+                <option value="60">60 ngày (2 tháng)</option>
+                <option value="90">90 ngày (3 tháng)</option>
+                <option value="180">180 ngày (6 tháng)</option>
+                <option value="365">1 năm</option>
+                <option value="3650">Vĩnh viễn (10 năm)</option>
+                <option value="custom">Chọn ngày cụ thể…</option>
+              </select>
+            </label>
+            <div id="customDateWrap" style="display:none">
+              <label>Ngày hết hạn cụ thể
+                <input id="newExpiryDate" type="date">
+              </label>
+            </div>
+            <label>Ghi chú khách hàng
+              <input id="newNote" type="text" placeholder="VD: Anh Nam - 0988xxx - Gói Pro">
+            </label>
+          </div>
+
+          <div style="display:flex;gap:12px;margin-top:6px">
+            <button id="createUserBtn" class="btn-primary" style="flex:1">
+              <span>➕ Lưu tài khoản vào Cơ sở dữ liệu</span>
+            </button>
+          </div>
+          <div id="createUserMsg" class="msg-box"></div>
+        </div>
+
+        <!-- 2. Danh sách tài khoản & Phân quyền -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+            <div>
+              <h2 style="margin:0 0 4px">2. Danh sách tài khoản &amp; Bảng Phân quyền</h2>
+              <span id="dbSourceBadge" style="font-size:12px;color:var(--text-sub)">Nguồn dữ liệu: Đang kết nối…</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button id="refreshUsersBtn" class="btn-secondary" style="padding:7px 14px;font-size:12px">
+                🔄 Tải lại danh sách
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Filter by Role -->
+          <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+            <span style="font-size:12.5px;color:var(--text-sub);font-weight:600">Lọc vai trò:</span>
+            <button type="button" class="btn-secondary role-filter-btn active" data-filter="all" style="padding:4px 10px;font-size:11.5px">Tất cả</button>
+            <button type="button" class="btn-secondary role-filter-btn" data-filter="admin" style="padding:4px 10px;font-size:11.5px">⭐ Chỉ Admin</button>
+            <button type="button" class="btn-secondary role-filter-btn" data-filter="member" style="padding:4px 10px;font-size:11.5px">👤 Chỉ Thành viên</button>
+          </div>
+
+          <div id="userListContainer" class="user-table-wrap">
+            <p style="padding:20px;text-align:center;color:var(--text-sub)">Đang tải danh sách người dùng...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: CẤU HÌNH SUPABASE -->
+      <section id="tabSupabase" class="tab-pane" style="display:none">
+        <div class="card">
+          <h2>⚡ Cấu hình Cơ sở dữ liệu Supabase (PostgreSQL)</h2>
+          <p class="sub">
+            Kết nối với Supabase để lưu trữ dữ liệu tập trung, hỗ trợ phân quyền Admin/Member với cơ chế bảo mật Row Level Security (RLS).
+          </p>
+
+          <div class="row-2">
+            <label>Supabase Project URL
+              <input id="sbUrlInput" type="text" placeholder="https://your-project.supabase.co">
+            </label>
+            <label>Supabase Anon Public API Key
+              <input id="sbKeyInput" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+            </label>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <button id="saveSupabaseBtn" class="btn-primary">💾 Lưu cấu hình Supabase</button>
+            <button id="testSupabaseBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
+            <button id="copySqlBtn" class="btn-secondary" style="border-color:#ea580c;color:var(--primary)">📋 Sao chép mã SQL tạo bảng (1-Chạm)</button>
+          </div>
+          <div id="sbConfigMsg" class="msg-box"></div>
+
+          <div style="margin-top:20px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
+              <span>Đoạn mã SQL cấu hình bảng và phân quyền trên Supabase:</span>
+              <span id="copySqlNotify" style="font-size:11.5px;color:#34d399;display:none">Đã sao chép vào bộ nhớ tạm!</span>
+            </div>
+            <pre id="sqlCodeDisplay" class="sql-code-box"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: GOOGLE SHEETS & ĐỒNG BỘ DỮ LIỆU -->
+      <section id="tabSheets" class="tab-pane" style="display:none">
+        <!-- 1. BẢNG TÍNH GOOGLE SHEET TRỰC TIẾP (XEM & SỬA TẠI CHỖ) -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+            <div>
+              <h2 style="margin:0 0 4px">📑 Bảng tính Google Sheet của bạn (Xem &amp; Sửa trực tiếp)</h2>
+              <p class="sub" style="margin:0">
+                Thao tác, tra cứu và chỉnh sửa thông tin tài khoản khách hàng ngay trên giao diện này mà không cần chuyển tab.
+              </p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <a id="openSheetExternalBtn" href="https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166#gid=1321941166" target="_blank" rel="noopener noreferrer" class="btn-primary" style="font-size:12.5px;padding:8px 14px;text-decoration:none">
+                ↗️ Mở trên Tab mới
+              </a>
+              <button type="button" id="refreshSheetFrameBtn" class="btn-secondary" style="font-size:12.5px;padding:8px 14px">
+                🔄 Tải lại bảng tính
+              </button>
+            </div>
+          </div>
+
+          <!-- Sheet URL Configuration Toggle -->
+          <div style="margin-bottom:14px;padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--card-border);border-radius:10px">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:12.5px;font-weight:700;color:var(--text-sub);white-space:nowrap">🔗 Link Google Sheet:</span>
+              <input id="sheetUrlInput" type="text" style="flex:1;min-width:240px;margin-top:0;padding:8px 12px;font-size:13px" value="https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166#gid=1321941166">
+              <button type="button" id="saveSheetUrlBtn" class="btn-secondary" style="padding:8px 14px;font-size:12.5px">💾 Lưu URL</button>
+            </div>
+            <div id="sheetUrlMsg" class="msg-box" style="margin-top:8px"></div>
+          </div>
+
+          <!-- Iframe Embed -->
+          <div style="position:relative;width:100%;min-height:680px;border-radius:12px;overflow:hidden;border:1px solid var(--card-border);background:#ffffff">
+            <iframe id="sheetIframe" 
+                    src="https://docs.google.com/spreadsheets/d/1x-5BC99xWLIprAV35BO0f4dAp9RbqUVXm8ytHBU8XmA/edit?gid=1321941166&amp;widget=true&amp;headers=false"
+                    style="position:absolute;top:0;left:0;width:100%;height:100%;border:none"
+                    allowfullscreen>
+            </iframe>
+          </div>
+          <p style="margin:10px 0 0;font-size:12px;color:var(--text-sub);text-align:right">
+            💡 <i>Mẹo: Nếu trình duyệt chặn hiển thị do chưa đăng nhập Google, bạn chỉ cần bấm nút <b>"↗️ Mở trên Tab mới"</b> ở trên nhé!</i>
+          </p>
+        </div>
+
+        <!-- 2. ĐỒNG BỘ & NHẬP HÀNG LOẠT VÀO SUPABASE -->
+        <div class="card">
+          <h2>⚡ Đồng bộ &amp; Nhập hàng loạt tài khoản vào Supabase</h2>
+          <p class="sub">
+            Chuyển nhanh toàn bộ tài khoản khách hàng từ Google Sheet của bạn vào cơ sở dữ liệu Supabase để khách hàng có thể đăng nhập trên Website mới ngay lập tức.
+          </p>
+
+          <!-- Auto Sync from Sheet via Export URL -->
+          <div style="padding:16px;background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:12px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+              <div>
+                <b style="color:var(--primary);font-size:14px">Cách 1: Đồng bộ tự động 1-Chạm từ Google Sheet</b>
+                <p style="margin:4px 0 0;font-size:12.5px;color:var(--text-sub)">
+                  Hệ thống sẽ tải danh sách trực tiếp từ link Google Sheet của bạn và nhập vào Supabase.
+                </p>
+              </div>
+              <button type="button" id="autoSyncFromSheetBtn" class="btn-primary" style="font-size:13px;padding:9px 18px">
+                ⚡ Tải dữ liệu &amp; Đồng bộ ngay
+              </button>
+            </div>
+            <div id="autoSyncMsg" class="msg-box" style="margin-top:10px"></div>
+          </div>
+
+          <!-- Manual Copy-Paste Import -->
+          <div>
+            <b style="font-size:14px;color:var(--text-main)">Cách 2: Sao chép &amp; Dán nhanh từ Google Sheet (Ctrl+C &rarr; Ctrl+V)</b>
+            <p style="margin:4px 0 10px;font-size:12.5px;color:var(--text-sub)">
+              Mở file Google Sheet &rarr; Bôi đen các dòng tài khoản khách hàng &rarr; Nhấn <b>Ctrl + C</b> &rarr; Dán vào ô bên dưới &rarr; Bấm <b>"Xem trước &amp; Nhập"</b>.
+            </p>
+
+            <textarea id="importPasteInput" rows="5" placeholder="Dán dữ liệu copy từ Google Sheet vào đây...&#10;Ví dụ:&#10;khach_nam    123456    2026-12-31    Khách gói 1 năm&#10;khach_lan    pass888   15/06/2026    Khách nhóm 5 tài khoản"></textarea>
+
+            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+              <button type="button" id="previewImportBtn" class="btn-secondary">
+                🔍 Xem trước danh sách tài khoản
+              </button>
+              <button type="button" id="confirmImportBtn" class="btn-primary" style="display:none">
+                🚀 Xác nhận Nhập tất cả vào Supabase (<span id="importCountBadge">0</span>)
+              </button>
+            </div>
+
+            <!-- Preview Table Container -->
+            <div id="importPreviewContainer" style="margin-top:16px;display:none">
+              <h4 style="margin:0 0 8px;font-size:13px;color:var(--primary)">Danh sách tài khoản phát hiện được:</h4>
+              <div class="user-table-wrap" style="max-height:280px;overflow-y:auto">
+                <table class="user-table" id="importPreviewTable">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Tài khoản</th>
+                      <th>Mật khẩu</th>
+                      <th>Vai trò</th>
+                      <th>Hạn sử dụng</th>
+                      <th>Ghi chú</th>
+                    </tr>
+                  </thead>
+                  <tbody id="importPreviewTbody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="importMsg" class="msg-box" style="margin-top:12px"></div>
+          </div>
+        </div>
+
+        <!-- 3. CẤU HÌNH GOOGLE APPS SCRIPT (KÊNH DỰ PHÒNG) -->
+        <div class="card">
+          <h2>📊 Cấu hình Google Apps Script (Kênh xác thực dự phòng)</h2>
+          <p class="sub">
+            Nếu bạn muốn website kiểm tra trực tiếp vào Google Sheet mỗi khi khách đăng nhập (thay cho Supabase), bạn có thể nhập URL Google Apps Script Web App tại đây.
+          </p>
+
+          <label>URL Google Apps Script Web App
+            <input id="scriptUrlInput" type="text" placeholder="https://script.google.com/macros/s/.../exec">
+          </label>
+
+          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+            <button type="button" id="saveScriptUrlBtn" class="btn-primary">💾 Lưu URL Web App</button>
+            <button type="button" id="testConnectionBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
+            <button type="button" id="copyScriptCodeBtn" class="btn-secondary">📋 Sao chép code Apps Script</button>
+          </div>
+          <div id="configMsg" class="msg-box"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="manage.js"></script>
+  <script type="module" src="sidebar.js"></script>
+</body>
+
+</html>

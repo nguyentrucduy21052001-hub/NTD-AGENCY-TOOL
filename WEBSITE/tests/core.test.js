@@ -1,0 +1,4 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {groups,validate} from '../core.js';
+test('chuẩn hóa, bỏ trùng và query',()=>assert.deepEqual(groups('https://facebook.com/groups/abc?ref=share\nhttps://www.facebook.com/groups/abc/'),['https://www.facebook.com/groups/abc/']));
+test('từ chối host giả, link bài và nhóm hệ thống',()=>{for(const u of ['https://facebook.com.evil.com/groups/a','http://facebook.com/groups/a','https://www.facebook.com/groups/a/posts/123','https://www.facebook.com/groups/feed','javascript:alert(1)',''])assert.throws(()=>groups(u));});
+test('kiểm tra nội dung, chế độ, khoảng cách',()=>{const d={links:'https://facebook.com/groups/a',text:'Xin chào',gap:180,mode:'preview'};assert.equal(validate(d).urls.length,1);for(const patch of [{text:''},{gap:NaN},{gap:0},{mode:'invalid'}])assert.throws(()=>validate({...d,...patch}));});
