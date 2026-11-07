@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="vi">
 
 <head>
@@ -2868,120 +2868,9 @@
 
 <body class="ntd-dark-theme">
   <main>
-    <header style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-      <div>
-        <h1>Đăng bài</h1>
-      </div>
-      <!-- Nút xem nhanh Dashboard Hiệu suất dành cho Admin -->
-      <div id="panelAdminToggleWrap" style="display:none">
-        <button type="button" id="btnTogglePanelAdminDash" style="background:rgba(234,88,12,0.15);color:#fb923c;border:1px solid rgba(234,88,12,0.4);padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-          <span>📊 Bảng Giám Sát Hiệu Suất</span>
-          <span style="font-size:9.5px;background:#ea580c;color:#fff;padding:1px 5px;border-radius:4px">Admin</span>
-        </button>
-      </div>
+    <header>
+      <h1>Đăng bài</h1>
     </header>
-
-    <!-- Khu vực Bảng Giám Sát Hiệu Suất & Hoạt Động Hệ Thống (CHỈ HIỆN KHI LÀ ADMIN) -->
-    <div id="panelAdminDashboardSection" style="display:none;margin-bottom:24px">
-      <div class="card" style="border:1px solid rgba(234,88,12,0.3);box-shadow:0 8px 30px rgba(0,0,0,0.25);border-radius:16px;background:var(--card-bg,#0f172a);padding:20px">
-        <!-- Header -->
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08)">
-          <div style="display:flex;align-items:center;gap:12px">
-            <div style="width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg, #ea580c 0%, #c2410c 100%);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800">
-              📊
-            </div>
-            <div>
-              <h2 style="margin:0;font-size:16.5px;font-weight:800;color:#f8fafc;display:flex;align-items:center;gap:8px">
-                Giám Sát Hoạt Động &amp; Hiệu Suất Khách Hàng
-                <span style="font-size:10px;background:#ea580c;color:#fff;padding:2px 7px;border-radius:4px;font-weight:800">Admin Live</span>
-              </h2>
-              <span style="font-size:12px;color:#94a3b8">Dữ liệu thời gian thực được đồng bộ tự động từ Supabase</span>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <button type="button" id="panelDashRefreshBtn" class="cfg-action-btn" style="padding:6px 12px;font-size:12px;border-radius:8px">
-              🔄 Tải lại
-            </button>
-            <button type="button" id="panelDashExportBtn" class="cfg-action-btn" style="padding:6px 12px;font-size:12px;border-radius:8px;border-color:#10b981;color:#34d399">
-              📥 Xuất CSV
-            </button>
-            <a href="manage.html" class="cfg-action-btn" style="padding:6px 14px;font-size:12px;border-radius:8px;text-decoration:none;background:#ea580c;color:#fff;font-weight:700">
-              ⚙️ Quản trị &amp; Phân quyền &rarr;
-            </a>
-          </div>
-        </div>
-
-        <!-- 6 KPI Summary Cards -->
-        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:12px;margin-bottom:18px">
-          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
-            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">👥 Tổng khách hàng</div>
-            <div id="panelKpiActiveUsers" style="font-size:22px;font-weight:900;color:#f8fafc">0</div>
-            <div style="font-size:11px;color:#94a3b8">trên tổng số <span id="panelKpiTotalUsers" style="font-weight:700">0</span> tài khoản</div>
-          </div>
-          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
-            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">📘 Nick FB cá nhân</div>
-            <div id="panelKpiTotalFb" style="font-size:22px;font-weight:900;color:#60a5fa">0</div>
-            <div style="font-size:11px;color:#94a3b8">tài khoản FB đang nuôi</div>
-          </div>
-          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
-            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">📄 Fanpage vệ tinh</div>
-            <div id="panelKpiTotalFanpages" style="font-size:22px;font-weight:900;color:#c084fc">0</div>
-            <div style="font-size:11px;color:#94a3b8">trang vệ tinh kết nối</div>
-          </div>
-          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
-            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">🚀 Bài đăng hôm nay</div>
-            <div id="panelKpiTodayPosts" style="font-size:22px;font-weight:900;color:#34d399">0</div>
-            <div style="font-size:11px;color:#94a3b8">lượt đăng nhóm thành công</div>
-          </div>
-          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
-            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">🔍 Quét số nhóm</div>
-            <div id="panelKpiGroupScans" style="font-size:22px;font-weight:900;color:#fb923c">0</div>
-            <div style="font-size:11px;color:#94a3b8">SĐT / bài viết thu thập</div>
-          </div>
-          <div class="kpi-card" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 14px">
-            <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:2px">🗺️ Quét Maps</div>
-            <div id="panelKpiMapsScans" style="font-size:22px;font-weight:900;color:#f97316">0</div>
-            <div style="font-size:11px;color:#94a3b8">cơ sở doanh nghiệp quét</div>
-          </div>
-        </div>
-
-        <!-- Filter bar -->
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-          <input type="text" id="panelDashSearch" placeholder="Tìm theo tên hoặc ghi chú..." style="max-width:280px;padding:6px 12px;font-size:12.5px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#fff">
-          <div style="display:flex;gap:5px;flex-wrap:wrap">
-            <button type="button" class="panel-dash-pill active" data-pfilter="all" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(234,88,12,0.2);color:#fb923c;cursor:pointer;font-weight:700">Tất cả</button>
-            <button type="button" class="panel-dash-pill" data-pfilter="active-today" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Đăng nhập hôm nay</button>
-            <button type="button" class="panel-dash-pill" data-pfilter="has-fb" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Có nick FB</button>
-            <button type="button" class="panel-dash-pill" data-pfilter="has-posts" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Có đăng bài</button>
-            <button type="button" class="panel-dash-pill" data-pfilter="has-scans" style="padding:4px 10px;font-size:11.5px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#94a3b8;cursor:pointer">Có quét data</button>
-          </div>
-        </div>
-
-        <!-- Master Table -->
-        <div style="overflow-x:auto;max-height:360px">
-          <table class="report-table" style="width:100%;font-size:12.5px">
-            <thead>
-              <tr>
-                <th style="width:36px;text-align:center">#</th>
-                <th>Khách hàng &amp; Ghi chú</th>
-                <th style="text-align:center">Nick FB</th>
-                <th style="text-align:center">Fanpage</th>
-                <th style="text-align:center">Bài hôm nay</th>
-                <th style="text-align:center">Quét nhóm</th>
-                <th style="text-align:center">Quét Maps</th>
-                <th>Đăng nhập cuối</th>
-                <th>Hạn dùng &amp; Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody id="panelDashTbody">
-              <tr>
-                <td colspan="9" style="text-align:center;padding:20px;color:#94a3b8">Đang tải dữ liệu hoạt động...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
     <div class="grid">
       <section>
