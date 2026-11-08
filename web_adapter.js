@@ -278,9 +278,13 @@
 
       // Xử lý các listeners nội bộ tab trước
       let handled = false;
+      const senderObj = {
+        id: window.chrome.runtime.id,
+        tab: message?.tabId ? { id: message.tabId } : (_webManagedTabWin ? { id: 1 } : null)
+      };
       messageListeners.forEach(fn => {
         try {
-          const ret = fn(message, { id: window.chrome.runtime.id }, sendResponse);
+          const ret = fn(message, senderObj, sendResponse);
           if (ret === true) handled = true;
         } catch (e) {
           console.warn('[WebAdapter onMessage handler error]', e);
@@ -349,18 +353,35 @@
   const tabUpdatedListeners = new Set();
   const tabRemovedListeners = new Set();
 
+  window.setWebPostingTab = function(win) {
+    if (win && !win.closed) {
+      _webManagedTabWin = win;
+    }
+  };
+  window.getWebPostingTab = function() {
+    return _webManagedTabWin;
+  };
+
   window.chrome.tabs = window.chrome.tabs || {};
   window.chrome.tabs.create = async function ({ url, active }) {
     console.log('[WebAdapter chrome.tabs.create]', url);
     const newTabId = Date.now();
     try {
       if (url && !url.includes('activate.html') && !url.includes('panel.html')) {
-        _webManagedTabWin = window.open(url, '_blank');
-        if (active && _webManagedTabWin) {
-          try { _webManagedTabWin.focus(); } catch (_) {}
+        if (_webManagedTabWin && !_webManagedTabWin.closed) {
+          _webManagedTabWin.location.href = url;
+          if (active) {
+            try { _webManagedTabWin.focus(); } catch (_) {}
+          }
+        } else {
+          _webManagedTabWin = window.open(url, 'ntd_fb_posting_tab');
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      try {
+        _webManagedTabWin = window.open(url, 'ntd_fb_posting_tab');
+      } catch (_) {}
+    }
 
     // Thông báo sự kiện tab được nạp xong cho worker
     setTimeout(() => {
@@ -380,12 +401,12 @@
     if (props && props.url) {
       try {
         if (!_webManagedTabWin || _webManagedTabWin.closed) {
-          _webManagedTabWin = window.open(props.url, '_blank');
+          _webManagedTabWin = window.open(props.url, 'ntd_fb_posting_tab');
         } else {
           _webManagedTabWin.location.href = props.url;
         }
       } catch (_) {
-        _webManagedTabWin = window.open(props.url, '_blank');
+        _webManagedTabWin = window.open(props.url, 'ntd_fb_posting_tab');
       }
     }
     if (props && props.active && _webManagedTabWin) {
@@ -415,19 +436,20 @@
     console.log('[WebAdapter chrome.tabs.sendMessage]', tabId, message);
     if (message?.type === 'RUN' && message.job) {
       const j = message.job;
-      // Trong môi trường Web Platform, mở tab Facebook và sau 1.5s gửi kết quả RESULT về worker
+      // Trong môi trường Web Platform, mở tab Facebook và sau 2s gửi kết quả RESULT về worker
       setTimeout(() => {
         window.chrome.runtime.sendMessage({
           type: 'RESULT',
           accountId: j.accountId,
           token: j.token,
+          tabId: tabId,
           status: j.mode === 'preview' ? 'preview' : 'submitted',
           postUrl: j.url,
           note: j.mode === 'preview'
             ? 'Chế độ thử: Đã mở nhóm Facebook kiểm tra bài viết.'
             : 'Đã hoàn thành đăng bài lên nhóm Facebook.'
         }).catch(() => {});
-      }, 1500);
+      }, 2000);
     }
     return { ok: true, status: 'success' };
   };

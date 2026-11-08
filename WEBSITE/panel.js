@@ -1986,10 +1986,35 @@ await renderAccountCategoryAssignments();
 await renderSharedAccountsSelector();
 switchGroupSourceMode(groupSourceMode);
 
+function getFirstTargetGroupUrl(draftData, accounts) {
+  if (!accounts || !accounts.length) return 'https://www.facebook.com/';
+  const firstAcc = accounts[0];
+  let linkStr = '';
+  if (draftData.groupSourceMode === 'categories') {
+    linkStr = draftData.accountGroups?.[firstAcc.id] || '';
+  } else {
+    linkStr = firstAcc.groups?.trim() || draftData.links?.trim() || '';
+  }
+  if (!linkStr) {
+    for (const a of accounts) {
+      const s = draftData.groupSourceMode === 'categories'
+        ? (draftData.accountGroups?.[a.id] || '')
+        : (a.groups?.trim() || draftData.links?.trim() || '');
+      if (s.trim()) { linkStr = s; break; }
+    }
+  }
+  if (linkStr) {
+    const lines = linkStr.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+    if (lines.length > 0) return lines[0];
+  }
+  return 'https://www.facebook.com/';
+}
+
 // ── Start all ─────────────────────────────────────────────────────────────────
 const startAllEl = $('startAllBtn');
 if (startAllEl) {
   startAllEl.onclick = async () => {
+    let postTab = null;
     try {
       licenseInfo = await checkLicense();
       if (!licenseInfo) {
@@ -2048,8 +2073,13 @@ if (startAllEl) {
       }
 
       const d = validate(curDraft);
-      let at = d.when ? new Date(d.when).getTime() : Date.now();
-      if (!Number.isFinite(at) || at < Date.now() - 60000) throw Error('Thời gian hẹn phải ở tương lai.');
+      let at = Date.now();
+      if (d.when) {
+        const parsedWhen = new Date(d.when).getTime();
+        if (Number.isFinite(parsedWhen) && parsedWhen > Date.now()) {
+          at = parsedWhen;
+        }
+      }
 
       if (d.groupSourceMode === 'categories') {
         const emptyAccs = accounts.filter(a => !d.accountGroups?.[a.id]?.trim());
@@ -2089,16 +2119,41 @@ if (startAllEl) {
         if (confirm(`Bạn đang có ${pausedAccs.length} tài khoản đã chọn đang tạm dừng ở giữa chừng.\n\n• Bấm [OK] để TIẾP TỤC đăng từ điểm tạm dừng.\n• Bấm [Cancel] nếu muốn BẮT ĐẦU LẠI từ đầu nhóm 1.`)) {
           await sendDirect('RESUME_ALL', {accountIds: activePostingAccs.map(a => a.id)});
           msg('▶ Đã tiếp tục các tài khoản đã chọn từ điểm tạm dừng.');
+          await render();
+          scheduleNextRender();
           return;
         }
       }
 
+      // Mở ngay tab Facebook trong cử chỉ click của người dùng để không bị Chrome chặn Popup
+      const firstTargetUrl = getFirstTargetGroupUrl(curDraft, activePostingAccs);
+      if (typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp')) {
+        try {
+          postTab = window.open(firstTargetUrl, 'ntd_fb_posting_tab');
+          if (window.setWebPostingTab) {
+            window.setWebPostingTab(postTab);
+          }
+        } catch (_) {}
+      }
+
       const dailyText = d.enableDailyLimit !== false ? `\n• Giới hạn ngày: Tối đa ${d.dailyLimit || 20} bài/tài khoản/ngày` : '';
-      if (!confirm(`Khởi động ${activePostingAccs.length} tài khoản / Fanpage đã chọn?\n• Phối hợp: ${orderText}${splitText}\n• Chế độ: ${modeLabel}\n• Khoảng cách: ${d.gapMin}s - ${d.gapMax}s${dailyText}`)) return;
+      if (!confirm(`Khởi động ${activePostingAccs.length} tài khoản / Fanpage đã chọn?\n• Phối hợp: ${orderText}${splitText}\n• Chế độ: ${modeLabel}\n• Khoảng cách: ${d.gapMin}s - ${d.gapMax}s${dailyText}`)) {
+        if (postTab && !postTab.closed) {
+          try { postTab.close(); } catch (_) {}
+        }
+        return;
+      }
 
       await sendDirect('START_ALL', {data: {...d, at, targetAccountIds: activePostingAccs.map(a => a.id)}});
       msg(`✅ Đã khởi động ${activePostingAccs.length} tài khoản (${orderText}).`);
-    } catch (e) { msg(e.message); }
+      await render();
+      scheduleNextRender();
+    } catch (e) {
+      if (postTab && !postTab.closed) {
+        try { postTab.close(); } catch (_) {}
+      }
+      msg(e.message);
+    }
   };
 }
 
@@ -2109,6 +2164,8 @@ if (pauseAllEl) {
     try {
       await sendDirect('PAUSE_ALL');
       msg('⏸ Đã tạm dừng tất cả tài khoản.');
+      await render();
+      scheduleNextRender();
     } catch (e) { msg(e.message); }
   };
 }
@@ -2134,6 +2191,8 @@ if (resumeAllEl) {
       }
       await sendDirect('RESUME_ALL', targetIds ? { accountIds: targetIds } : {});
       msg('▶ Đã tiếp tục các tài khoản từ điểm tạm dừng.');
+      await render();
+      scheduleNextRender();
     } catch (e) { msg(e.message); }
   };
 }
@@ -2156,6 +2215,8 @@ $('bannerResumeBtn')?.addEventListener('click', async () => {
     }
     await sendDirect('RESUME_ALL', targetIds ? { accountIds: targetIds } : {});
     msg('▶ Đã tiếp tục các tài khoản từ điểm tạm dừng.');
+    await render();
+    scheduleNextRender();
   } catch (e) { msg(e.message); }
 });
 
@@ -2169,10 +2230,27 @@ if (stopAllEl) {
       await chrome.storage.local.remove('campaigns');
       await chrome.storage.local.remove('coordinator');
       msg('✅ Đã dừng tất cả tài khoản và làm mới trạng thái.');
-      render();
+      await render();
+      scheduleNextRender();
     } catch (e) { msg(e.message); }
   };
 }
+
+// ── Show Posting Facebook Tab (Xem tab Facebook đang đăng) ────────────────────
+$('showPostingTabBtn')?.addEventListener('click', () => {
+  const win = window.getWebPostingTab ? window.getWebPostingTab() : null;
+  if (win && !win.closed) {
+    try {
+      win.focus();
+      return;
+    } catch (_) {}
+  }
+  const curDraft = draft();
+  const { accounts = [] } = cachedAccounts?.length ? { accounts: cachedAccounts } : {};
+  const firstUrl = getFirstTargetGroupUrl(curDraft, accounts);
+  const newWin = window.open(firstUrl, 'ntd_fb_posting_tab');
+  if (window.setWebPostingTab) window.setWebPostingTab(newWin);
+});
 
 // ── Status Classification & Badges ──────────────────────────────────────────
 const jobNames = {
@@ -2465,6 +2543,7 @@ async function render() {
   if ($('pauseAllBtn')) $('pauseAllBtn').style.display = anyRunning ? 'inline-flex' : 'none';
   if ($('resumeAllBtn')) $('resumeAllBtn').style.display = (anyPaused && !anyRunning) ? 'inline-flex' : 'none';
   if ($('stopAllBtn')) $('stopAllBtn').style.display = (anyRunning || anyPaused) ? 'inline-flex' : 'none';
+  if ($('showPostingTabBtn')) $('showPostingTabBtn').style.display = (anyRunning || anyPaused) ? 'inline-flex' : 'none';
 
   const resumeBanner = $('resumeNoticeBanner');
   if (resumeBanner) {
@@ -2639,6 +2718,8 @@ async function render() {
       try {
         await sendDirect('PAUSE_ONE', {accountId: btn.dataset.id});
         msg('⏸ Đã tạm dừng tài khoản.');
+        await render();
+        scheduleNextRender();
       } catch (e) { msg(e.message); }
     };
   });
@@ -2658,12 +2739,15 @@ async function render() {
         }
         await sendDirect('RESUME_ONE', {accountId: btn.dataset.id});
         msg('▶ Đang tiếp tục đăng bài từ điểm tạm dừng...');
+        await render();
+        scheduleNextRender();
       } catch (e) { msg(e.message); }
     };
   });
 
   list.querySelectorAll('.btn-start-one').forEach(btn => {
     btn.onclick = async () => {
+      let postTab = null;
       try {
         licenseInfo = await checkLicense();
         if (!licenseInfo) {
@@ -2681,6 +2765,8 @@ async function render() {
           if (confirm(`Tài khoản "${acc?.name}" đang dừng ở nhóm ${curCamp.index + 1}/${curCamp.jobs.length}.\n\n• Bấm [OK] để TIẾP TỤC đăng từ nhóm này.\n• Bấm [Cancel] nếu muốn BẮT ĐẦU LẠI từ nhóm 1.`)) {
             await sendDirect('RESUME_ONE', {accountId});
             msg(`▶ Đã tiếp tục tài khoản ${acc?.name} từ điểm tạm dừng.`);
+            await render();
+            scheduleNextRender();
             return;
           }
         }
@@ -2734,12 +2820,41 @@ async function render() {
             throw Error(`Tài khoản "${acc?.name}" đã đạt giới hạn ${limit} bài group hôm nay (${todayCount}/${limit}).\n\nNếu muốn tiếp tục đăng bài, bạn có thể bấm nút "🔄 Đặt lại hôm nay" của nick này trước.`);
           }
         }
-        let at = d.when ? new Date(d.when).getTime() : Date.now();
-        if (!Number.isFinite(at) || at < Date.now() - 60000) throw Error('Thời gian hẹn phải ở tương lai.');
-        if (!confirm(`Chạy riêng tài khoản "${acc?.name}"?`)) return;
+        let at = Date.now();
+        if (d.when) {
+          const parsedWhen = new Date(d.when).getTime();
+          if (Number.isFinite(parsedWhen) && parsedWhen > Date.now()) {
+            at = parsedWhen;
+          }
+        }
+
+        // Mở ngay tab Facebook trong cử chỉ click của người dùng
+        const firstTargetUrl = getFirstTargetGroupUrl(curDraft, [acc]);
+        if (typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp')) {
+          try {
+            postTab = window.open(firstTargetUrl, 'ntd_fb_posting_tab');
+            if (window.setWebPostingTab) {
+              window.setWebPostingTab(postTab);
+            }
+          } catch (_) {}
+        }
+
+        if (!confirm(`Chạy riêng tài khoản "${acc?.name}"?`)) {
+          if (postTab && !postTab.closed) {
+            try { postTab.close(); } catch (_) {}
+          }
+          return;
+        }
         await sendDirect('START_ONE', {accountId, data: {...d, at}});
         msg(`▶ Đã chạy ${acc?.name}`);
-      } catch (e) { msg(e.message); }
+        await render();
+        scheduleNextRender();
+      } catch (e) {
+        if (postTab && !postTab.closed) {
+          try { postTab.close(); } catch (_) {}
+        }
+        msg(e.message);
+      }
     };
   });
 
@@ -2751,7 +2866,8 @@ async function render() {
       try {
         await sendDirect('RESET_DAILY_COUNT', {accountId: id});
         msg(`✅ Đã đặt lại số bài hôm nay của "${name}" về 0.`);
-        render();
+        await render();
+        scheduleNextRender();
       } catch (e) { msg(e.message); }
     };
   });
@@ -2761,6 +2877,8 @@ async function render() {
       try {
         await sendDirect('STOP_ONE', {accountId: btn.dataset.id});
         msg('Đã dừng tài khoản.');
+        await render();
+        scheduleNextRender();
       } catch (e) { msg(e.message); }
     };
   });
@@ -2771,6 +2889,8 @@ async function render() {
       try {
         await sendDirect('NEXT', {accountId: btn.dataset.id});
         msg('Đã bỏ qua nhóm hiện tại. Đang chuyển ngay sang nhóm tiếp theo...');
+        await render();
+        scheduleNextRender();
       } catch (e) { msg(e.message); }
     };
   });

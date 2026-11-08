@@ -950,6 +950,12 @@ async function prepareAccountSession(accountId) {
   const acc = accounts.find(a => a.id === accountId);
   if (!acc) throw new Error('Không tìm thấy thông tin tài khoản: ' + accountId);
 
+  // Trên môi trường Web Platform (web adapter), không có quyền chrome.cookies/scripting của facebook.com
+  // Bỏ qua nạp cookies và chuyển đổi profile để chạy thẳng tab Facebook
+  if (typeof chrome !== 'undefined' && chrome.runtime?.id === 'ntd-agency-webapp') {
+    return acc;
+  }
+
   isSwitchingSession = true;
   try {
     let parentAcc = null;
@@ -4596,11 +4602,13 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       const campaigns = await readCampaigns();
       const c = campaigns[accountId];
       if (!c || c.state !== 'running') return {ok: true};
-      if (sender.tab?.id !== c.active?.tabId || m.token !== c.active?.token) return {ok: true};
+      const isTabMatch = !sender?.tab?.id || !c.active?.tabId || sender.tab.id === c.active.tabId;
+      if (!isTabMatch || m.token !== c.active?.token) return {ok: true};
 
       // Automatically close Facebook tab in auto mode after 2s
-      if (c.mode === 'auto' && sender.tab?.id) {
-        setTimeout(() => chrome.tabs.remove(sender.tab.id).catch(() => {}), 2000);
+      const closeTabId = sender?.tab?.id || c.active?.tabId;
+      if (c.mode === 'auto' && closeTabId) {
+        setTimeout(() => chrome.tabs.remove(closeTabId).catch(() => {}), 2000);
       }
 
       const allowed = ['preview', 'submitted', 'pending', 'sent_unverified', 'unknown', 'blocked', 'error', 'skipped'];
