@@ -66,15 +66,35 @@ export async function mapsExtract(mode, limit = 50) {
 
     // Detail mode
     for (let i = 0; i < 8; i++) {
-      if (document.querySelector('[data-item-id^="phone:tel:"]') || document.querySelector('[data-item-id="address"]')) break;
+      if (document.querySelector('[data-item-id^="phone:tel:"]') || document.querySelector('[data-item-id*="phone"]') || document.querySelector('[data-item-id="address"]')) break;
       await sleep(400);
     }
 
     const title = document.querySelector('h1')?.innerText?.trim();
     if (!title) throw Error('Không đọc được tên cơ sở.');
 
-    const phoneEl = document.querySelector('[data-item-id^="phone:tel:"]') || document.querySelector('a[href^="tel:"]');
-    const phone = (phoneEl?.getAttribute('data-item-id')?.replace(/^phone:tel:/, '') || phoneEl?.getAttribute('href')?.replace(/^tel:/, '') || '').trim();
+    let phone = '';
+    const phoneEl = document.querySelector('[data-item-id^="phone:tel:"]')
+      || document.querySelector('a[href^="tel:"]')
+      || document.querySelector('button[data-tooltip*="điện thoại" i]')
+      || document.querySelector('button[data-tooltip*="phone" i]')
+      || document.querySelector('button[aria-label*="điện thoại" i]')
+      || document.querySelector('button[aria-label*="phone" i]')
+      || document.querySelector('[data-item-id*="phone"]');
+
+    if (phoneEl) {
+      phone = (phoneEl.getAttribute('data-item-id')?.replace(/^phone:tel:/, '')
+        || phoneEl.getAttribute('href')?.replace(/^tel:/, '')
+        || phoneEl.getAttribute('aria-label')
+        || phoneEl.innerText || '').trim();
+    }
+
+    if (!phone) {
+      const panel = document.querySelector('div[role="main"]') || document.body;
+      const panelText = panel ? panel.innerText : '';
+      const phoneMatch = panelText.match(/(?:(?:\+?84|0)[1-9]\d{1,3}[\s.-]?\d{3}[\s.-]?\d{3,4})|1[89]00[\s.-]?\d{4,6}/);
+      if (phoneMatch) phone = phoneMatch[0];
+    }
 
     const addressEl = document.querySelector('[data-item-id="address"]');
     const address = (addressEl?.getAttribute('aria-label') || addressEl?.innerText || '').replace(/^(Địa chỉ|Address):\s*/i, '').trim();

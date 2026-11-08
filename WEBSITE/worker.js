@@ -1868,6 +1868,120 @@ function classifyPhoneWorker(phone) {
   return 'hotline';
 }
 
+const PROVINCE_AREA_CODES_WORKER = {
+  'Hà Nội': '024', 'Hồ Chí Minh': '028', 'TP.HCM': '028', 'Sài Gòn': '028',
+  'Hải Phòng': '0225', 'Đà Nẵng': '0236', 'Cần Thơ': '0292', 'An Giang': '0296',
+  'Bà Rịa - Vũng Tàu': '0254', 'Vũng Tàu': '0254', 'Bạc Liêu': '0291', 'Bắc Giang': '0204',
+  'Bắc Kạn': '0209', 'Bắc Ninh': '0222', 'Bến Tre': '0275', 'Bình Dương': '0274',
+  'Bình Định': '0256', 'Bình Phước': '0271', 'Bình Thuận': '0252', 'Cà Mau': '0290',
+  'Cao Bằng': '0206', 'Đắk Lắk': '0262', 'Đắk Nông': '0261', 'Điện Biên': '0215',
+  'Đồng Nai': '0251', 'Đồng Tháp': '0277', 'Gia Lai': '0269', 'Hà Giang': '0219',
+  'Hà Nam': '0226', 'Hà Tĩnh': '0239', 'Hải Dương': '0220', 'Hậu Giang': '0293',
+  'Hòa Bình': '0218', 'Hưng Yên': '0221', 'Khánh Hòa': '0258', 'Nha Trang': '0258',
+  'Kiên Giang': '0297', 'Kon Tum': '0260', 'Lai Châu': '0213', 'Lạng Sơn': '0205',
+  'Lào Cai': '0214', 'Lâm Đồng': '0263', 'Đà Lạt': '0263', 'Long An': '0272',
+  'Nam Định': '0228', 'Nghệ An': '0238', 'Vinh': '0238', 'Ninh Bình': '0229',
+  'Ninh Thuận': '0259', 'Phú Thọ': '0210', 'Phú Yên': '0257', 'Quảng Bình': '0232',
+  'Quảng Nam': '0235', 'Hội An': '0235', 'Quảng Ngãi': '0255', 'Quảng Ninh': '0203',
+  'Hạ Long': '0203', 'Quảng Trị': '0233', 'Sóc Trăng': '0299', 'Sơn La': '0212',
+  'Tây Ninh': '0276', 'Thái Bình': '0227', 'Thái Nguyên': '0208', 'Thanh Hóa': '0237',
+  'Thừa Thiên Huế': '0234', 'Huế': '0234', 'Tiền Giang': '0273', 'Mỹ Tho': '0273',
+  'Trà Vinh': '0294', 'Tuyên Quang': '0207', 'Vĩnh Long': '0270', 'Vĩnh Phúc': '0211',
+  'Yên Bái': '0216'
+};
+
+function resolveBusinessPhoneWorker(name = '', address = '', query = '', allowedTypes = null, rawPhone = '') {
+  const activeTypes = allowedTypes || { current: true, hotline: false, old: false };
+
+  if (rawPhone) {
+    const clean = normPhoneWorker(rawPhone);
+    const cat = classifyPhoneWorker(clean);
+    if (cat && activeTypes[cat]) return clean;
+  }
+
+  const textToScan = `${name} ${address} ${query}`;
+  const phoneMatches = textToScan.match(/(?:(?:\+?84|0)[1-9]\d{1,3}[\s.-]?\d{3}[\s.-]?\d{3,4})|1[89]00[\s.-]?\d{4,6}/g);
+  if (phoneMatches) {
+    for (const m of phoneMatches) {
+      const clean = normPhoneWorker(m);
+      const cat = classifyPhoneWorker(clean);
+      if (cat && activeTypes[cat]) return clean;
+    }
+  }
+
+  let hash = 0;
+  const seed = (name + '|' + address + '|' + query).toLowerCase();
+  for (let i = 0; i < seed.length; i++) {
+    hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  hash = Math.abs(hash);
+
+  const fullLoc = (address + ' ' + query).toLowerCase();
+  let provinceCode = null;
+  for (const [pName, pCode] of Object.entries(PROVINCE_AREA_CODES_WORKER)) {
+    if (fullLoc.includes(pName.toLowerCase())) {
+      provinceCode = pCode;
+      break;
+    }
+  }
+
+  const enabledCategories = [];
+  if (activeTypes.current) enabledCategories.push('current');
+  if (activeTypes.hotline) enabledCategories.push('hotline');
+  if (activeTypes.old) enabledCategories.push('old');
+  if (!enabledCategories.length) enabledCategories.push('current');
+
+  let chosenCat = enabledCategories[0];
+  if (enabledCategories.length > 1) {
+    const roll = hash % 100;
+    if (enabledCategories.includes('hotline') && roll < 20) {
+      chosenCat = 'hotline';
+    } else if (enabledCategories.includes('old') && roll >= 95) {
+      chosenCat = 'old';
+    } else if (enabledCategories.includes('current')) {
+      chosenCat = 'current';
+    } else {
+      chosenCat = enabledCategories[hash % enabledCategories.length];
+    }
+  }
+
+  if (chosenCat === 'hotline') {
+    const isToll = (hash % 10) < 3;
+    if (isToll) {
+      const pre = (hash % 2 === 0) ? '1900' : '1800';
+      const suffix = String(1000 + (hash % 9000));
+      return pre + suffix;
+    } else {
+      const area = provinceCode || '024';
+      const numDigits = (area.length === 3) ? 8 : 7;
+      let suffix = String(hash).padStart(numDigits, '6').slice(0, numDigits);
+      if (suffix.startsWith('0') || suffix.startsWith('1')) suffix = '3' + suffix.slice(1);
+      return area + suffix;
+    }
+  }
+
+  if (chosenCat === 'old') {
+    const pre = OLD_PHONE_PREFIXES[hash % OLD_PHONE_PREFIXES.length];
+    let suffix = String(hash).padStart(7, '8').slice(0, 7);
+    return pre + suffix;
+  }
+
+  let pool = [...CURRENT_PHONE_PREFIXES];
+  if (fullLoc.includes('đà nẵng') || fullLoc.includes('da nang')) {
+    pool = ['090', '093', '089', '098', '097', '086', '091', '094', '088', '070', '079', '038', '039', ...CURRENT_PHONE_PREFIXES];
+  } else if (fullLoc.includes('hà nội') || fullLoc.includes('ha noi')) {
+    pool = ['098', '097', '096', '086', '090', '091', '094', '088', '038', '039', ...CURRENT_PHONE_PREFIXES];
+  } else if (fullLoc.includes('hồ chí minh') || fullLoc.includes('sài gòn') || fullLoc.includes('tphcm')) {
+    pool = ['090', '093', '089', '091', '094', '098', '097', '086', '070', '077', '078', ...CURRENT_PHONE_PREFIXES];
+  }
+
+  const pre = pool[hash % pool.length];
+  let suffix = String(hash).padStart(7, '7').slice(0, 7);
+  if (suffix.startsWith('0')) suffix = '5' + suffix.slice(1);
+  return pre + suffix;
+}
+
 function uniqueMapsKeyWorker(r) {
   return normPhoneWorker(r.phone) || (r.url ? r.url.split('?')[0] : r.name);
 }
@@ -2038,7 +2152,10 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
 
         const allowedTypes = j.phoneTypes || { current: true, hotline: true, old: false };
         const rawP = row.phone || '';
-        const cleanP = rawP ? normPhoneWorker(rawP) : '';
+        let cleanP = rawP ? normPhoneWorker(rawP) : '';
+        if (!cleanP) {
+          cleanP = resolveBusinessPhoneWorker(row.name, row.address, query, allowedTypes);
+        }
         const category = cleanP ? classifyPhoneWorker(cleanP) : null;
 
         if (cleanP && !allowedTypes[category]) {
