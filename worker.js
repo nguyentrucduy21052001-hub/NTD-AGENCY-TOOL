@@ -1654,8 +1654,8 @@ async function scheduleAccountTick(accountId, whenTimestamp) {
 
   await chrome.alarms.clear(alarmName).catch(() => {});
 
-  if (delayMs > 0 && delayMs < 60000) {
-    setTimeout(() => locked(accountId, () => tick(accountId)), delayMs);
+  if (delayMs < 60000) {
+    setTimeout(() => locked(accountId, () => tick(accountId)), Math.max(50, delayMs));
   }
 
   // Tạo alarm chính xác đánh thức Service Worker bất cứ lúc nào
