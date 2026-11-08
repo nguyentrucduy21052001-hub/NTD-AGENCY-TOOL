@@ -2478,6 +2478,35 @@ function setupEventListeners() {
       return log('Vui lòng nhập ít nhất một đường link nhóm Facebook cần quét.');
     }
 
+    const firstRawUrl = rawUrl.split(/[\r\n,]+/)[0] || rawUrl;
+    let initialFbUrl = firstRawUrl.trim();
+    if (!initialFbUrl.startsWith('http')) initialFbUrl = 'https://' + initialFbUrl;
+    if (!initialFbUrl.includes('sorting_setting=')) {
+      initialFbUrl += (initialFbUrl.includes('?') ? '&' : '?') + 'sorting_setting=CHRONOLOGICAL';
+    }
+
+    // Mở tab Facebook TRỰC TIẾP và NGAY LẬP TỨC ở đầu sự kiện click (Không bị chặn popup)
+    try {
+      if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
+        fbGroupTabWindow = window.open(initialFbUrl, '_blank');
+      } else {
+        fbGroupTabWindow.location.href = initialFbUrl;
+        fbGroupTabWindow.focus();
+      }
+    } catch (_) {
+      try {
+        const a = document.createElement('a');
+        a.href = initialFbUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (e) {
+        console.warn('Cannot open Facebook tab', e);
+      }
+    }
+
     const phoneTypes = getActiveGroupPhoneTypes();
     if (!phoneTypes.current && !phoneTypes.hotline && !phoneTypes.old) {
       return log('Vui lòng tích chọn ít nhất một loại số điện thoại cần quét.');
@@ -2490,26 +2519,6 @@ function setupEventListeners() {
       scanImages: $('groupScanImages') ? $('groupScanImages').checked : true,
       scanComments: $('groupScanComments') ? $('groupScanComments').checked : true
     };
-
-    if (groupState.job && !confirm('Thay thế lượt quét nhóm đang lưu bằng lượt mới? Dữ liệu SĐT đã quét vẫn được giữ nguyên.')) {
-      return;
-    }
-
-    // Tự động mở tab Facebook nhóm ngay lập tức (chống trình duyệt chặn popup)
-    const firstRawUrl = rawUrl.split(/[\r\n,]+/)[0] || rawUrl;
-    let initialFbUrl = firstRawUrl.trim();
-    if (!initialFbUrl.startsWith('http')) initialFbUrl = 'https://' + initialFbUrl;
-    if (!initialFbUrl.includes('sorting_setting=')) {
-      initialFbUrl += (initialFbUrl.includes('?') ? '&' : '?') + 'sorting_setting=CHRONOLOGICAL';
-    }
-
-    try {
-      if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
-        fbGroupTabWindow = window.open(initialFbUrl, 'ntd_fb_group_tab');
-      } else {
-        fbGroupTabWindow.location.href = initialFbUrl;
-      }
-    } catch (_) {}
 
     groupState.totalPostsOffset = 0;
     groupState.postsCount = 0;
@@ -2567,11 +2576,21 @@ function setupEventListeners() {
 
     try {
       if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
-        fbGroupTabWindow = window.open(resumeFbUrl, 'ntd_fb_group_tab');
+        fbGroupTabWindow = window.open(resumeFbUrl, '_blank');
       } else {
         fbGroupTabWindow.focus();
       }
-    } catch (_) {}
+    } catch (_) {
+      try {
+        const a = document.createElement('a');
+        a.href = resumeFbUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (_) {}
+    }
 
     log(`Tiếp tục lượt quét nhóm đã lưu: ${currentRawUrl}`);
     groupState.isScanning = true;
@@ -2608,6 +2627,32 @@ function setupEventListeners() {
 
   // Xem tab Facebook nhóm
   $('showGroupTab')?.addEventListener('click', async () => {
+    const rawUrl = ($('groupUrl')?.value || groupState.job?.groupUrl || 'https://www.facebook.com/groups/').trim();
+    let firstUrl = rawUrl.split(/[\r\n,]+/)[0] || 'https://www.facebook.com';
+    if (!firstUrl.startsWith('http')) firstUrl = 'https://' + firstUrl;
+
+    try {
+      if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
+        fbGroupTabWindow = window.open(firstUrl, '_blank');
+      } else {
+        fbGroupTabWindow.focus();
+      }
+      log('Đã mở / chuyển đến tab Facebook nhóm: ' + firstUrl);
+    } catch (e) {
+      try {
+        const a = document.createElement('a');
+        a.href = firstUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        log('Đã mở tab Facebook nhóm: ' + firstUrl);
+      } catch (err) {
+        log('Không thể mở tab Facebook: ' + err.message);
+      }
+    }
+
     if (groupState.tabId) {
       try {
         await chrome.tabs.update(groupState.tabId, { active: true });
@@ -2617,23 +2662,8 @@ function setupEventListeners() {
       }
     }
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'FB_GROUP_SHOW_TAB' });
-      if (res && res.ok) return;
+      await chrome.runtime.sendMessage({ type: 'FB_GROUP_SHOW_TAB' });
     } catch (_) {}
-
-    const rawUrl = ($('groupUrl')?.value || groupState.job?.groupUrl || 'https://www.facebook.com/groups/').trim();
-    let firstUrl = rawUrl.split(/[\r\n,]+/)[0] || 'https://www.facebook.com';
-    if (!firstUrl.startsWith('http')) firstUrl = 'https://' + firstUrl;
-    try {
-      if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
-        fbGroupTabWindow = window.open(firstUrl, 'ntd_fb_group_tab');
-      } else {
-        fbGroupTabWindow.focus();
-      }
-      log('Đã mở / chuyển đến tab Facebook nhóm: ' + firstUrl);
-    } catch (e) {
-      log('Không thể mở tab Facebook: ' + e.message);
-    }
   });
 
   // Xuất file Excel (.xlsx) đầy đủ
