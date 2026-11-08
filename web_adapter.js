@@ -553,7 +553,16 @@
     async get() { return null; },
     async getAll() { return []; },
     async set() { return true; },
-    async remove() { return true; }
+    async remove() { return true; },
+    onChanged: {
+      addListener() {},
+      removeListener() {}
+    }
+  };
+
+  window.chrome.runtime.onStartup = window.chrome.runtime.onStartup || {
+    addListener() {},
+    removeListener() {}
   };
 
   console.log('✅ [NTD Agency] Web Adapter đã được kích hoạt thành công!');

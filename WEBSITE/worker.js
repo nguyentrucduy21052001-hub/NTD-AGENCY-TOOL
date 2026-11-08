@@ -459,19 +459,21 @@ function triggerDebouncedCookieSync(preferredAccountId = null, delayMs = 1200) {
 // ── Lắng nghe thay đổi cookie Facebook thời gian thực trên Chrome ───────────
 let isSwitchingSession = false;
 
-chrome.cookies.onChanged.addListener(changeInfo => {
-  if (isSwitchingSession) return;
-  const domain = changeInfo.cookie?.domain || '';
-  if (domain.includes('facebook.com') || domain.includes('fb.com')) {
-    // Chỉ kích hoạt khi cookie được tạo hoặc cập nhật (không xóa cookies lưu sẵn khi người dùng logout tab)
-    if (!changeInfo.removed) {
-      const name = changeInfo.cookie?.name || '';
-      if (['c_user', 'xs', 'fr', 'datr', 'sb'].includes(name)) {
-        triggerDebouncedCookieSync(null, 1500);
+if (chrome.cookies?.onChanged?.addListener) {
+  chrome.cookies.onChanged.addListener(changeInfo => {
+    if (isSwitchingSession) return;
+    const domain = changeInfo.cookie?.domain || '';
+    if (domain.includes('facebook.com') || domain.includes('fb.com')) {
+      // Chỉ kích hoạt khi cookie được tạo hoặc cập nhật (không xóa cookies lưu sẵn khi người dùng logout tab)
+      if (!changeInfo.removed) {
+        const name = changeInfo.cookie?.name || '';
+        if (['c_user', 'xs', 'fr', 'datr', 'sb'].includes(name)) {
+          triggerDebouncedCookieSync(null, 1500);
+        }
       }
     }
-  }
-});
+  });
+}
 
 // Chạy 1 lần quét ban đầu khi worker khởi động
 autoSyncFacebookCookies().catch(() => {});
@@ -3095,22 +3097,24 @@ chrome.tabs.onRemoved.addListener(id => {
 });
 
 // ── On startup: pause all running campaigns & setup alarms ────────────────────
-chrome.runtime.onStartup.addListener(() => {
-  try { chrome.alarms.create('rinRetry', { periodInMinutes: 1 }); } catch (_) {}
-  readCampaigns().then(async campaigns => {
-    let changed = false;
-    for (const [id, c] of Object.entries(campaigns)) {
-      if (c.state === 'running') {
-        c.state = 'paused';
-        if (c.active) c.jobs[c.index].status = 'unknown';
-        c.active = null;
-        changed = true;
+if (chrome.runtime?.onStartup?.addListener) {
+  chrome.runtime.onStartup.addListener(() => {
+    try { chrome.alarms.create('rinRetry', { periodInMinutes: 1 }); } catch (_) {}
+    readCampaigns().then(async campaigns => {
+      let changed = false;
+      for (const [id, c] of Object.entries(campaigns)) {
+        if (c.state === 'running') {
+          c.state = 'paused';
+          if (c.active) c.jobs[c.index].status = 'unknown';
+          c.active = null;
+          changed = true;
+        }
       }
-    }
-    if (changed) await saveCampaigns(campaigns);
-    await chrome.alarms.clear('queue').catch(() => {});
+      if (changed) await saveCampaigns(campaigns);
+      await chrome.alarms.clear('queue').catch(() => {});
+    });
   });
-});
+}
 
 // ── Message handler ───────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
@@ -3829,9 +3833,10 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (!Number.isFinite(d.at)) throw new Error('Thời gian không hợp lệ.');
       const campaigns = await readCampaigns();
 
-      // Check no account is already active
-      const activeRunning = accounts.filter(a => campaigns[a.id]?.state === 'running' || campaigns[a.id]?.state === 'waiting');
-      if (activeRunning.length) throw new Error(`Vẫn còn ${activeRunning.length} tài khoản đang trong chiến dịch. Dừng trước rồi bắt đầu lại.`);
+      // Tự động dọn dẹp các lịch đếm ngược cũ để nạp chiến dịch mới
+      for (const a of accounts) {
+        chrome.alarms.clear('tick_' + a.id).catch(() => {});
+      }
 
       // Lọc danh sách ứng viên tài khoản được chỉ định chạy
       let candidateAccounts = accounts;
@@ -4096,7 +4101,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (!acc) throw new Error('Tài khoản không tồn tại.');
 
       const campaigns = await readCampaigns();
-      if (campaigns[accountId]?.state === 'running') throw new Error('Tài khoản này đang chạy rồi.');
+      await chrome.alarms.clear('tick_' + accountId).catch(() => {});
 
       const rawD = m.data;
       const allPosts = (rawD.posts && Array.isArray(rawD.posts) && rawD.posts.length > 0)

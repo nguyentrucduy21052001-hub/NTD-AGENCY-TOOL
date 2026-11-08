@@ -1,4 +1,4 @@
-﻿import {validate, spinText, getTodayDateStr, findBannedWords, highlightBannedWordsHtml, removeBannedWords, getGroupKey, getAllPostedGroupKeys} from './core.js';
+import {validate, spinText, getTodayDateStr, findBannedWords, highlightBannedWordsHtml, removeBannedWords, getGroupKey, getAllPostedGroupKeys} from './core.js';
 import {validateKey, getMachineId, checkCurrentLicense, enforceLicenseGate} from './license.js';
 import {initSyncModal, parseJsonFile, applyRestoredData, exportJsonBackup} from './sync_helper.js';
 
@@ -2136,14 +2136,6 @@ if (startAllEl) {
         } catch (_) {}
       }
 
-      const dailyText = d.enableDailyLimit !== false ? `\n• Giới hạn ngày: Tối đa ${d.dailyLimit || 20} bài/tài khoản/ngày` : '';
-      if (!confirm(`Khởi động ${activePostingAccs.length} tài khoản / Fanpage đã chọn?\n• Phối hợp: ${orderText}${splitText}\n• Chế độ: ${modeLabel}\n• Khoảng cách: ${d.gapMin}s - ${d.gapMax}s${dailyText}`)) {
-        if (postTab && !postTab.closed) {
-          try { postTab.close(); } catch (_) {}
-        }
-        return;
-      }
-
       await sendDirect('START_ALL', {data: {...d, at, targetAccountIds: activePostingAccs.map(a => a.id)}});
       msg(`✅ Đã khởi động ${activePostingAccs.length} tài khoản (${orderText}).`);
       await render();
@@ -2839,12 +2831,6 @@ async function render() {
           } catch (_) {}
         }
 
-        if (!confirm(`Chạy riêng tài khoản "${acc?.name}"?`)) {
-          if (postTab && !postTab.closed) {
-            try { postTab.close(); } catch (_) {}
-          }
-          return;
-        }
         await sendDirect('START_ONE', {accountId, data: {...d, at}});
         msg(`▶ Đã chạy ${acc?.name}`);
         await render();
