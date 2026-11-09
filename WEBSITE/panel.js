@@ -550,7 +550,7 @@ const draft = () => {
     text: $('text')?.value || firstReady?.text || '',
     picture: null, // Ảnh đã được lưu độc lập trong posts[i].picture, không nhân bản tại root để tiết kiệm bộ nhớ
     background: currentFbBg || firstReady?.background || null,
-    postLinkMode: curPostLinkMode || !!firstReady?.postLinkMode,
+    postLinkMode: curPostLinkMode || !!firstReady?.postLinkMode || posts.some(p => p.postLinkMode),
     links: $('links').value,
     groupSourceMode,
     sharedSelectedAccounts: Array.from(sharedSelectedAccIds),

@@ -3960,11 +3960,24 @@ function handleRuntimeMessage(m, sender, reply) {
         const postIdx = (d.accountPostMap && d.accountPostMap[acc.id] !== undefined)
           ? Number(d.accountPostMap[acc.id])
           : 0;
-        const assignedPost = (allPosts && allPosts[postIdx]) || { text: d.text, picture: d.picture, background: d.background };
+        let assignedPost = (allPosts && allPosts.find(p => (p.idx === postIdx || p.id === (postIdx + 1)) && p.text?.trim()))
+          || (allPosts && allPosts[postIdx] && allPosts[postIdx].text?.trim() ? allPosts[postIdx] : null)
+          || (allPosts && allPosts.find(p => p?.text?.trim()))
+          || (allPosts && allPosts[0])
+          || { text: d.text, picture: d.picture, background: d.background, postLinkMode: d.postLinkMode };
+
         const postText = assignedPost?.text?.trim() ? assignedPost.text : (d.text || '');
         const postBg = assignedPost?.background || null;
         const postPic = (!postBg || postBg === 'none') ? ((assignedPost?.picture !== undefined) ? assignedPost.picture : d.picture) : null;
-        const postLinkMode = !!assignedPost?.postLinkMode;
+
+        const hasUrlInPost = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(postText);
+        const postLinkMode = !postPic && (
+          !!assignedPost?.postLinkMode ||
+          !!d.postLinkMode ||
+          !!raw.postLinkMode ||
+          (Array.isArray(allPosts) && allPosts.some(p => p?.postLinkMode) && hasUrlInPost) ||
+          (hasUrlInPost && postText.trim().startsWith('http') && !postText.trim().includes('\n'))
+        );
 
         if (!postText?.trim()) {
           throw new Error(`Tài khoản "${acc.name}" được gán Bài ${postIdx + 1} nhưng bài này chưa có nội dung.`);
@@ -4112,11 +4125,23 @@ function handleRuntimeMessage(m, sender, reply) {
       const postIdx = (rawD.accountPostMap && rawD.accountPostMap[accountId] !== undefined)
         ? Number(rawD.accountPostMap[accountId])
         : 0;
-      const assignedPost = (allPosts && allPosts[postIdx]) || { text: rawD.text, picture: rawD.picture, background: rawD.background };
+      let assignedPost = (allPosts && allPosts.find(p => (p.idx === postIdx || p.id === (postIdx + 1)) && p.text?.trim()))
+        || (allPosts && allPosts[postIdx] && allPosts[postIdx].text?.trim() ? allPosts[postIdx] : null)
+        || (allPosts && allPosts.find(p => p?.text?.trim()))
+        || (allPosts && allPosts[0])
+        || { text: rawD.text, picture: rawD.picture, background: rawD.background, postLinkMode: rawD.postLinkMode };
+
       const postText = assignedPost?.text?.trim() ? assignedPost.text : (rawD.text || '');
       const postBg = assignedPost?.background || null;
       const postPic = (!postBg || postBg === 'none') ? ((assignedPost?.picture !== undefined) ? assignedPost.picture : rawD.picture) : null;
-      const postLinkMode = !!assignedPost?.postLinkMode;
+
+      const hasUrlInPostOne = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(postText);
+      const postLinkMode = !postPic && (
+        !!assignedPost?.postLinkMode ||
+        !!rawD.postLinkMode ||
+        (Array.isArray(allPosts) && allPosts.some(p => p?.postLinkMode) && hasUrlInPostOne) ||
+        (hasUrlInPostOne && postText.trim().startsWith('http') && !postText.trim().includes('\n'))
+      );
 
       if (!postText?.trim()) throw new Error(`Bài ${postIdx + 1} chưa có nội dung. Hãy nhập nội dung bài viết.`);
       if (postText.length > 20000) throw new Error(`Nội dung Bài ${postIdx + 1} tối đa 20.000 ký tự.`);

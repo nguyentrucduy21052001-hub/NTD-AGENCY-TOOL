@@ -737,7 +737,9 @@
   let spunText = spinText(job.text.replace(/\r\n?/g, '\n'));
 
   // Chế độ đăng bài bằng link (Link Preview)
-  const isLinkMode = Boolean(job.postLinkMode);
+  const hasUrlInJob = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(spunText);
+  const isPureUrl = hasUrlInJob && spunText.trim().startsWith('http') && !spunText.trim().includes('\n');
+  const isLinkMode = !job.picture && (Boolean(job.postLinkMode) || isPureUrl);
   let linkUrl = null;
   let remainingText = '';
   if (isLinkMode) {
@@ -942,12 +944,26 @@
 
     const hasText = () => (el.innerText || el.textContent || '').trim().length > 0;
 
-    // Bước A: Mô phỏng thao tác chuẩn như người dùng trong video: Ctrl+A rồi bấm Backspace
+    // Bước A: Select toàn bộ nội dung trong ô soạn thảo
+    try {
+      el.focus();
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        sel.addRange(range);
+      }
+    } catch (_) {}
+
+    await delay(80);
+
+    // Bước B: Mô phỏng thao tác chuẩn: Ctrl+A rồi bấm Backspace
     try {
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', keyCode: 65, which: 65, ctrlKey: true, bubbles: true }));
       document.execCommand('selectAll', false, null);
       el.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', code: 'KeyA', keyCode: 65, which: 65, ctrlKey: true, bubbles: true }));
-      await delay(100);
+      await delay(80);
 
       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace', keyCode: 8, which: 8, bubbles: true, cancelable: true }));
       el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true, composed: true }));
@@ -956,15 +972,15 @@
       el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Backspace', code: 'Backspace', keyCode: 8, which: 8, bubbles: true }));
     } catch (_) {}
 
-    await delay(250);
+    await delay(200);
 
-    // Bước B: Nếu có nội dung mô tả kèm theo: điền nội dung mô tả
+    // Bước C: Nếu có nội dung mô tả kèm theo: điền nội dung mô tả
     if (replacement && replacement.trim().length > 0) {
       await fillEditor(el, replacement.trim());
       return;
     }
 
-    // Bước C: Nếu chỉ có link và muốn xóa hoàn toàn:
+    // Bước D: Nếu chỉ có link và muốn xóa hoàn toàn:
     // Kiểm tra xem editor còn chữ không, nếu còn thì can thiệp trực tiếp vào cấu trúc DOM Lexical
     if (hasText()) {
       try {
@@ -988,9 +1004,9 @@
       } catch (_) {}
     }
 
-    await delay(300);
+    await delay(250);
 
-    // Bước D: Vòng lặp đảm bảo ô soạn thảo đã sạch 100%
+    // Bước E: Vòng lặp đảm bảo ô soạn thảo đã sạch 100%
     for (let i = 0; i < 5; i++) {
       if (!hasText()) break;
       try {
@@ -1000,7 +1016,7 @@
         el.innerHTML = '<p class="xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8"><br></p>';
         el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       } catch (_) {}
-      await delay(200);
+      await delay(150);
     }
   }
 
@@ -1232,62 +1248,86 @@
     const beforeBtnsCount = dialog.querySelectorAll('[role="button"], button').length;
 
     // 2. Dán đường link vào ô soạn bài
+    console.log('[NTD Link Mode] Bước 1: Dán link vào ô soạn bài Facebook...');
     await fillEditor(editor, linkUrl);
-    await delay(500);
+    await delay(400);
 
-    // Kích hoạt thêm sự kiện khoảng trắng để Link Scraper của Facebook nhận diện liên kết
+    // Kích hoạt thêm phím cách / khoảng trắng để Link Scraper của Facebook nhận diện và quét liên kết
     try {
+      editor.focus();
+      document.execCommand('insertText', false, ' ');
       editor.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: ' ', bubbles: true, composed: true }));
+      editor.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true }));
+      editor.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true }));
     } catch (_) {}
 
     // 3. Đợi Facebook nạp xong khung bài viết xem trước (Link Preview Card)
-    console.log('[NTD Link Mode] Đang đợi Facebook nạp khung bài viết xem trước...');
-    const maxWaitMs = 15000;
+    console.log('[NTD Link Mode] Bước 2: Đợi Facebook nạp khung bài viết xem trước...');
+    const maxWaitMs = 20000;
     const startWait = Date.now();
     let previewReady = false;
 
-    while (Date.now() - startWait < maxWaitMs) {
-      await delay(600);
+    // Chờ tối thiểu 3.5 giây để Facebook gửi request quét link và bắt đầu render card
+    await delay(3500);
 
+    const isPreviewLoaded = () => {
       // Dấu hiệu 1: Xuất hiện nút "✕" (Gỡ bản xem trước) ở góc khung bài viết
-      const removeBtns = [...dialog.querySelectorAll('[aria-label*="Gỡ" i], [aria-label*="Remove" i], [aria-label*="Xóa" i]')];
-      if (removeBtns.length > 0) {
-        previewReady = true;
-        break;
+      const removeBtns = [...dialog.querySelectorAll('[aria-label*="Gỡ" i], [aria-label*="Remove" i], [aria-label*="Xóa" i], [aria-label*="✕" i], [aria-label*="Đóng" i]')].filter(visible);
+      if (removeBtns.length > 0) return true;
+
+      // Dấu hiệu 2: Xuất hiện ảnh mới trong dialog (ảnh xem trước của bài viết / website)
+      const newImgs = [...dialog.querySelectorAll('img')].filter(img => visible(img) && !beforeImages.has(img.src) && (img.naturalWidth >= 40 || img.clientWidth >= 40));
+      if (newImgs.length > 0) return true;
+
+      // Dấu hiệu 3: Xuất hiện card xem trước bên dưới editor
+      const cards = [...dialog.querySelectorAll('[data-ad-preview], [role="article"], [role="region"], a[href*="facebook.com"], a[target="_blank"]')].filter(e => {
+        if (!visible(e)) return false;
+        if (editor.contains(e)) return false;
+        const rect = e.getBoundingClientRect();
+        const edRect = editor.getBoundingClientRect();
+        return rect.top >= (edRect.top - 10) && rect.width > 180 && rect.height > 50;
+      });
+      if (cards.length > 0) {
+        const textContent = cards.map(c => c.innerText || '').join(' ').trim();
+        if (!textContent.includes('...') && textContent.length > 10) return true;
       }
 
-      // Dấu hiệu 2: Xuất hiện ảnh mới trong dialog (ảnh xem trước của bài viết trong link)
-      const newImgs = [...dialog.querySelectorAll('img')].filter(img => !beforeImages.has(img.src) && img.naturalWidth >= 60);
-      if (newImgs.length > 0) {
-        previewReady = true;
-        break;
-      }
-
-      // Dấu hiệu 3: Đã tải xong (không còn progressbar) và số nút tăng lên sau ít nhất 3.5 giây
+      // Dấu hiệu 4: Đã tải xong (không còn progressbar / aria-busy) và số nút tăng lên sau ít nhất 5 giây
       const hasProgress = [...dialog.querySelectorAll('[role="progressbar"], [aria-busy="true"]')].some(visible);
-      if (!hasProgress && (Date.now() - startWait >= 3500)) {
+      if (!hasProgress && (Date.now() - startWait >= 5000)) {
         if (dialog.querySelectorAll('[role="button"], button').length > beforeBtnsCount) {
-          previewReady = true;
-          break;
+          return true;
         }
       }
+
+      return false;
+    };
+
+    while (Date.now() - startWait < maxWaitMs) {
+      if (isPreviewLoaded()) {
+        previewReady = true;
+        console.log('[NTD Link Mode] Đã phát hiện khung xem trước bài viết hoàn tất!');
+        break;
+      }
+      await delay(800);
     }
 
-    // Đợi thêm 1 giây để Facebook hoàn tất render khung bài viết
-    await delay(1200);
+    // Đợi thêm 1.5 giây để Facebook hoàn tất render khung bài viết ổn định
+    await delay(1500);
     console.log('[NTD Link Mode] Trạng thái nạp khung bài viết:', previewReady ? 'Thành công' : 'Hoàn thành thời gian chờ');
 
     // 4. Xóa đường link trong ô soạn thảo, chỉ để lại khung xem trước bài viết (hoặc nội dung mô tả kèm theo nếu có)
-    console.log('[NTD Link Mode] Đang xóa đường link khỏi ô soạn thảo...');
+    console.log('[NTD Link Mode] Bước 3: Xóa đường link khỏi ô soạn thảo...');
     try {
       const activeEditor = dialog.querySelector('[contenteditable="true"][role="textbox"]') || dialog.querySelector('[contenteditable="true"]') || editor;
       await clearLinkFromEditor(activeEditor, remainingText);
       await delay(800);
-      console.log('[NTD Link Mode] Nội dung ô soạn thảo sau khi xóa link:', (activeEditor.innerText || activeEditor.textContent || '').trim());
+      const afterText = (activeEditor.innerText || activeEditor.textContent || '').trim();
+      console.log('[NTD Link Mode] Nội dung ô soạn thảo sau khi xóa link:', afterText || '(Rỗng - chỉ giữ khung xem trước)');
     } catch (e) {
       console.warn('[NTD Link Mode] Lỗi khi xóa link:', e);
     }
-    await delay(600);
+    await delay(1000);
   } else {
     // Bước 1: Điền nội dung vào ô soạn thảo Facebook
     await fillEditor(editor, expected);
