@@ -2127,8 +2127,15 @@ if (startAllEl) {
 
       // Mở ngay tab Facebook trong cử chỉ click của người dùng để không bị Chrome chặn Popup
       const firstTargetUrl = getFirstTargetGroupUrl(curDraft, activePostingAccs);
-      if (typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp')) {
+      const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+      const isExtensionConnected = typeof document !== 'undefined' && document.documentElement.dataset.ntdExtensionConnected === 'true';
+
+      if (isWebPlatform) {
         try {
+          // Tự động sao chép bài viết vào Clipboard để người dùng dán ngay bằng Ctrl + V
+          if (navigator.clipboard && curDraft?.text) {
+            navigator.clipboard.writeText(curDraft.text).catch(() => {});
+          }
           postTab = window.open(firstTargetUrl, 'ntd_fb_posting_tab');
           if (window.setWebPostingTab) {
             window.setWebPostingTab(postTab);
@@ -2137,7 +2144,12 @@ if (startAllEl) {
       }
 
       await sendDirect('START_ALL', {data: {...d, at, targetAccountIds: activePostingAccs.map(a => a.id)}});
-      msg(`✅ Đã khởi động ${activePostingAccs.length} tài khoản (${orderText}).`);
+
+      if (isWebPlatform && !isExtensionConnected) {
+        msg(`📋 ĐÃ COPY NỘI DUNG VÀO CLIPBOARD! Hãy nhấn Ctrl + V vào ô "Bạn viết gì đi..." trên tab Facebook vừa mở. (💡 Để tự động điền & bấm Đăng 100%, hãy cài thư mục WEBSITE vào chrome://extensions)`);
+      } else {
+        msg(`✅ Đã khởi động ${activePostingAccs.length} tài khoản (${orderText}).`);
+      }
       await render();
       scheduleNextRender();
     } catch (e) {
@@ -2822,8 +2834,14 @@ async function render() {
 
         // Mở ngay tab Facebook trong cử chỉ click của người dùng
         const firstTargetUrl = getFirstTargetGroupUrl(curDraft, [acc]);
-        if (typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp')) {
+        const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+        const isExtensionConnected = typeof document !== 'undefined' && document.documentElement.dataset.ntdExtensionConnected === 'true';
+
+        if (isWebPlatform) {
           try {
+            if (navigator.clipboard && p?.text) {
+              navigator.clipboard.writeText(p.text).catch(() => {});
+            }
             postTab = window.open(firstTargetUrl, 'ntd_fb_posting_tab');
             if (window.setWebPostingTab) {
               window.setWebPostingTab(postTab);
@@ -2832,7 +2850,12 @@ async function render() {
         }
 
         await sendDirect('START_ONE', {accountId, data: {...d, at}});
-        msg(`▶ Đã chạy ${acc?.name}`);
+
+        if (isWebPlatform && !isExtensionConnected) {
+          msg(`📋 ĐÃ COPY BÀI VIẾT CỦA ${acc?.name?.toUpperCase() || ''} VÀO CLIPBOARD! Nhấn Ctrl + V vào ô "Bạn viết gì đi..." trên tab Facebook. (💡 Để tự động điền 100%, hãy cài thư mục WEBSITE vào chrome://extensions)`);
+        } else {
+          msg(`▶ Đã chạy ${acc?.name}`);
+        }
         await render();
         scheduleNextRender();
       } catch (e) {
@@ -3935,4 +3958,32 @@ initReportEvents();
 switchProgressView(progAccountType);
 await render();
 scheduleNextRender();
+
+// Cập nhật thông báo trạng thái nền tảng Web / Extension Connection
+(function checkPlatformStatus() {
+  const noticeEl = $('webPlatformNotice');
+  if (!noticeEl) return;
+  const isWebPlatform = !window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp';
+  if (isWebPlatform) {
+    noticeEl.style.display = 'block';
+    const updateConnUI = () => {
+      const isConnected = document.documentElement.dataset.ntdExtensionConnected === 'true';
+      if (isConnected) {
+        noticeEl.style.background = 'rgba(16,185,129,0.1)';
+        noticeEl.style.borderColor = 'rgba(16,185,129,0.3)';
+        noticeEl.style.color = '#6ee7b7';
+        const icon = $('webPlatformNoticeIcon');
+        const title = $('webPlatformNoticeTitle');
+        const desc = $('webPlatformNoticeDesc');
+        if (icon) icon.textContent = '✅';
+        if (title) title.textContent = 'Đã kết nối Tiện ích Chrome (Extension Runner)';
+        if (desc) desc.innerHTML = 'Tiện ích NTD Agency đã sẵn sàng. Hệ thống sẽ tự động điền bài và bấm Đăng trên Facebook 100%!';
+      }
+    };
+    updateConnUI();
+    window.addEventListener('NTD_EXTENSION_READY', updateConnUI);
+  } else {
+    noticeEl.style.display = 'none';
+  }
+})();
 

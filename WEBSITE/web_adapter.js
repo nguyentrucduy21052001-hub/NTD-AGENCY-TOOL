@@ -196,10 +196,18 @@
   window.chrome.runtime = window.chrome.runtime || {};
   window.chrome.runtime.id = 'ntd-agency-webapp';
 
+  // Lắng nghe sự kiện kết nối từ Extension Bridge nếu có
+  window.addEventListener('NTD_EXTENSION_READY', (e) => {
+    document.documentElement.dataset.ntdExtensionConnected = 'true';
+    if (e.detail?.extensionId) {
+      document.documentElement.dataset.ntdExtensionId = e.detail.extensionId;
+    }
+  });
+
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js')
+    _workerLoadPromise = import('./worker.js?v=20261109_1100')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
@@ -446,8 +454,8 @@
           status: j.mode === 'preview' ? 'preview' : 'submitted',
           postUrl: j.url,
           note: j.mode === 'preview'
-            ? 'Chế độ thử: Đã mở nhóm Facebook kiểm tra bài viết.'
-            : 'Đã hoàn thành đăng bài lên nhóm Facebook.'
+            ? 'Web Platform: Đã mở tab nhóm Facebook (Chế độ thử). Nhấn Ctrl + V để dán nhanh nội dung.'
+            : 'Web Platform: Đã mở nhóm Facebook. (💡 Để tự động điền bài và bấm Đăng 100%, hãy cài Tiện ích Chrome).'
         }).catch(() => {});
       }, 2000);
     }

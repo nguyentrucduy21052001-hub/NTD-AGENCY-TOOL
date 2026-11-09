@@ -45,6 +45,16 @@
   "options_page": "panel.html",
   "content_scripts": [
     {
+      "matches": [
+        "https://nguyentrucduy21052001-hub.github.io/*",
+        "https://*.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["web_bridge.js"],
+      "run_at": "document_start"
+    },
+    {
       "matches": ["*://*.facebook.com/search/*", "*://*.facebook.com/groups/*"],
       "js": ["fb_scroll_hook.js"],
       "run_at": "document_start",
@@ -54,6 +64,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "web_bridge.js",
         "fb_scroll_hook.js",
         "fb_group_extract.js",
         "activate.html",
