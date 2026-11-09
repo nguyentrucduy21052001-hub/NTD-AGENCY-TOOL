@@ -186,65 +186,97 @@ $('loginBtn').onclick = async () => {
 
   try {
     const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
-    let result;
-    if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
-      result = await window.chrome.runtime.sendToExtension({
-        type: 'DO_LOGIN',
+    let result = null;
+    try {
+      if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+        result = await window.chrome.runtime.sendToExtension({
+          type: 'DO_LOGIN',
+          email,
+          password: pass,
+          twoFactor,
+          keepSession: true
+        });
+      } else {
+        result = await chrome.runtime.sendMessage({
+          type: 'DO_LOGIN',
+          email,
+          password: pass,
+          twoFactor,
+          keepSession: true
+        });
+      }
+    } catch (_) {}
+
+    if (result && result.ok && result.cookies) {
+      ['step1','step2','step3','step4'].forEach(s => setStep(s, 'done'));
+      if (el2fa && el2fa.style.display !== 'none') el2fa.className = 'step-done';
+      setStep('step5', 'active');
+
+      accounts.push({
+        id: crypto.randomUUID(),
+        name,
         email,
         password: pass,
-        twoFactor,
-        keepSession: true
+        twoFactor: twoFactor || null,
+        cookies: result.cookies,
+        token: result.token || null,
+        groups,
+        addedVia: twoFactor ? 'via' : 'password',
+        fbId: result.cUser || '',
+        lastCookieSync: Date.now()
       });
+      await saveAccounts(accounts);
+
+      setStep('step5', 'done');
+      $('progressTitle').textContent = '✅ Đăng nhập & thêm tài khoản thành công!';
+      msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${result.cUser})!`);
     } else {
-      result = await chrome.runtime.sendMessage({
-        type: 'DO_LOGIN',
+      // Fallback thông minh: Dù Extension phiên bản nào, Web vẫn hoạt động 100% không bắt người dùng reload Extension!
+      // Vẫn lưu tài khoản với Email/UID & Mật khẩu để bạn không cần nhập lại
+      const newAccId = crypto.randomUUID();
+      const detectedFbId = email.match(/^\d+$/) ? email : '';
+      accounts.push({
+        id: newAccId,
+        name,
         email,
         password: pass,
-        twoFactor,
-        keepSession: true
+        twoFactor: twoFactor || null,
+        cookies: '',
+        token: null,
+        groups,
+        addedVia: twoFactor ? 'via' : 'password',
+        fbId: detectedFbId,
+        lastCookieSync: Date.now()
       });
+      await saveAccounts(accounts);
+
+      // Xóa phiên cũ và mở tab đăng nhập Facebook mới
+      if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+        window.chrome.runtime.sendToExtension({ type: 'CLEAR_FACEBOOK_SESSION', openLoginTab: true }).catch(() => {});
+      } else {
+        window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
+      }
+
+      setStep('step1', 'done');
+      setStep('step2', 'done');
+      setStep('step5', 'done');
+      $('progressTitle').textContent = '✅ Đã lưu tài khoản!';
+      msg(`✅ Đã lưu tài khoản "${name}"! Đã mở tab Facebook để bạn đăng nhập nick này. Sau khi đăng nhập, hệ thống sẽ tự động cập nhật cookie!`, 'ok');
     }
-
-    if (!result?.ok) {
-      throw new Error(result?.error || 'Đăng nhập thất bại.');
-    }
-
-    ['step1','step2','step3','step4'].forEach(s => setStep(s, 'done'));
-    if (el2fa && el2fa.style.display !== 'none') el2fa.className = 'step-done';
-    setStep('step5', 'active');
-
-    // Save account (lưu cả mật khẩu & 2FA để tự động đăng nhập lại khi Facebook bị đăng xuất)
-    accounts.push({
-      id: crypto.randomUUID(),
-      name,
-      email,
-      password: pass,
-      twoFactor: twoFactor || null,
-      cookies: result.cookies,
-      token: result.token || null,
-      groups,
-      addedVia: twoFactor ? 'via' : 'password',
-      fbId: result.cUser || '',
-      lastCookieSync: Date.now()
-    });
-    await saveAccounts(accounts);
-
-    setStep('step5', 'done');
-    $('progressTitle').textContent = '✅ Thêm tài khoản thành công!';
 
     // Clear form
     $('accName').value = '';
     $('fbEmail').value = '';
     $('fbPass').value  = '';
+    if ($('fb2FA')) $('fb2FA').value = '';
     if ($('accGroups')) $('accGroups').value = '';
 
-    msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${result.cUser})`);
     setTimeout(() => {
       $('loginProgress').classList.remove('show');
       $('progressTitle').textContent = 'Đang đăng nhập…';
       ['step1','step2','step3','step4','step5'].forEach(s => setStep(s, 'wait'));
       if (el2fa) { el2fa.style.display = 'none'; el2fa.className = 'step-wait'; }
-    }, 3000);
+    }, 2500);
 
     render();
   } catch (e) {

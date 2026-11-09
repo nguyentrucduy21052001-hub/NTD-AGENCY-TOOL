@@ -3660,6 +3660,53 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
 
+  // ── UNIVERSAL COOKIES PROXIES (Cho phép Web Platform gọi chrome.cookies gốc) ──
+  if (m.type === 'UNIVERSAL_COOKIES_GET') {
+    (async () => {
+      try {
+        const res = await chrome.cookies.get(m.details || {});
+        reply({ ok: true, result: res });
+      } catch (e) { reply({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_COOKIES_GET_ALL') {
+    (async () => {
+      try {
+        const res = await chrome.cookies.getAll(m.details || {});
+        reply({ ok: true, result: res });
+      } catch (e) { reply({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_COOKIES_GET_STORES') {
+    (async () => {
+      try {
+        const res = await chrome.cookies.getAllCookieStores();
+        reply({ ok: true, result: res });
+      } catch (e) { reply({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_COOKIES_SET') {
+    (async () => {
+      try {
+        const res = await chrome.cookies.set(m.details || {});
+        reply({ ok: true, result: res });
+      } catch (e) { reply({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_COOKIES_REMOVE') {
+    (async () => {
+      try {
+        const res = await chrome.cookies.remove(m.details || {});
+        reply({ ok: true, result: res });
+      } catch (e) { reply({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+
   // DO_LOGIN: auto-login with email/password, capture cookies
   if (m.type === 'DO_LOGIN') {
     const isAllowed = (sender.id === chrome.runtime.id) || !!sender.isExternal;

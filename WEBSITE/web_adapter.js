@@ -687,12 +687,52 @@
     async removeCookies() { return true; }
   };
 
-  window.chrome.cookies = window.chrome.cookies || {
-    async get() { return null; },
-    async getAll() { return []; },
-    async getAllCookieStores() { return [{ id: '0' }]; },
-    async set() { return true; },
-    async remove() { return true; },
+  window.chrome.cookies = {
+    async get(details) {
+      if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const resp = await window.chrome.runtime.sendToExtension({ type: 'UNIVERSAL_COOKIES_GET', details });
+          if (resp && resp.ok) return resp.result;
+        } catch (_) {}
+      }
+      return null;
+    },
+    async getAll(details) {
+      if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const resp = await window.chrome.runtime.sendToExtension({ type: 'UNIVERSAL_COOKIES_GET_ALL', details });
+          if (resp && resp.ok && Array.isArray(resp.result)) return resp.result;
+        } catch (_) {}
+      }
+      return [];
+    },
+    async getAllCookieStores() {
+      if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const resp = await window.chrome.runtime.sendToExtension({ type: 'UNIVERSAL_COOKIES_GET_STORES' });
+          if (resp && resp.ok && Array.isArray(resp.result)) return resp.result;
+        } catch (_) {}
+      }
+      return [{ id: '0' }];
+    },
+    async set(details) {
+      if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const resp = await window.chrome.runtime.sendToExtension({ type: 'UNIVERSAL_COOKIES_SET', details });
+          if (resp && resp.ok) return resp.result;
+        } catch (_) {}
+      }
+      return true;
+    },
+    async remove(details) {
+      if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const resp = await window.chrome.runtime.sendToExtension({ type: 'UNIVERSAL_COOKIES_REMOVE', details });
+          if (resp && resp.ok) return resp.result;
+        } catch (_) {}
+      }
+      return true;
+    },
     onChanged: {
       addListener() {},
       removeListener() {}
