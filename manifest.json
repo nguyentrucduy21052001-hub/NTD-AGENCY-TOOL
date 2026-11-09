@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "NTD Agency",
   "version": "0.4.4",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1RwrInyhs7hUmkHFWRl2xY1QMft0iJO1nAYsFyaf6K2yf+VUch8jNLRwlXmVlw6hK3Crv1Vq+zircTKuBOSuknfdOaHUn0AamCYtWIS6/0hqbbecIVqPeATvImCBsfnhUwCD4Htnq4XDPVuklMARG6GcZIU0RdkNDGHMhwvgOPAIcc9E7k9sg6z8ZL5nS0sV6ejNn5dy8IR2Q8YW9S+73EGz77STJwQ+PYFQ2aBhTKbGrVTgqguZhWKacKpBMvz5ClUWcW1Rf8xu5qz4CJRcvwi3WhMzxDPBRXa9+Ncb6tRzQjcKWgX9ac4BIGjQM5e/FD7OPS2tzmfIapZWO6zlxwIDAQAB",
   "description": "Soạn nội dung và đăng lần lượt vào các nhóm Facebook bạn chọn. Hỗ trợ nhiều tài khoản: Xen kẽ, Tuần tự hoặc Song song.",
   "permissions": [
     "storage",
@@ -28,7 +29,8 @@
     "matches": [
       "https://nguyentrucduy21052001-hub.github.io/*",
       "https://*.vercel.app/*",
-      "http://localhost/*"
+      "http://localhost/*",
+      "http://127.0.0.1/*"
     ]
   },
   "background": {

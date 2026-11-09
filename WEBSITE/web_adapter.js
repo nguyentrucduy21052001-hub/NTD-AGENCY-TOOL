@@ -13,6 +13,12 @@
     return;
   }
 
+  // Lưu lại hàm sendMessage gốc của Chrome nếu có (được cấp cho trang web qua externally_connectable)
+  const _origChromeRuntime = (typeof window !== 'undefined' && window.chrome) ? window.chrome.runtime : null;
+  const _nativeSendMessage = (typeof _origChromeRuntime?.sendMessage === 'function')
+    ? _origChromeRuntime.sendMessage.bind(_origChromeRuntime)
+    : null;
+
   window.chrome = window.chrome || {};
 
   // ── 1. STORAGE EMULATION (localStorage + memory cache) ──────────────────────
@@ -195,6 +201,70 @@
 
   window.chrome.runtime = window.chrome.runtime || {};
   window.chrome.runtime.id = 'ntd-agency-webapp';
+
+  // ID cố định duy nhất của Tiện ích mở rộng NTD Agency
+  const NTD_EXTENSION_ID = 'affaocloanjmkpcinmkcbmekgipnddnm';
+
+  /**
+   * Gửi thông điệp trực tiếp từ Web Platform tới Extension Runner (Background Worker)
+   * Sử dụng native externally_connectable hoặc web_bridge.js
+   */
+  window.chrome.runtime.sendToExtension = function (message, callback) {
+    return new Promise((resolve) => {
+      let resolved = false;
+      const done = (resp) => {
+        if (!resolved) {
+          resolved = true;
+          if (typeof callback === 'function') {
+            try { callback(resp); } catch (_) {}
+          }
+          resolve(resp);
+        }
+      };
+
+      if (_nativeSendMessage) {
+        try {
+          _nativeSendMessage(NTD_EXTENSION_ID, message, (resp) => {
+            const lastErr = window.chrome?.runtime?.lastError;
+            if (lastErr) {
+              done({ ok: false, error: lastErr.message });
+            } else {
+              done(resp || { ok: true });
+            }
+          });
+          return;
+        } catch (_) {}
+      }
+
+      // Thử gửi qua web_bridge.js nếu có
+      if (typeof window !== 'undefined') {
+        const requestId = 'req_' + Math.random().toString(36).slice(2);
+        const timer = setTimeout(() => {
+          window.removeEventListener('message', handler);
+          done({ ok: false, error: 'Extension Runner timeout' });
+        }, 3000);
+
+        const handler = (e) => {
+          if (e.data && e.data.source === 'ntd_extension_bridge' && e.data.requestId === requestId) {
+            clearTimeout(timer);
+            window.removeEventListener('message', handler);
+            done(e.data.response || { ok: e.data.success });
+          }
+        };
+
+        window.addEventListener('message', handler);
+        window.postMessage({
+          source: 'ntd_web_page',
+          action: 'CALL_EXTENSION_WORKER',
+          requestId,
+          payload: message
+        }, '*');
+        return;
+      }
+
+      done({ ok: false, error: 'Chưa nạp Tiện ích Extension' });
+    });
+  };
 
   // Lắng nghe sự kiện kết nối từ Extension Bridge nếu có
   window.addEventListener('NTD_EXTENSION_READY', (e) => {

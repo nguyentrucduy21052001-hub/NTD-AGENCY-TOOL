@@ -3119,10 +3119,10 @@ if (chrome.runtime?.onStartup?.addListener) {
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
-chrome.runtime.onMessage.addListener((m, sender, reply) => {
+function handleRuntimeMessage(m, sender, reply) {
   const fromPanel = sender.id === chrome.runtime.id;
 
-  if (sender.id !== chrome.runtime.id) return;
+  if (sender.id !== chrome.runtime.id && !sender.isExternal) return;
 
   // MAPS background runner messages
   if (m.type === 'MAPS_START_SCAN') {
@@ -4759,10 +4759,34 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
 
   run().then(r => reply(r || {ok: true}), e => reply({ok: false, error: e.message}));
   return true;
-});
+}
 
-// ── External sync listener (allows direct migration between installed extensions) ──
+chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+
+// ── External sync & execution listener (allows Web Platform to control Extension Runner) ──
 chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) => {
+  // 1. PING kiểm tra trạng thái Extension Runner từ Web Platform
+  if (request?.type === 'PING') {
+    sendResponse({ ok: true, version: '0.4.4', extensionId: chrome.runtime?.id || 'affaocloanjmkpcinmkcbmekgipnddnm' });
+    return false;
+  }
+
+  // 2. Đồng bộ dữ liệu (tài khoản, nhóm, bản nháp, bản quyền) từ Web sang Extension storage
+  if (request?.type === 'SYNC_DATA_TO_EXTENSION') {
+    (async () => {
+      try {
+        if (request.data && typeof request.data === 'object') {
+          await chrome.storage.local.set(request.data);
+        }
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 3. GET_DATA_FOR_MIGRATION
   if (request?.action === 'GET_DATA_FOR_MIGRATION') {
     (async () => {
       try {
@@ -4781,4 +4805,8 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
     })();
     return true;
   }
+
+  // 4. Cho phép chạy toàn bộ tác vụ đăng bài, chiến dịch, maps trực tiếp từ Web Platform
+  const fakeSender = { id: chrome.runtime.id, isExternal: true, origin: sender.origin, tab: sender.tab };
+  return handleRuntimeMessage(request, fakeSender, sendResponse);
 });

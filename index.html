@@ -7,7 +7,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>NTD Agency</title>
-  <script src="web_adapter.js?v=20261109_1100"></script>
+  <script src="web_adapter.js?v=20261109_1430"></script>
   <script>(function () { var t = localStorage.getItem('ntd_theme') || 'dark'; var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches); if (isDark) { document.documentElement.classList.add('ntd-dark-theme'); document.documentElement.style.backgroundColor = '#070b14'; document.documentElement.style.colorScheme = 'dark'; new MutationObserver(function (_, obs) { if (document.body) { document.body.classList.add('ntd-dark-theme'); document.body.style.backgroundColor = '#070b14'; obs.disconnect(); } }).observe(document.documentElement, { childList: true }); } else { document.documentElement.classList.remove('ntd-dark-theme'); document.documentElement.style.backgroundColor = '#f3f5fa'; document.documentElement.style.colorScheme = 'light'; new MutationObserver(function (_, obs) { if (document.body) { document.body.classList.remove('ntd-dark-theme'); obs.disconnect(); } }).observe(document.documentElement, { childList: true }); } })();</script>
   <style id="ntd-anti-flicker">
     html.ntd-dark-theme,
@@ -3639,8 +3639,36 @@
       </div>
     </div>
 
+    <!-- Modal Hướng dẫn nạp Tiện ích khi chạy trên Web Platform -->
+    <div id="extensionRequiredModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:999999;align-items:center;justify-content:center;backdrop-filter:blur(5px);padding:16px">
+      <div style="background:#0f172a;border:1.5px solid #334155;border-radius:18px;max-width:560px;width:100%;padding:26px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);color:#f8fafc;font-family:inherit">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(245,158,11,0.2);border:1px solid rgba(245,158,11,0.4);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">⚠️</div>
+          <div>
+            <h3 style="margin:0;font-size:17px;font-weight:800;color:#fbbf24">Cần nạp Tiện ích Chrome để Tự Động Điền & Đăng bài</h3>
+            <p style="margin:3px 0 0 0;font-size:12px;color:#94a3b8">Chính sách bảo mật trình duyệt chặn Web tự ý gõ phím vào trang Facebook</p>
+          </div>
+        </div>
+        <div style="background:rgba(30,41,59,0.7);border:1px solid #334155;border-radius:14px;padding:16px;margin-bottom:18px;font-size:13px;line-height:1.7;color:#cbd5e1">
+          <p style="margin:0 0 12px 0">Để bài viết được <b>tự động điền nội dung, đính kèm ảnh và tự bấm Đăng 100%</b>, bạn hãy thực hiện 1 trong 2 cách sau trên máy tính:</p>
+          <div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);border-radius:10px;padding:12px 14px;margin-bottom:10px;color:#6ee7b7">
+            <b style="font-size:14px">👉 Cách 1 (Nhanh nhất - 1 nhấp chuột):</b><br>
+            Mở thư mục <code>C:\Users\T&Tcenter\Downloads\WEBSITE</code> trên máy tính và nhấp đúp chạy file: <b><code>KHOI_DONG_TU_DONG.bat</code></b>.
+          </div>
+          <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);border-radius:10px;padding:12px 14px;color:#93c5fd">
+            <b style="font-size:14px">👉 Cách 2:</b><br>
+            Mở tab mới <code>chrome://extensions</code> ➔ Bật <b>Developer mode</b> ➔ Bấm <b>Tải tiện ích đã giải nén</b> (Load unpacked) ➔ Chọn thư mục <code>C:\Users\T&Tcenter\Downloads\WEBSITE</code>.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+          <button type="button" id="closeExtModalBtn" style="background:#334155;color:#cbd5e1;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">Đóng</button>
+          <button type="button" id="continuePasteManualBtn" style="background:#2563eb;color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">Đã copy bài, mở Facebook để dán (Ctrl + V)</button>
+        </div>
+      </div>
+    </div>
+
   </main>
-  <script type="module" src="panel.js?v=20261109_1100"></script>
+  <script type="module" src="panel.js?v=20261109_1430"></script>
   <script type="module" src="sidebar.js"></script>
 </body>
 
