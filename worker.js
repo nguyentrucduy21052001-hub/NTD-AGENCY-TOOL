@@ -3662,8 +3662,8 @@ function handleRuntimeMessage(m, sender, reply) {
 
   // DO_LOGIN: auto-login with email/password, capture cookies
   if (m.type === 'DO_LOGIN') {
-    const fromAccounts = sender.id === chrome.runtime.id && (sender.url?.includes('accounts.html') || sender.url?.includes('fanpages.html'));
-    if (!fromAccounts) { reply({ok:false,error:'Không được phép.'}); return true; }
+    const isAllowed = (sender.id === chrome.runtime.id) || !!sender.isExternal;
+    if (!isAllowed) { reply({ ok: false, error: 'Không được phép.' }); return true; }
 
     (async () => {
       let tabId = null;

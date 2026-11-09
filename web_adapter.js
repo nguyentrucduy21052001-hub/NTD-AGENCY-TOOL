@@ -279,6 +279,20 @@
     }
   });
 
+  // Lắng nghe sự kiện từ Background Worker qua Bridge (LOGIN_STEP, COOKIE_AUTO_SYNCED, v.v.)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.source === 'ntd_extension_bridge' && e.data.action === 'WORKER_EVENT' && e.data.payload) {
+        const payload = e.data.payload;
+        messageListeners.forEach(fn => {
+          try {
+            fn(payload, { id: NTD_EXTENSION_ID, isExternal: true }, () => {});
+          } catch (_) {}
+        });
+      }
+    });
+  }
+
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
