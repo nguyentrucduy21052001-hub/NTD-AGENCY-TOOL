@@ -491,7 +491,7 @@
   const alarmListeners = new Set();
 
   window.chrome.alarms = window.chrome.alarms || {
-    create(name, alarmInfo) {
+    async create(name, alarmInfo) {
       if (alarmsMap.has(name)) {
         clearTimeout(alarmsMap.get(name));
         clearInterval(alarmsMap.get(name));
@@ -505,7 +505,7 @@
           });
         }, ms);
         alarmsMap.set(name, timer);
-        return;
+        return true;
       }
       const periodInMinutes = alarmInfo?.periodInMinutes || (alarmInfo?.delayInMinutes) || 1;
       const ms = Math.max(periodInMinutes * 60 * 1000, 1000);
@@ -515,13 +515,33 @@
         });
       }, ms);
       alarmsMap.set(name, timer);
+      return true;
     },
-    clear(name) {
+    async clear(name) {
       if (alarmsMap.has(name)) {
         clearTimeout(alarmsMap.get(name));
         clearInterval(alarmsMap.get(name));
         alarmsMap.delete(name);
       }
+      return true;
+    },
+    async clearAll() {
+      for (const [name, timer] of alarmsMap.entries()) {
+        clearTimeout(timer);
+        clearInterval(timer);
+      }
+      alarmsMap.clear();
+      return true;
+    },
+    async get(name) {
+      return alarmsMap.has(name) ? { name } : null;
+    },
+    async getAll() {
+      const list = [];
+      for (const name of alarmsMap.keys()) {
+        list.push({ name });
+      }
+      return list;
     },
     onAlarm: {
       addListener(fn) {
@@ -535,14 +555,14 @@
 
   // ── 6. POWER & ACTION EMULATION ─────────────────────────────────────────────
   window.chrome.power = window.chrome.power || {
-    requestKeepAwake() {},
-    releaseKeepAwake() {}
+    async requestKeepAwake() { return true; },
+    async releaseKeepAwake() { return true; }
   };
 
   window.chrome.action = window.chrome.action || {
-    setBadgeText() {},
-    setBadgeBackgroundColor() {},
-    setTitle() {}
+    async setBadgeText() { return true; },
+    async setBadgeBackgroundColor() { return true; },
+    async setTitle() { return true; }
   };
 
   window.chrome.browsingData = window.chrome.browsingData || {
@@ -552,6 +572,7 @@
   window.chrome.cookies = window.chrome.cookies || {
     async get() { return null; },
     async getAll() { return []; },
+    async getAllCookieStores() { return [{ id: '0' }]; },
     async set() { return true; },
     async remove() { return true; },
     onChanged: {

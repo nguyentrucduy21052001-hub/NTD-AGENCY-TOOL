@@ -1660,7 +1660,7 @@ async function scheduleAccountTick(accountId, whenTimestamp) {
   const delayMs = Math.max(0, whenTimestamp - now);
   const alarmName = 'tick_' + accountId;
 
-  await chrome.alarms.clear(alarmName).catch(() => {});
+  try { await chrome.alarms.clear(alarmName); } catch (_) {}
 
   if (delayMs < 60000) {
     setTimeout(() => locked(accountId, () => tick(accountId)), Math.max(50, delayMs));
@@ -3019,10 +3019,12 @@ async function maybeStopGlobalAlarm() {
   const campaigns = await readCampaigns();
   const anyActive = Object.values(campaigns).some(c => c.state === 'running' || c.state === 'waiting');
   if (!anyActive) {
-    await chrome.alarms.clear('queue').catch(() => {});
-    const allAlarms = await chrome.alarms.getAll().catch(() => []);
+    try { await chrome.alarms.clear('queue'); } catch (_) {}
+    const allAlarms = (await chrome.alarms.getAll?.().catch(() => [])) || [];
     for (const al of allAlarms) {
-      if (al.name.startsWith('tick_')) await chrome.alarms.clear(al.name).catch(() => {});
+      if (al.name?.startsWith('tick_')) {
+        try { await chrome.alarms.clear(al.name); } catch (_) {}
+      }
     }
     await chrome.storage.local.remove('coordinator');
     updateKeepAwake(false);
@@ -3111,7 +3113,7 @@ if (chrome.runtime?.onStartup?.addListener) {
         }
       }
       if (changed) await saveCampaigns(campaigns);
-      await chrome.alarms.clear('queue').catch(() => {});
+      try { await chrome.alarms.clear('queue'); } catch (_) {}
     });
   });
 }
@@ -3835,7 +3837,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
 
       // Tự động dọn dẹp các lịch đếm ngược cũ để nạp chiến dịch mới
       for (const a of accounts) {
-        chrome.alarms.clear('tick_' + a.id).catch(() => {});
+        try { await chrome.alarms.clear('tick_' + a.id); } catch (_) {}
       }
 
       // Lọc danh sách ứng viên tài khoản được chỉ định chạy
@@ -4101,7 +4103,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (!acc) throw new Error('Tài khoản không tồn tại.');
 
       const campaigns = await readCampaigns();
-      await chrome.alarms.clear('tick_' + accountId).catch(() => {});
+      try { await chrome.alarms.clear('tick_' + accountId); } catch (_) {}
 
       const rawD = m.data;
       const allPosts = (rawD.posts && Array.isArray(rawD.posts) && rawD.posts.length > 0)
@@ -4244,10 +4246,12 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
       }
       await chrome.storage.local.remove('coordinator');
       currentSessionAccountId = null;
-      await chrome.alarms.clear('queue').catch(() => {});
+      try { await chrome.alarms.clear('queue'); } catch (_) {}
       const allAlarms = (await chrome.alarms.getAll?.().catch(() => [])) || [];
       for (const al of allAlarms) {
-        if (al.name?.startsWith('tick_')) await chrome.alarms.clear(al.name).catch(() => {});
+        if (al.name?.startsWith('tick_')) {
+          try { await chrome.alarms.clear(al.name); } catch (_) {}
+        }
       }
       updateKeepAwake(false);
       await chrome.storage.local.remove('campaigns');
@@ -4319,7 +4323,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
           }
           c.active = null;
           c.breakNote = 'Tạm dừng theo yêu cầu.';
-          await chrome.alarms.clear('tick_' + id).catch(() => {});
+          try { await chrome.alarms.clear('tick_' + id); } catch (_) {}
           changed = true;
         }
       }
@@ -4345,7 +4349,7 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
         }
         c.active = null;
         c.breakNote = 'Tạm dừng theo yêu cầu.';
-        await chrome.alarms.clear('tick_' + accountId).catch(() => {});
+        try { await chrome.alarms.clear('tick_' + accountId); } catch (_) {}
 
         // If stopped/paused account was running in coordinated mode, pass turn to next account
         const coord = await readCoordinator();
