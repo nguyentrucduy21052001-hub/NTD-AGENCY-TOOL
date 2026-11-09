@@ -203,34 +203,64 @@ async function injectCookies(cookieInput) {
     const isCrossSite = ['datr', 'fr'].includes(lowerName);
     const sameSiteVal = isCrossSite ? 'no_restriction' : 'lax';
 
-    // Nạp cookie vào tất cả 8 subdomains của Facebook (song song để nhanh hơn)
-    const targetUrls = [
+    let success = false;
+
+    // 1. Thử set domain cookie (.facebook.com) từ https://www.facebook.com/
+    try {
+      const res = await chrome.cookies.set({
+        url: 'https://www.facebook.com/',
+        domain: '.facebook.com',
+        name,
+        value,
+        path: '/',
+        secure: true,
+        httpOnly: isHttpOnly,
+        sameSite: sameSiteVal,
+        expirationDate: expDate
+      });
+      if (res && res.name) success = true;
+    } catch (_) {}
+
+    // 2. Thử domain không dấu chấm (facebook.com)
+    if (!success) {
+      try {
+        const res = await chrome.cookies.set({
+          url: 'https://facebook.com/',
+          domain: 'facebook.com',
+          name,
+          value,
+          path: '/',
+          secure: true,
+          httpOnly: isHttpOnly,
+          sameSite: sameSiteVal,
+          expirationDate: expDate
+        });
+        if (res && res.name) success = true;
+      } catch (_) {}
+    }
+
+    // 3. Fallback set trực tiếp trên các subdomains
+    const subUrls = [
       'https://www.facebook.com/',
-      'https://upload.facebook.com/',
-      'https://business.facebook.com/',
-      'https://web.facebook.com/',
       'https://m.facebook.com/',
-      'https://mbasic.facebook.com/',
-      'https://developers.facebook.com/',
-      'https://mobile.facebook.com/'
+      'https://web.facebook.com/',
+      'https://upload.facebook.com/'
     ];
-
-    const cookieBase = {
-      domain: 'facebook.com',
-      name,
-      value,
-      path: '/',
-      secure: true,
-      httpOnly: isHttpOnly,
-      sameSite: sameSiteVal,
-      expirationDate: expDate
-    };
-
-    // Inject song song vào tất cả URLs cùng lúc (thay vì tuần tự await từng cái)
-    const results = await Promise.allSettled(
-      targetUrls.map(url => chrome.cookies.set({ url, ...cookieBase }))
-    );
-    const success = results.some(r => r.status === 'fulfilled' && r.value?.name);
+    for (const targetUrl of subUrls) {
+      try {
+        const resFallback = await chrome.cookies.set({
+          url: targetUrl,
+          name,
+          value,
+          path: '/',
+          secure: true,
+          httpOnly: isHttpOnly,
+          sameSite: sameSiteVal,
+          expirationDate: expDate
+        });
+        if (resFallback && resFallback.name) success = true;
+      } catch (_) {}
+    }
 
     if (success) {
       injected.push(name);
@@ -246,10 +276,18 @@ async function injectCookies(cookieInput) {
  */
 async function clearFacebookCookiesOnly(preserveDatr = false) {
   try {
-    const stores = await chrome.cookies.getAllCookieStores().catch(() => [{ id: '0' }]);
-    for (const store of stores) {
-      const allCookies = await chrome.cookies.getAll({ storeId: store.id }).catch(() => []);
-      const fbCookies = allCookies.filter(c => c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com')));
+    const storeIds = [];
+    try {
+      const stores = await chrome.cookies.getAllCookieStores().catch(() => []);
+      for (const s of stores) if (s?.id) storeIds.push(s.id);
+    } catch (_) {}
+    if (!storeIds.length) storeIds.push('0');
+
+    for (const storeId of storeIds) {
+      const allCookies = await chrome.cookies.getAll({ storeId }).catch(() => []);
+      const fbCookies = allCookies.filter(c =>
+        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+      );
 
       for (const ck of fbCookies) {
         if (preserveDatr && ck.name === 'datr') continue;
@@ -257,6 +295,7 @@ async function clearFacebookCookiesOnly(preserveDatr = false) {
         const cleanDomain = ck.domain.replace(/^\./, '');
         const targetUrls = [
           `${protocol}//${cleanDomain}${ck.path || '/'}`,
+          `https://${cleanDomain}${ck.path || '/'}`,
           `https://www.facebook.com${ck.path || '/'}`,
           `https://facebook.com${ck.path || '/'}`
         ];
@@ -265,7 +304,7 @@ async function clearFacebookCookiesOnly(preserveDatr = false) {
           const details = {
             url,
             name: ck.name,
-            storeId: store.id,
+            storeId
           };
           if (ck.partitionKey) details.partitionKey = ck.partitionKey;
           await chrome.cookies.remove(details).catch(() => {});
@@ -3397,14 +3436,20 @@ function handleRuntimeMessage(m, sender, reply) {
   if (m.type === 'ACTIVATE_ACCOUNT_SESSION') {
     (async () => {
       try {
-        const accounts = await readAccounts();
-        const acc = accounts.find(a => a.id === m.accountId);
+        let accounts = await readAccounts();
+        let acc = accounts.find(a => a.id === m.accountId);
+        if (!acc && m.accountData) {
+          acc = m.accountData;
+          accounts.push(acc);
+          await saveAccounts(accounts);
+        }
         if (!acc) throw new Error('Không tìm thấy tài khoản: ' + m.accountId);
-        if (!acc.cookies) throw new Error('Tài khoản này chưa có cookies. Hãy dán cookies trước.');
 
         isSwitchingSession = true;
         try {
-          const cookieObj = parseUniversalCookies(acc.cookies);
+          const rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : '';
+          const cookieObj = rawCookies ? parseUniversalCookies(rawCookies) : {};
+          const hasCookies = Boolean(cookieObj['c_user'] && cookieObj['xs']);
           const hasDatrInAcc = Boolean(cookieObj['datr']);
 
           // 1. Nếu có tab Facebook đang mở, tạm chuyển sang about:blank để ngắt các kết nối nền của phiên cũ gây logout tự động
@@ -3422,15 +3467,19 @@ function handleRuntimeMessage(m, sender, reply) {
             await new Promise(r => setTimeout(r, 200));
           }
 
-          // 2. Xóa sạch cookies Facebook cũ (giữ lại datr nếu cookie nhập vào chưa có datr)
-          await clearFacebookCookiesOnly(!hasDatrInAcc);
+          // 2. Xóa sạch 100% cookies Facebook cũ để không bị dính nick cũ
+          await clearFacebookCookiesOnly(!hasDatrInAcc && hasCookies);
           await new Promise(r => setTimeout(r, 200));
 
-          // 3. Nạp cookies tài khoản này vào
-          const injected = await injectCookies(cookieObj);
-          await new Promise(r => setTimeout(r, 350));
-
-          currentSessionAccountId = acc.id;
+          let injected = [];
+          if (hasCookies) {
+            // 3. Nạp cookies tài khoản mới vào
+            injected = await injectCookies(cookieObj);
+            await new Promise(r => setTimeout(r, 350));
+            currentSessionAccountId = acc.id;
+          } else {
+            currentSessionAccountId = null;
+          }
 
           // 3.1. Thiết lập hoặc xóa cookie i_user cho Fanpage
           const pageId = (acc.type === 'fanpage') ? String(acc.pageId || acc.fbId || '') : null;
@@ -3444,7 +3493,7 @@ function handleRuntimeMessage(m, sender, reply) {
             for (const targetUrl of targetUrls) {
               await chrome.cookies.set({
                 url: targetUrl,
-                domain: 'facebook.com',
+                domain: '.facebook.com',
                 name: 'i_user',
                 value: pageId,
                 path: '/',
@@ -3463,11 +3512,14 @@ function handleRuntimeMessage(m, sender, reply) {
           const cUser = fbCookies.find(c => c.name === 'c_user')?.value;
 
           // 5. Nếu có yêu cầu mở/làm mới tab Facebook
+          let mainTab = null;
           if (m.openFacebookTab) {
             const targetUrl = (acc.type === 'fanpage' && pageId)
               ? `https://www.facebook.com/${pageId}`
-              : `https://www.facebook.com/?_r=${Date.now()}`;
-            let mainTab = null;
+              : (hasCookies
+                  ? `https://www.facebook.com/?_r=${Date.now()}`
+                  : `https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F`);
+
             if (existingFbTabs.length > 0) {
               mainTab = existingFbTabs[0];
               const isBg = !!m.background || m.activeTab === false;
@@ -3515,6 +3567,22 @@ function handleRuntimeMessage(m, sender, reply) {
                 } catch (_) {}
               })();
             }
+
+            // Nếu không có cookies mà có mật khẩu & email/UID -> Tự động điền đăng nhập
+            if (!hasCookies && acc.password && (acc.email || acc.fbId) && mainTab?.id) {
+              setTimeout(async () => {
+                try {
+                  handleRuntimeMessage({
+                    type: 'DO_LOGIN',
+                    email: acc.email || acc.fbId,
+                    password: acc.password,
+                    twoFactor: acc.twoFactor || null,
+                    existingAccountId: acc.id,
+                    targetTabId: mainTab.id
+                  }, { id: chrome.runtime?.id }, () => {});
+                } catch (_) {}
+              }, 1500);
+            }
           }
 
           reply({
@@ -3523,13 +3591,70 @@ function handleRuntimeMessage(m, sender, reply) {
             accountName: acc.name,
             cUser: cUser || acc.fbId || 'N/A',
             injectedCount: injected.length,
-            tabId: mainTab?.id || null
+            tabId: mainTab?.id || null,
+            hasCookies
           });
         } finally {
           setTimeout(() => { isSwitchingSession = false; }, 2500);
         }
       } catch (err) {
         reply({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  // CLEAR_FACEBOOK_SESSION: Đăng xuất hoàn toàn session Facebook trên Chrome và mở trang đăng nhập mới
+  if (m.type === 'CLEAR_FACEBOOK_SESSION' || m.type === 'LOGOUT_FACEBOOK') {
+    (async () => {
+      try {
+        isSwitchingSession = true;
+        currentSessionAccountId = null;
+        await clearFacebookCookiesOnly(false);
+
+        if (m.openLoginTab !== false) {
+          const loginUrl = 'https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F';
+          const allTabs = await chrome.tabs.query({}).catch(() => []);
+          const existingFbTabs = allTabs.filter(t => t.url && (t.url.includes('facebook.com') || t.url.includes('fb.com')));
+          if (existingFbTabs.length > 0) {
+            await chrome.tabs.update(existingFbTabs[0].id, { url: loginUrl, active: true });
+            for (let i = 1; i < existingFbTabs.length; i++) {
+              try { await chrome.tabs.remove(existingFbTabs[i].id); } catch (_) {}
+            }
+          } else {
+            await chrome.tabs.create({ url: loginUrl, active: true });
+          }
+        }
+        reply({ ok: true });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      } finally {
+        setTimeout(() => { isSwitchingSession = false; }, 1000);
+      }
+    })();
+    return true;
+  }
+
+  // GET_FACEBOOK_COOKIES: Lấy toàn bộ cookies Facebook hiện tại trên Chrome cho Web Platform
+  if (m.type === 'GET_FACEBOOK_COOKIES') {
+    (async () => {
+      try {
+        const allCookies = await chrome.cookies.getAll({}).catch(() => []);
+        const fbCookies = allCookies.filter(c =>
+          c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+        );
+        const cookieMap = new Map();
+        for (const ck of fbCookies) {
+          if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+            cookieMap.set(ck.name, ck);
+          }
+        }
+        const cUser = cookieMap.get('c_user')?.value;
+        const xs = cookieMap.get('xs')?.value;
+        const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+        reply({ ok: true, cUser, xs, cookieStr, count: cookieMap.size });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
       }
     })();
     return true;

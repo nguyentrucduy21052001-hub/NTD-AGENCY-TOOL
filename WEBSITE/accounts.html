@@ -484,9 +484,14 @@
         </ul>
       </div>
 
-      <div class="row">
-        <button class="btn btn-primary" id="loginBtn">🔑 Đăng nhập &amp; Thêm tài khoản</button>
-        <button class="btn btn-light" id="clearPassFormBtn">Xóa</button>
+      <div class="row" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" id="loginBtn">🔑 Đăng nhập &amp; Thêm tài khoản</button>
+          <button class="btn btn-light" id="clearPassFormBtn">Xóa</button>
+        </div>
+        <button type="button" class="btn btn-light logout-fb-quick-btn" style="font-size:11px;padding:6px 12px;border:1px solid #f87171;color:#dc2626;font-weight:600;background:#fff5f5" title="Mở trang đăng nhập Facebook mới sạch sẽ không bị dính nick cũ">
+          🚪 Đăng xuất nick cũ trên FB
+        </button>
       </div>
     </div>
 
@@ -532,9 +537,14 @@
           Tự động đăng nhập nick này vào Facebook trên trình duyệt ngay sau khi thêm
         </label>
       </div>
-      <div class="row">
-        <button class="btn btn-primary" id="addCookieBtn">➕ Thêm &amp; Đăng nhập</button>
-        <button class="btn btn-light" id="clearCookieFormBtn">Xóa</button>
+      <div class="row" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" id="addCookieBtn">➕ Thêm &amp; Đăng nhập</button>
+          <button class="btn btn-light" id="clearCookieFormBtn">Xóa</button>
+        </div>
+        <button type="button" class="btn btn-light logout-fb-quick-btn" style="font-size:11px;padding:6px 12px;border:1px solid #f87171;color:#dc2626;font-weight:600;background:#fff5f5" title="Mở trang đăng nhập Facebook mới sạch sẽ không bị dính nick cũ">
+          🚪 Đăng xuất nick cũ trên FB
+        </button>
       </div>
     </div>
 
@@ -570,9 +580,14 @@
         </div>
       </div>
     </div>
-    <button type="button" class="btn btn-light" id="forceSyncAllBtn" title="Quét ngay phiên Facebook đang mở trên Chrome để đồng bộ vào danh sách" style="font-size:11px;padding:6px 12px;border:1px solid #059669;color:#059669;font-weight:700;white-space:nowrap;background:#ffffff">
-      Quét &amp; Đồng bộ ngay
-    </button>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button type="button" class="btn btn-light" id="logoutFbBtn" title="Xóa phiên đăng nhập cũ trên trình duyệt Chrome và mở trang đăng nhập Facebook mới để bạn thêm hoặc đăng nhập nick khác" style="font-size:11px;padding:6px 12px;border:1px solid #f87171;color:#dc2626;font-weight:700;white-space:nowrap;background:#fef2f2">
+        🚪 Đăng xuất FB trên Chrome
+      </button>
+      <button type="button" class="btn btn-light" id="forceSyncAllBtn" title="Quét ngay phiên Facebook đang mở trên Chrome để đồng bộ vào danh sách" style="font-size:11px;padding:6px 12px;border:1px solid #059669;color:#059669;font-weight:700;white-space:nowrap;background:#ffffff">
+        Quét &amp; Đồng bộ ngay
+      </button>
+    </div>
   </div>
   <div class="acc-list" id="accList">
     <div class="empty-state">

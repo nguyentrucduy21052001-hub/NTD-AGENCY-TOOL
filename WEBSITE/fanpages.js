@@ -25,6 +25,15 @@ async function loadAccounts() {
 }
 async function saveAccounts(accounts) {
   await chrome.storage.local.set({ accounts });
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      await window.chrome.runtime.sendToExtension({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { accounts }
+      });
+    } catch (_) {}
+  }
 }
 
 // ── Validate group links ──────────────────────────────────────────────────────
@@ -71,10 +80,35 @@ async function updateParentAccountOptions() {
 
 // ── Kích hoạt session Facebook cho Fanpage (Profile Pro5) ─────────────────────
 async function activateSessionWithFallback(accountId, openFacebookTab = true) {
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  const accounts = await loadAccounts();
+  const acc = accounts.find(a => a.id === accountId);
+
+  // 1. Nếu trên Web Platform: Đồng bộ dữ liệu sang Extension Runner và chạy qua Extension
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      await window.chrome.runtime.sendToExtension({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { accounts }
+      });
+      const res = await window.chrome.runtime.sendToExtension({
+        type: 'ACTIVATE_ACCOUNT_SESSION',
+        accountId,
+        accountData: acc || null,
+        openFacebookTab
+      });
+      if (res && res.ok) return res;
+    } catch (e) {
+      console.warn('sendToExtension Fanpage failed:', e);
+    }
+  }
+
+  // 2. Fallback chrome.runtime.sendMessage
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'ACTIVATE_ACCOUNT_SESSION',
       accountId,
+      accountData: acc || null,
       openFacebookTab
     });
     if (res && res.ok) return res;

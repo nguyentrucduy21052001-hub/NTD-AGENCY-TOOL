@@ -51,18 +51,52 @@ async function loadAccounts() {
 }
 async function saveAccounts(accounts) {
   await chrome.storage.local.set({ accounts });
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      await window.chrome.runtime.sendToExtension({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { accounts }
+      });
+    } catch (_) {}
+  }
 }
 
 // ── Kích hoạt session đăng nhập Facebook (có fallback trực tiếp) ─────────────
 async function activateSessionWithFallback(accountId, openFacebookTab = true) {
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  const accounts = await loadAccounts();
+  const acc = accounts.find(a => a.id === accountId);
+
+  // 1. Nếu trên Web Platform và có Extension: đồng bộ ngay và gửi sang Extension Runner
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      await window.chrome.runtime.sendToExtension({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { accounts }
+      });
+      const res = await window.chrome.runtime.sendToExtension({
+        type: 'ACTIVATE_ACCOUNT_SESSION',
+        accountId,
+        accountData: acc || null,
+        openFacebookTab
+      });
+      if (res && res.ok) return res;
+    } catch (err) {
+      console.warn('sendToExtension ACTIVATE_ACCOUNT_SESSION failed:', err);
+    }
+  }
+
+  // 2. Chạy qua chrome.runtime.sendMessage
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'ACTIVATE_ACCOUNT_SESSION',
       accountId,
+      accountData: acc || null,
       openFacebookTab
     });
     if (res && res.ok) return res;
-    // Nếu worker chưa reload (trả về lỗi 'Lệnh không hợp lệ') hoặc lỗi bất kỳ, fallback nạp trực tiếp từ tab
+    // Nếu worker chưa reload hoặc lỗi bất kỳ, fallback nạp trực tiếp từ tab
     console.warn('Worker trả về không thành công, chạy trực tiếp fallback:', res);
     return await activateAccountSessionDirectly(accountId, openFacebookTab);
   } catch (err) {
@@ -151,13 +185,25 @@ $('loginBtn').onclick = async () => {
   setStep('step1', 'active');
 
   try {
-    const result = await chrome.runtime.sendMessage({
-      type: 'DO_LOGIN',
-      email,
-      password: pass,
-      twoFactor,
-      keepSession: true
-    });
+    const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+    let result;
+    if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+      result = await window.chrome.runtime.sendToExtension({
+        type: 'DO_LOGIN',
+        email,
+        password: pass,
+        twoFactor,
+        keepSession: true
+      });
+    } else {
+      result = await chrome.runtime.sendMessage({
+        type: 'DO_LOGIN',
+        email,
+        password: pass,
+        twoFactor,
+        keepSession: true
+      });
+    }
 
     if (!result?.ok) {
       throw new Error(result?.error || 'Đăng nhập thất bại.');
@@ -228,22 +274,40 @@ if (fetchBtn) {
 
     try {
       // 1. Quét cookies hiện tại trên Chrome
-      const allCookies = (await chrome.cookies.getAll({})).filter(c =>
-        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
-      );
+      let allCookies = [];
+      const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+      let extCookieStr = '';
+      let extCUser = '';
+
+      if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+        try {
+          const extResp = await window.chrome.runtime.sendToExtension({ type: 'GET_FACEBOOK_COOKIES' });
+          if (extResp?.ok && extResp.cookieStr) {
+            extCookieStr = extResp.cookieStr;
+            extCUser = extResp.cUser;
+          }
+        } catch (_) {}
+      }
+
+      if (!extCookieStr) {
+        allCookies = (await chrome.cookies.getAll({})).filter(c =>
+          c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+        );
+      }
+
       const cookieMap = new Map();
       for (const ck of allCookies) {
         if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
           cookieMap.set(ck.name, ck);
         }
       }
-      const cUser = cookieMap.get('c_user')?.value;
-      if (!cUser) {
+      const cUser = extCUser || cookieMap.get('c_user')?.value;
+      if (!cUser && !extCookieStr) {
         msg('Chưa tìm thấy phiên đăng nhập Facebook trên Chrome. Hãy mở tab facebook.com đăng nhập nick trước!', 'err');
         return;
       }
 
-      const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+      const cookieStr = extCookieStr || [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
 
       // 2. Lấy Token EAAG (Business) và Token EAAB (Ads) từ Facebook (theo cơ chế Get Token Cookie)
       fetchBtn.textContent = '⏳ Đang lấy Token EAAG & EAAB...';
@@ -903,6 +967,35 @@ if (forceSyncBtn) {
     }
   };
 }
+
+// ── Nút Đăng xuất Facebook trên Chrome để thêm nick mới không bị dính nick cũ ────
+async function logoutFacebookOnChrome() {
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  msg('⏳ Đang xóa phiên Facebook cũ trên Chrome...');
+  try {
+    if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+      await window.chrome.runtime.sendToExtension({
+        type: 'CLEAR_FACEBOOK_SESSION',
+        openLoginTab: true
+      });
+    } else {
+      await chrome.runtime.sendMessage({
+        type: 'CLEAR_FACEBOOK_SESSION',
+        openLoginTab: true
+      });
+    }
+    msg('✅ Đã đăng xuất Facebook trên Chrome! Tab đăng nhập mới đã mở để bạn thêm hoặc đăng nhập nick mới.', 'ok');
+  } catch (err) {
+    window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
+    msg('✅ Đã mở trang đăng nhập Facebook mới.', 'ok');
+  }
+}
+
+const logoutBtn = $('logoutFbBtn');
+if (logoutBtn) logoutBtn.onclick = logoutFacebookOnChrome;
+document.querySelectorAll('.logout-fb-quick-btn').forEach(btn => {
+  btn.onclick = logoutFacebookOnChrome;
+});
 
 // Lắng nghe tiến trình đăng nhập thời gian thực và tự động cập nhật cookie từ worker
 chrome.runtime.onMessage.addListener(m => {

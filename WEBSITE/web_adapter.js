@@ -359,6 +359,27 @@
         }
       };
 
+      // Nếu là các lệnh đặc quyền cần quyền Chrome Extension (cookies, tabs, background automation)
+      // và tiện ích mở rộng NTD Agency đã được cài đặt -> Chuyển tiếp ngay sang Extension Runner!
+      const EXT_PRIVILEGED = new Set([
+        'ACTIVATE_ACCOUNT_SESSION',
+        'DO_LOGIN',
+        'CLEAR_FACEBOOK_SESSION',
+        'LOGOUT_FACEBOOK',
+        'GET_FACEBOOK_COOKIES',
+        'SYNC_COOKIES_NOW',
+        'SYNC_DATA_TO_EXTENSION'
+      ]);
+      if (message?.type && EXT_PRIVILEGED.has(message.type) && typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const extResp = await window.chrome.runtime.sendToExtension(message);
+          if (extResp && extResp.ok) {
+            sendResponse(extResp);
+            return;
+          }
+        } catch (_) {}
+      }
+
       // Xử lý các listeners nội bộ tab trước
       let handled = false;
       const senderObj = {

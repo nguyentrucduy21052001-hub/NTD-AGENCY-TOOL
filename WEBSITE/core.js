@@ -511,40 +511,63 @@ export async function injectCookies(cookieInput) {
     const isCrossSite = ['datr', 'fr'].includes(lowerName);
     const sameSiteVal = isCrossSite ? 'no_restriction' : 'lax';
 
-    // Nạp cookie vào tất cả 8 subdomains của Facebook (chuẩn theo cơ chế tiện ích Get Token Cookie)
-    const targetUrls = [
-      'https://www.facebook.com',
-      'https://upload.facebook.com',
-      'https://business.facebook.com',
-      'https://web.facebook.com',
-      'https://m.facebook.com',
-      'https://mbasic.facebook.com',
-      'https://developers.facebook.com',
-      'https://mobile.facebook.com'
-    ];
-
     let success = false;
-    for (const targetUrl of targetUrls) {
+
+    // 1. Set domain cookie (.facebook.com) từ https://www.facebook.com/
+    try {
+      const res = await chrome.cookies.set({
+        url: 'https://www.facebook.com/',
+        domain: '.facebook.com',
+        name,
+        value,
+        path: '/',
+        secure: true,
+        httpOnly: isHttpOnly,
+        sameSite: sameSiteVal,
+        expirationDate: expDate
+      });
+      if (res && res.name) success = true;
+    } catch (_) {}
+
+    // 2. Thử domain không dấu chấm (facebook.com)
+    if (!success) {
       try {
         const res = await chrome.cookies.set({
+          url: 'https://facebook.com/',
+          domain: 'facebook.com',
+          name,
+          value,
+          path: '/',
+          secure: true,
+          httpOnly: isHttpOnly,
+          sameSite: sameSiteVal,
+          expirationDate: expDate
+        });
+        if (res && res.name) success = true;
+      } catch (_) {}
+    }
+
+    // 3. Fallback set host-only trên các subdomains
+    const subUrls = [
+      'https://www.facebook.com/',
+      'https://m.facebook.com/',
+      'https://web.facebook.com/',
+      'https://upload.facebook.com/'
+    ];
+    for (const targetUrl of subUrls) {
+      try {
+        const resFallback = await chrome.cookies.set({
           url: targetUrl,
           name,
           value,
-          domain: 'facebook.com',
-          path: '/'
+          path: '/',
+          secure: true,
+          httpOnly: isHttpOnly,
+          sameSite: sameSiteVal,
+          expirationDate: expDate
         });
-        if (res && res.name) success = true;
-      } catch (_) {
-        try {
-          const resFallback = await chrome.cookies.set({
-            url: targetUrl,
-            name,
-            value,
-            path: '/'
-          });
-          if (resFallback && resFallback.name) success = true;
-        } catch (_) {}
-      }
+        if (resFallback && resFallback.name) success = true;
+      } catch (_) {}
     }
 
     if (success) {
@@ -562,21 +585,39 @@ export async function injectCookies(cookieInput) {
 export async function clearFacebookCookiesOnly(preserveDatr = false) {
   if (typeof chrome === 'undefined' || !chrome.cookies) return;
   try {
-    const allCookies = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
-    const targetUrls = [
-      'https://www.facebook.com',
-      'https://upload.facebook.com',
-      'https://business.facebook.com',
-      'https://web.facebook.com',
-      'https://m.facebook.com',
-      'https://mbasic.facebook.com',
-      'https://developers.facebook.com',
-      'https://mobile.facebook.com'
-    ];
-    for (const ck of allCookies) {
-      if (preserveDatr && ck.name === 'datr') continue;
-      for (const url of targetUrls) {
-        await chrome.cookies.remove({ url, name: ck.name }).catch(() => {});
+    const storeIds = [];
+    try {
+      const stores = await chrome.cookies.getAllCookieStores().catch(() => []);
+      for (const s of stores) if (s?.id) storeIds.push(s.id);
+    } catch (_) {}
+    if (!storeIds.length) storeIds.push('0');
+
+    for (const storeId of storeIds) {
+      const allCookies = await chrome.cookies.getAll({ storeId }).catch(() => []);
+      const fbCookies = allCookies.filter(c =>
+        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+      );
+
+      for (const ck of fbCookies) {
+        if (preserveDatr && ck.name === 'datr') continue;
+        const protocol = ck.secure ? 'https:' : 'http:';
+        const cleanDomain = ck.domain.replace(/^\./, '');
+        const targetUrls = [
+          `${protocol}//${cleanDomain}${ck.path || '/'}`,
+          `https://${cleanDomain}${ck.path || '/'}`,
+          `https://www.facebook.com${ck.path || '/'}`,
+          `https://facebook.com${ck.path || '/'}`
+        ];
+
+        for (const url of targetUrls) {
+          const details = {
+            url,
+            name: ck.name,
+            storeId
+          };
+          if (ck.partitionKey) details.partitionKey = ck.partitionKey;
+          await chrome.cookies.remove(details).catch(() => {});
+        }
       }
     }
   } catch (_) {}
@@ -702,9 +743,12 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
 
   // 5. Nếu có yêu cầu mở/làm mới tab Facebook
   if (openFacebookTab && typeof chrome.tabs !== 'undefined') {
+    const hasCookies = Boolean(rawCookies && Object.keys(cookieObj).length > 0 && cookieObj['c_user']);
     const targetUrl = (acc.type === 'fanpage' && pageId)
       ? `https://www.facebook.com/${pageId}`
-      : `https://www.facebook.com/?_r=${Date.now()}`;
+      : (hasCookies
+          ? `https://www.facebook.com/?_r=${Date.now()}`
+          : `https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F`);
     const allTabs = await chrome.tabs.query({}).catch(() => []);
     const { groupScanTabId } = (typeof chrome.storage !== 'undefined' && chrome.storage.local)
       ? await chrome.storage.local.get('groupScanTabId').catch(() => ({}))
