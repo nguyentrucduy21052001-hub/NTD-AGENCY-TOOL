@@ -222,47 +222,52 @@
         }
       };
 
+      const tryBridge = () => {
+        if (typeof window !== 'undefined') {
+          const requestId = 'req_' + Math.random().toString(36).slice(2);
+          const timer = setTimeout(() => {
+            window.removeEventListener('message', handler);
+            done({ ok: false, error: 'Extension Runner timeout' });
+          }, 4000);
+
+          const handler = (e) => {
+            if (e.data && e.data.source === 'ntd_extension_bridge' && e.data.requestId === requestId) {
+              clearTimeout(timer);
+              window.removeEventListener('message', handler);
+              done(e.data.response || { ok: e.data.success });
+            }
+          };
+
+          window.addEventListener('message', handler);
+          window.postMessage({
+            source: 'ntd_web_page',
+            action: 'CALL_EXTENSION_WORKER',
+            requestId,
+            payload: message
+          }, '*');
+          return;
+        }
+        done({ ok: false, error: 'Chưa nạp Tiện ích Extension' });
+      };
+
       if (_nativeSendMessage) {
         try {
           _nativeSendMessage(NTD_EXTENSION_ID, message, (resp) => {
             const lastErr = window.chrome?.runtime?.lastError;
             if (lastErr) {
-              done({ ok: false, error: lastErr.message });
+              tryBridge();
             } else {
               done(resp || { ok: true });
             }
           });
           return;
-        } catch (_) {}
+        } catch (_) {
+          tryBridge();
+          return;
+        }
       }
 
-      // Thử gửi qua web_bridge.js nếu có
-      if (typeof window !== 'undefined') {
-        const requestId = 'req_' + Math.random().toString(36).slice(2);
-        const timer = setTimeout(() => {
-          window.removeEventListener('message', handler);
-          done({ ok: false, error: 'Extension Runner timeout' });
-        }, 3000);
-
-        const handler = (e) => {
-          if (e.data && e.data.source === 'ntd_extension_bridge' && e.data.requestId === requestId) {
-            clearTimeout(timer);
-            window.removeEventListener('message', handler);
-            done(e.data.response || { ok: e.data.success });
-          }
-        };
-
-        window.addEventListener('message', handler);
-        window.postMessage({
-          source: 'ntd_web_page',
-          action: 'CALL_EXTENSION_WORKER',
-          requestId,
-          payload: message
-        }, '*');
-        return;
-      }
-
-      done({ ok: false, error: 'Chưa nạp Tiện ích Extension' });
+      tryBridge();
     });
   };
 

@@ -618,6 +618,16 @@ setInterval(() => {
 
 let _cachedPanelWinId = null;
 async function sendDirect(type, extra = {}) {
+  const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+
+  // Nếu đang trên Web Platform và đã kết nối với Tiện ích Chrome Runner:
+  // Chuyển toàn bộ các lệnh điều khiển (START, STOP, PAUSE, RESUME, NEXT, RESET) trực tiếp sang Extension!
+  if (isWeb && window.__ntdExtensionActive && window.chrome?.runtime?.sendToExtension) {
+    const r = await window.chrome.runtime.sendToExtension({ type, ...extra });
+    if (!r?.ok && r?.error) throw Error(r.error);
+    return r || { ok: true };
+  }
+
   // Ghi nhớ windowId của cửa sổ tiện ích để tab Facebook mở ngầm ở cửa sổ này, không bật đè lên cửa sổ Chrome làm việc
   try {
     if (!_cachedPanelWinId) {
@@ -2142,10 +2152,14 @@ if (startAllEl) {
           data: allStorage
         });
 
-        await window.chrome.runtime.sendToExtension({
+        const startRes = await window.chrome.runtime.sendToExtension({
           type: 'START_ALL',
           data: {...d, at, targetAccountIds: activePostingAccs.map(a => a.id)}
         });
+        if (!startRes?.ok && startRes?.error) {
+          throw new Error(startRes.error);
+        }
+        if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
         msg(`🚀 [Extension Runner] Đã khởi động tự động điền bài & đăng bài vào Facebook cho ${activePostingAccs.length} tài khoản!`);
         await render();
         scheduleNextRender();
@@ -2542,6 +2556,27 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
 
 // ── Render multi-account status (Dashboard Edition) ───────────────────────────
 async function render() {
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+
+  // Nếu đang trên Web Platform và đã kết nối Tiện ích Extension:
+  // Kéo trạng thái chiến dịch thời gian thực từ Extension về để hiển thị và điều khiển trực tiếp trên Web
+  if (isWebPlatform && window.__ntdExtensionActive && window.chrome?.runtime?.sendToExtension) {
+    try {
+      const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
+      if (extState && extState.ok) {
+        if (extState.campaigns && Object.keys(extState.campaigns).length > 0) {
+          await chrome.storage.local.set({
+            campaigns: extState.campaigns,
+            coordinator: extState.coordinator || null,
+            dailyPostStats: extState.dailyPostStats || {}
+          });
+        } else {
+          await chrome.storage.local.remove(['campaigns', 'coordinator']);
+        }
+      }
+    } catch (_) {}
+  }
+
   const {accounts, campaigns, coordinator, dailyPostStats} = await chrome.storage.local.get(['accounts', 'campaigns', 'coordinator', 'dailyPostStats']);
   const accs = accounts || [];
   const cMap = campaigns || {};
@@ -2881,11 +2916,15 @@ async function render() {
             type: 'SYNC_DATA_TO_EXTENSION',
             data: allStorage
           });
-          await window.chrome.runtime.sendToExtension({
+          const startRes = await window.chrome.runtime.sendToExtension({
             type: 'START_ONE',
             accountId,
             data: {...d, at}
           });
+          if (!startRes?.ok && startRes?.error) {
+            throw new Error(startRes.error);
+          }
+          if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
           msg(`🚀 [Extension Runner] Đã kích hoạt tự động điền & đăng bài cho ${acc?.name}!`);
           await render();
           scheduleNextRender();
@@ -3976,6 +4015,10 @@ function scheduleNextRender() {
   const anyRunning = Object.values(cachedCampaigns || {}).some(
     c => c?.state === 'running' || c?.state === 'waiting'
   );
+  const anyPaused = Object.values(cachedCampaigns || {}).some(
+    c => c?.state === 'paused' || (c?.state === 'stopped' && c.index > 0 && c.index < (c.jobs?.length || 0))
+  );
+
   // Chuyển trạng thái: nếu vừa có nick chạy xong → render ngay 1 lần nữa để chốt báo cáo
   if (_lastAnyRunning && !anyRunning) {
     _lastAnyRunning = false;
@@ -3983,12 +4026,18 @@ function scheduleNextRender() {
     return;
   }
   _lastAnyRunning = anyRunning;
-  // Cập nhật số giây đếm ngược mỗi 1s nếu đang có chiến dịch chạy/chờ
-  if (anyRunning) {
-    _renderPollTimer = setTimeout(() => {
-      updateCountdownTicks();
+
+  // Cập nhật số giây đếm ngược và đồng bộ tiến độ từ Extension Runner mỗi 1.2s
+  if (anyRunning || anyPaused) {
+    _renderPollTimer = setTimeout(async () => {
+      const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+      if (isWeb && window.__ntdExtensionActive) {
+        await render();
+      } else {
+        updateCountdownTicks();
+      }
       scheduleNextRender();
-    }, 1000);
+    }, 1200);
   }
 }
 

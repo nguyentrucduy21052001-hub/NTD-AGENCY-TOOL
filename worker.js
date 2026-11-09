@@ -4796,7 +4796,80 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
     return false;
   }
 
-  // 2. Đồng bộ dữ liệu (tài khoản, nhóm, bản nháp, bản quyền) từ Web sang Extension storage
+  // 2. GET_STATE: Đồng bộ trạng thái chiến dịch thời gian thực cho Web Platform
+  if (request?.type === 'GET_STATE' || request?.type === 'GET_CAMPAIGNS') {
+    (async () => {
+      try {
+        const campaigns = await readCampaigns();
+        const coordinator = (await chrome.storage.local.get('coordinator')).coordinator || null;
+        const dailyPostStats = (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
+        sendResponse({ ok: true, campaigns, coordinator, dailyPostStats });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 3. STOP_ALL: Dừng tất cả chiến dịch ngay lập tức từ Web Platform
+  if (request?.type === 'STOP_ALL') {
+    (async () => {
+      try {
+        const campaigns = await readCampaigns();
+        for (const [id, c] of Object.entries(campaigns)) {
+          if (c.active?.tabId) {
+            try { await chrome.tabs.remove(c.active.tabId); } catch (_) {}
+          }
+          c.state = 'stopped';
+          c.active = null;
+          c.breakNote = 'Đã dừng tất cả từ Web.';
+          try { await chrome.alarms.clear('tick_' + id); } catch (_) {}
+        }
+        await chrome.storage.local.remove('coordinator');
+        currentSessionAccountId = null;
+        try { await chrome.alarms.clear('queue'); } catch (_) {}
+        const allAlarms = (await chrome.alarms.getAll?.().catch(() => [])) || [];
+        for (const al of allAlarms) {
+          if (al.name?.startsWith('tick_')) {
+            try { await chrome.alarms.clear(al.name); } catch (_) {}
+          }
+        }
+        updateKeepAwake(false);
+        await chrome.storage.local.remove('campaigns');
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 4. STOP_ONE: Dừng 1 tài khoản cụ thể từ Web Platform
+  if (request?.type === 'STOP_ONE') {
+    (async () => {
+      try {
+        const campaigns = await readCampaigns();
+        const c = campaigns[request.accountId];
+        if (c) {
+          if (c.active?.tabId) {
+            try { await chrome.tabs.remove(c.active.tabId); } catch (_) {}
+          }
+          c.state = 'stopped';
+          c.active = null;
+          c.breakNote = 'Đã dừng từ Web.';
+          await saveCampaigns(campaigns);
+          try { await chrome.alarms.clear('tick_' + request.accountId); } catch (_) {}
+        }
+        await maybeStopGlobalAlarm();
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 5. Đồng bộ dữ liệu (tài khoản, nhóm, bản nháp, bản quyền) từ Web sang Extension storage
   if (request?.type === 'SYNC_DATA_TO_EXTENSION') {
     (async () => {
       try {
