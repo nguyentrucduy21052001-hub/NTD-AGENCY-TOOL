@@ -3120,9 +3120,24 @@ if (chrome.runtime?.onStartup?.addListener) {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 function handleRuntimeMessage(m, sender, reply) {
-  const fromPanel = sender.id === chrome.runtime.id;
+  const fromPanel = sender.id === chrome.runtime.id || !!sender.isExternal;
 
   if (sender.id !== chrome.runtime.id && !sender.isExternal) return;
+
+  // Lấy trạng thái chiến dịch thời gian thực cho Web Platform & Content Scripts
+  if (m.type === 'GET_STATE' || m.type === 'GET_CAMPAIGNS') {
+    (async () => {
+      try {
+        const campaigns = await readCampaigns();
+        const coordinator = (await chrome.storage.local.get('coordinator')).coordinator || null;
+        const dailyPostStats = (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
+        reply({ ok: true, campaigns, coordinator, dailyPostStats });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
 
   // MAPS background runner messages
   if (m.type === 'MAPS_START_SCAN') {

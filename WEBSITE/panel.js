@@ -580,6 +580,20 @@ const msg = (t, type = 'ok') => {
   el.textContent = t;
   el.style.color = type === 'err' ? '#dc2626' : (t.startsWith('✅') ? '#16a34a' : '#b34317');
   el.style.fontWeight = type === 'err' ? '700' : '600';
+
+  // Nếu là thông báo chiến dịch đang khởi động hoặc đang chạy -> hiển thị nút Dừng nhanh ngay bên cạnh
+  if (t.includes('Đã khởi động') || t.includes('Đang chạy') || t.includes('kích hoạt tự động')) {
+    const stopBtn = document.createElement('button');
+    stopBtn.type = 'button';
+    stopBtn.id = 'inlineQuickStopBtn';
+    stopBtn.innerHTML = '⏹ Dừng tất cả ngay';
+    stopBtn.style.cssText = 'margin-left:12px;background:#ef4444;color:#ffffff;border:none;padding:5px 14px;border-radius:8px;font-size:12.5px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(239,68,68,0.35);vertical-align:middle;';
+    stopBtn.onclick = () => {
+      const mainStop = $('stopAllBtn');
+      if (mainStop) mainStop.click();
+    };
+    el.appendChild(stopBtn);
+  }
 };
 async function send(type, data) {
   const r = await chrome.runtime.sendMessage({type, data});
@@ -2152,14 +2166,20 @@ if (startAllEl) {
           data: allStorage
         });
 
+        window.__ntdWebRunning = true;
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('ntd_web_running', 'true');
+        if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
+        if ($('pauseAllBtn')) $('pauseAllBtn').style.display = 'inline-flex';
+
         const startRes = await window.chrome.runtime.sendToExtension({
           type: 'START_ALL',
           data: {...d, at, targetAccountIds: activePostingAccs.map(a => a.id)}
         });
         if (!startRes?.ok && startRes?.error) {
+          window.__ntdWebRunning = false;
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('ntd_web_running');
           throw new Error(startRes.error);
         }
-        if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
         msg(`🚀 [Extension Runner] Đã khởi động tự động điền bài & đăng bài vào Facebook cho ${activePostingAccs.length} tài khoản!`);
         await render();
         scheduleNextRender();
@@ -2277,6 +2297,14 @@ if (stopAllEl) {
   stopAllEl.onclick = async () => {
     if (!confirm('Dừng tất cả tài khoản đang chạy?')) return;
     try {
+      window.__ntdWebRunning = false;
+      if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('ntd_web_running');
+      if ($('stopAllBtn')) $('stopAllBtn').style.display = 'none';
+      if ($('pauseAllBtn')) $('pauseAllBtn').style.display = 'none';
+      const inlineBtn = document.getElementById('inlineQuickStopBtn');
+      if (inlineBtn) inlineBtn.remove();
+
+      msg('🛑 Đang dừng tất cả tài khoản...');
       await sendDirect('STOP_ALL');
       await chrome.storage.local.remove('campaigns');
       await chrome.storage.local.remove('coordinator');
@@ -2558,13 +2586,16 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
 async function render() {
   const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
 
-  // Nếu đang trên Web Platform và đã kết nối Tiện ích Extension:
+  let extCampaigns = null;
+  // Nếu đang trên Web Platform và có extension bridge/runner:
   // Kéo trạng thái chiến dịch thời gian thực từ Extension về để hiển thị và điều khiển trực tiếp trên Web
-  if (isWebPlatform && window.__ntdExtensionActive && window.chrome?.runtime?.sendToExtension) {
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
     try {
       const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
       if (extState && extState.ok) {
+        window.__ntdExtensionActive = true;
         if (extState.campaigns && Object.keys(extState.campaigns).length > 0) {
+          extCampaigns = extState.campaigns;
           await chrome.storage.local.set({
             campaigns: extState.campaigns,
             coordinator: extState.coordinator || null,
@@ -2572,6 +2603,8 @@ async function render() {
           });
         } else {
           await chrome.storage.local.remove(['campaigns', 'coordinator']);
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('ntd_web_running');
+          window.__ntdWebRunning = false;
         }
       }
     } catch (_) {}
@@ -2579,7 +2612,7 @@ async function render() {
 
   const {accounts, campaigns, coordinator, dailyPostStats} = await chrome.storage.local.get(['accounts', 'campaigns', 'coordinator', 'dailyPostStats']);
   const accs = accounts || [];
-  const cMap = campaigns || {};
+  const cMap = extCampaigns || campaigns || {};
   const statsMap = dailyPostStats || {};
   const todayStr = getTodayDateStr();
 
@@ -2611,10 +2644,12 @@ async function render() {
   const anyRunning = Object.values(cMap).some(c => c?.state === 'running' || c?.state === 'waiting');
   const pausedCampaigns = Object.values(cMap).filter(c => (c?.state === 'paused' || (c?.state === 'stopped' && c.index > 0)) && c.index < (c.jobs?.length || 0));
   const anyPaused = pausedCampaigns.length > 0;
+  const isWebRunning = Boolean(window.__ntdWebRunning || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('ntd_web_running') === 'true'));
+  const shouldShowStop = anyRunning || anyPaused || isWebRunning;
 
-  if ($('pauseAllBtn')) $('pauseAllBtn').style.display = anyRunning ? 'inline-flex' : 'none';
+  if ($('pauseAllBtn')) $('pauseAllBtn').style.display = (anyRunning || isWebRunning) ? 'inline-flex' : 'none';
   if ($('resumeAllBtn')) $('resumeAllBtn').style.display = (anyPaused && !anyRunning) ? 'inline-flex' : 'none';
-  if ($('stopAllBtn')) $('stopAllBtn').style.display = (anyRunning || anyPaused) ? 'inline-flex' : 'none';
+  if ($('stopAllBtn')) $('stopAllBtn').style.display = shouldShowStop ? 'inline-flex' : 'none';
   if ($('showPostingTabBtn')) $('showPostingTabBtn').style.display = (anyRunning || anyPaused) ? 'inline-flex' : 'none';
 
   const resumeBanner = $('resumeNoticeBanner');
@@ -2916,15 +2951,20 @@ async function render() {
             type: 'SYNC_DATA_TO_EXTENSION',
             data: allStorage
           });
+          window.__ntdWebRunning = true;
+          if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('ntd_web_running', 'true');
+          if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
+
           const startRes = await window.chrome.runtime.sendToExtension({
             type: 'START_ONE',
             accountId,
             data: {...d, at}
           });
           if (!startRes?.ok && startRes?.error) {
+            window.__ntdWebRunning = false;
+            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('ntd_web_running');
             throw new Error(startRes.error);
           }
-          if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
           msg(`🚀 [Extension Runner] Đã kích hoạt tự động điền & đăng bài cho ${acc?.name}!`);
           await render();
           scheduleNextRender();

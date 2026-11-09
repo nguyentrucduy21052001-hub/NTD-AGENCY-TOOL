@@ -3323,6 +3323,16 @@
             style="display:none;background:#fef2f2;border:1.5px solid #ef4444;color:#dc2626;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;align-items:center;gap:6px">🔄
             Thử lại các nick lỗi</button>
           <button id="stopAllBtn" type="button" style="display:none;background:#ef4444;border:1.5px solid #dc2626;color:#ffffff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(239,68,68,0.3)">⏹ Dừng tất cả tài khoản</button>
+          <script>
+            (function() {
+              try {
+                if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('ntd_web_running') === 'true') {
+                  const b = document.getElementById('stopAllBtn');
+                  if (b) b.style.display = 'inline-flex';
+                }
+              } catch (_) {}
+            })();
+          </script>
           <button type="button" id="showPostingTabBtn"
             style="display:none;background:#f0fdf4;border:1.5px solid #16a34a;color:#15803d;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;align-items:center;gap:6px">👁 Xem tab Facebook</button>
           <button id="save" class="light">💾 Lưu bản nháp</button>
