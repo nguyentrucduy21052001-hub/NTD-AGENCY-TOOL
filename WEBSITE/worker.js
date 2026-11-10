@@ -2871,12 +2871,25 @@ async function runWarmupLoop(accountIds, config) {
 
         if (warmupStop) break;
 
-        // Lưu bản ghi báo cáo
+        // Lưu bản ghi báo cáo chi tiết các hành động và số lượng / thời gian
         const actionsList = [];
-        if (enableFeed) actionsList.push('📰 Newsfeed');
-        if (enableLike) actionsList.push(`❤️ Like (${maxLikes})`);
-        if (enableReels) actionsList.push('🎬 Reels');
-        if (enableNotif) actionsList.push('🔔 Thông báo');
+        const approxFeedSec = Math.round(durationMin * 60 * (enableReels ? 0.5 : 1));
+        const approxReelsSec = enableReels ? Math.round(durationMin * 60 * 0.5) : 0;
+
+        if (enableFeed) {
+          actionsList.push(`<div class="report-action-line">• 📰 Lướt Bảng tin (${approxFeedSec}s)</div>`);
+        }
+        if (enableLike) {
+          actionsList.push(`<div class="report-action-line">• ❤️ Thả cảm xúc Like/Tim (tối đa <b>${maxLikes} bài</b>)</div>`);
+        }
+        if (enableReels) {
+          actionsList.push(`<div class="report-action-line">• 🎬 Xem Video Reels (${approxReelsSec}s)</div>`);
+        }
+        if (enableNotif) {
+          actionsList.push(`<div class="report-action-line">• 🔔 Kiểm tra Thông báo (~15s)</div>`);
+        }
+
+        const actionsHtml = actionsList.length > 0 ? actionsList.join('') : 'Tương tác mô phỏng người thật';
 
         const isSuccess = !sessionError;
         const statusText = isSuccess ? 'Thành công' : sessionError;
@@ -2885,7 +2898,7 @@ async function runWarmupLoop(accountIds, config) {
           accId: acc.id,
           accName: acc.name || 'Tài khoản',
           accUid: acc.fbId || acc.username || acc.id || '',
-          actions: actionsList.join(', ') || 'Tương tác chung',
+          actions: actionsHtml,
           duration: `${durationMin} phút`,
           status: isSuccess ? 'success' : 'error',
           statusText: statusText,
@@ -2899,6 +2912,14 @@ async function runWarmupLoop(accountIds, config) {
           warmupReports.unshift(reportItem);
           if (warmupReports.length > 200) warmupReports.length = 200;
           await chrome.storage.local.set({ warmupReports });
+        } catch (_) {}
+
+        // Phát sóng báo cáo chi tiết cho Web UI
+        try {
+          chrome.runtime.sendMessage({
+            type: 'WARMUP_SESSION_REPORT',
+            report: reportItem
+          }).catch(() => {});
         } catch (_) {}
 
         if (isSuccess) {

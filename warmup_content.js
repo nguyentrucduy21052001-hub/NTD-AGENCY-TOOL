@@ -190,199 +190,252 @@
     } catch (_) {}
   }
 
-  // ── 4. Lướt Bảng tin & Đọc bài viết ─────────────────────────────────────────
-  async function runFeedSurfing(durationMs, likeConfig) {
+  // ── Helper click chuẩn React cho các phần tử Facebook ──────────────────────
+  function triggerHumanClick(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (_) {}
+
+    const rect = el.getBoundingClientRect();
+    const clientX = Math.round(rect.left + rect.width / 2);
+    const clientY = Math.round(rect.top + rect.height / 2);
+
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: clientX || 100,
+      clientY: clientY || 100
+    };
+
+    try { el.focus({ preventScroll: true }); } catch (_) {}
+    el.dispatchEvent(new MouseEvent('mouseenter', eventInit));
+    el.dispatchEvent(new MouseEvent('mouseover', eventInit));
+    el.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+    el.dispatchEvent(new MouseEvent('mousedown', eventInit));
+    el.dispatchEvent(new PointerEvent('pointerup', eventInit));
+    el.dispatchEvent(new MouseEvent('mouseup', eventInit));
+    el.click();
+  }
+
+  // ── 4. Lướt Bảng tin & Đọc bài viết & Thả Like/Tim ngẫu nhiên ───────────────
+  async function runFeedSurfing(durationMs, likeConfig, stats) {
     if (isCancelled) return;
     dismissObstructingDialogs();
     sendLog('Bắt đầu lướt Bảng tin (Newsfeed) mô phỏng người thật...', '📰');
 
-    const endTime = Date.now() + durationMs;
-    let likeCount = 0;
-    const maxLikes = likeConfig?.enabled ? (likeConfig.maxCount || 4) : 0;
+    const startTime = Date.now();
+    const endTime = startTime + durationMs;
+    const maxLikes = likeConfig?.enabled ? Math.max(1, parseInt(likeConfig.maxCount || '5')) : 0;
     const likedElements = new WeakSet();
 
     while (Date.now() < endTime && !isCancelled) {
-      // Tự động kiểm tra và đóng pop-up nếu vừa xuất hiện
       dismissObstructingDialogs();
 
-      // 1. Cuộn trang một đoạn ngẫu nhiên (300px - 650px)
-      const scrollDist = 320 + Math.floor(Math.random() * 320);
+      // 1. Cuộn trang mượt mà
+      const scrollDist = 360 + Math.floor(Math.random() * 320);
       await humanScrollBy(scrollDist);
+      stats.feedPosts++;
 
-      // Thỉnh thoảng (20% xác suất) cuộn ngược lên một chút như vừa thấy bài thú vị
-      if (Math.random() < 0.2) {
-        await delay(500 + Math.random() * 600);
-        await humanScrollBy(-(80 + Math.random() * 120), 8);
-      }
-
-      // 2. Dừng lại đọc bài từ 3 đến 7 giây
-      const pauseDuration = 3000 + Math.floor(Math.random() * 4000);
-      sendLog(`Đang đọc nội dung bài viết (${Math.round(pauseDuration / 1000)}s)...`, '👀');
-      await delay(pauseDuration);
-
-      // 3. Nếu bật tính năng thả Like và chưa đạt giới hạn
-      if (likeConfig?.enabled && likeCount < maxLikes && !isCancelled) {
-        // Tỷ lệ tương tác 40% mỗi khi dừng đọc bài
-        if (Math.random() < 0.45) {
+      // 2. Tự động tìm và bấm Like bài viết nếu chưa đạt giới hạn
+      if (likeConfig?.enabled && stats.likesGiven < maxLikes && !isCancelled) {
+        // Tỷ lệ kiểm tra like 70% mỗi lần dừng đọc bài
+        if (Math.random() < 0.75) {
           const didLike = await tryLikeVisiblePost(likedElements);
           if (didLike) {
-            likeCount++;
-            sendLog(`Đã thả Thích bài viết thành công (${likeCount}/${maxLikes})`, '❤️');
+            stats.likesGiven++;
+            sendLog(`Đã thả Thích bài viết thành công (${stats.likesGiven}/${maxLikes})`, '❤️');
             await delay(1200 + Math.random() * 1500);
           }
         }
       }
 
-      // Nghỉ ngắn trước khi cuộn tiếp
-      await delay(800 + Math.random() * 1200);
+      // 3. Dừng lại đọc bài viết từ 2.5s đến 5.5s
+      const pauseDuration = 2500 + Math.floor(Math.random() * 3000);
+      sendLog(`Đang xem nội dung bài viết #${stats.feedPosts} trên Bảng tin (${Math.round(pauseDuration / 1000)}s)...`, '👀');
+      await delay(pauseDuration);
+
+      // Thỉnh thoảng (20% xác suất) cuộn ngược lên một chút như vừa thấy chi tiết hay
+      if (Math.random() < 0.2) {
+        await delay(400);
+        await humanScrollBy(-(80 + Math.random() * 100), 8);
+      }
+
+      await delay(600 + Math.random() * 800);
     }
 
-    sendLog(`Hoàn tất lướt Bảng tin. Đã tương tác: ${likeCount} bài viết.`, '✅');
+    stats.feedSec = Math.round((Date.now() - startTime) / 1000);
+    sendLog(`Hoàn tất lướt Bảng tin: Đã xem ${stats.feedPosts} bài, thả cảm xúc ${stats.likesGiven} bài (${stats.feedSec}s).`, '✅');
   }
 
   // ── 5. Tìm và bấm nút Like cho bài viết đang hiển thị trong tầm mắt ──────────
   async function tryLikeVisiblePost(likedSet) {
     dismissObstructingDialogs();
     try {
-      // Tìm các nút Thích trên giao diện Facebook
-      const allButtons = [...document.querySelectorAll('div[role="button"], span[role="button"]')];
-      
-      const likeButtons = allButtons.filter(btn => {
-        if (!btn || likedSet.has(btn)) return false;
-        
-        // Kiểm tra xem nút có nằm trong khung nhìn (viewport) không
-        const rect = btn.getBoundingClientRect();
-        if (rect.top < 80 || rect.bottom > window.innerHeight - 50) return false;
-        if (rect.width === 0 || rect.height === 0) return false;
+      // 1. Tìm các nút Thích tiềm năng trong giao diện Facebook
+      const candidates = document.querySelectorAll(`
+        div[role="feed"] [role="article"] div[role="button"],
+        div[role="feed"] [data-pagelet*="FeedUnit"] div[role="button"],
+        div[role="main"] div[role="button"],
+        div[aria-label*="Thích" i][role="button"],
+        div[aria-label*="Like" i][role="button"],
+        span[role="button"]
+      `);
 
-        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
+      const likeButtons = [];
+      for (const btn of candidates) {
+        if (!btn || likedSet.has(btn)) continue;
+        const rect = btn.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        // Chỉ chọn các nút nằm trong hoặc rất gần màn hình hiện tại
+        if (rect.bottom < -100 || rect.top > window.innerHeight + 250) continue;
+
+        const aria = (btn.getAttribute('aria-label') || '').toLowerCase().trim();
         const text = (btn.innerText || btn.textContent || '').toLowerCase().trim();
 
-        // Nút thích chưa bấm: aria-label="Thích" hoặc text là "Thích" / "Like"
-        // Tránh nút đã like (aria-label="Gỡ Thích", "Bỏ Thích", "Unlike", hoặc có aria-pressed="true")
-        const isLikeText = (ariaLabel === 'thích' || ariaLabel === 'like' || text === 'thích' || text === 'like');
-        const isAlreadyLiked = ariaLabel.includes('gỡ thích') || ariaLabel.includes('bỏ thích') || ariaLabel.includes('unlike') || btn.getAttribute('aria-pressed') === 'true';
+        const isAlreadyLiked = aria.includes('gỡ thích') || aria.includes('bỏ thích') || aria.includes('unlike') || btn.getAttribute('aria-pressed') === 'true';
+        if (isAlreadyLiked) continue;
 
-        return isLikeText && !isAlreadyLiked;
-      });
+        // Loại trừ nút chia sẻ, bình luận, gửi, tin nhắn
+        if (text.includes('bình luận') || text.includes('comment') || text.includes('chia sẻ') || text.includes('share') || text.includes('gửi') || text.includes('tin nhắn')) {
+          continue;
+        }
+
+        // Nhận diện nút Thích / Like
+        const isLike = (
+          aria === 'thích' || aria === 'like' ||
+          aria.startsWith('thích') || aria.startsWith('like') ||
+          aria.includes('thích bài viết') || aria.includes('bày tỏ cảm xúc') ||
+          text === 'thích' || text === 'like' ||
+          text.startsWith('thích') || text.startsWith('like')
+        );
+
+        if (isLike) likeButtons.push(btn);
+      }
 
       if (!likeButtons.length) return false;
 
-      // Chọn ngẫu nhiên 1 bài đang hiển thị
-      const targetBtn = likeButtons[Math.floor(Math.random() * likeButtons.length)];
+      // Chọn 1 nút Thích đang hiển thị
+      const targetBtn = likeButtons[0];
       likedSet.add(targetBtn);
 
-      // Mô phỏng rê chuột và click
       targetBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
       await delay(600 + Math.random() * 400);
 
-      try { targetBtn.focus({ preventScroll: true }); } catch (_) {}
-      targetBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      await delay(150 + Math.random() * 200);
-
-      targetBtn.click();
+      triggerHumanClick(targetBtn);
       return true;
     } catch (_) {
       return false;
     }
   }
 
-  // ── 5. Lướt xem Video Reels ngắn ────────────────────────────────────────────
-  async function runReelsWatching(durationMs) {
+  // ── 6. Lướt xem Video Reels ngắn (Facebook Reels) ───────────────────────────
+  async function runReelsWatching(durationMs, stats) {
     if (isCancelled) return;
-    sendLog('Chuyển hướng sang xem Video ngắn (Reels)...', '🎬');
+    sendLog('Chuyển hướng sang xem Video ngắn (Facebook Reels)...', '🎬');
 
+    const startTime = Date.now();
     try {
-      // Điều hướng tới Facebook Reels (Ưu tiên bấm SPA Link để không bị mất kết nối script)
+      // 1. Điều hướng tới giao diện Reels qua SPA Link (Tránh reload toàn trang làm chết script)
       if (!window.location.pathname.includes('/reel')) {
-        let reelLink = document.querySelector('a[href*="/reel/"], a[aria-label*="Reels"], a[aria-label*="Thước phim"], a[aria-label="Video"], a[href*="/watch"]');
-        if (!reelLink) {
-          const seeMore = document.querySelector('div[role="navigation"] [aria-label*="Xem thêm"], div[role="navigation"] [aria-label*="See more"]');
-          if (seeMore) {
-            try { seeMore.click(); } catch (_) {}
-            await delay(800);
-            reelLink = document.querySelector('a[href*="/reel/"], a[aria-label*="Reels"], a[aria-label*="Thước phim"]');
-          }
-        }
+        const reelLink = document.querySelector(`
+          a[href*="/reel/"],
+          a[href*="/reels/"],
+          div[role="navigation"] a[href*="reel"],
+          a[aria-label*="Thước phim" i],
+          a[aria-label*="Reels" i],
+          a[href*="/watch"]
+        `);
+
         if (reelLink) {
-          reelLink.click();
+          triggerHumanClick(reelLink);
           await delay(3500);
         } else {
-          // Điều hướng mềm dạng SPA để không làm mất kết nối script
-          const fakeLink = document.createElement('a');
-          fakeLink.href = '/reel/';
-          fakeLink.style.display = 'none';
-          document.body.appendChild(fakeLink);
-          fakeLink.click();
-          await delay(800);
-          fakeLink.remove();
-          await delay(3000);
+          // Thử bấm icon Video trên thanh điều hướng đầu trang
+          const videoNavBtn = document.querySelector('a[aria-label*="Video" i], a[href*="/watch"]');
+          if (videoNavBtn) {
+            triggerHumanClick(videoNavBtn);
+            await delay(3000);
+          }
         }
       }
 
-      const endTime = Date.now() + durationMs;
-      let reelsCount = 0;
+      const endTime = startTime + durationMs;
 
       while (Date.now() < endTime && !isCancelled) {
         dismissObstructingDialogs();
-        reelsCount++;
-        // Xem mỗi video từ 12 đến 20 giây
-        const watchTime = 12000 + Math.floor(Math.random() * 8000);
-        sendLog(`Đang xem Video Reels #${reelsCount} (${Math.round(watchTime / 1000)}s)...`, '▶️');
-        await delay(watchTime);
+        stats.reelsWatched++;
+
+        // Xem mỗi video từ 8 đến 14 giây
+        const watchSec = 8 + Math.floor(Math.random() * 6);
+        sendLog(`Đang xem Video Reels #${stats.reelsWatched} (${watchSec}s)...`, '▶️');
+        await delay(watchSec * 1000);
 
         if (isCancelled) break;
 
-        // Thỉnh thoảng (30%) like reel
-        if (Math.random() < 0.3) {
+        // Thỉnh thoảng (50% tỷ lệ) thả tim Video Reel
+        if (Math.random() < 0.5) {
           try {
-            const reelLike = document.querySelector('[aria-label="Thích"], [aria-label="Like"]');
+            const reelLike = document.querySelector(`
+              [aria-label="Thích" i],
+              [aria-label="Like" i],
+              div[role="button"][aria-label*="Thích" i],
+              div[role="button"][aria-label*="Like" i]
+            `);
             if (reelLike && !reelLike.getAttribute('aria-pressed')) {
-              reelLike.click();
-              sendLog('Đã thả tim Video Reels!', '❤️');
+              triggerHumanClick(reelLike);
+              stats.reelsLiked++;
+              sendLog(`Đã thả tim Video Reels #${stats.reelsWatched}!`, '❤️');
               await delay(800);
             }
           } catch (_) {}
         }
 
-        // Chuyển sang Reels tiếp theo (bấm phím Mũi tên xuống hoặc PageDown)
+        // Chuyển sang Reels tiếp theo bằng phím Mũi tên xuống
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
         window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
         await delay(800 + Math.random() * 600);
       }
 
-      sendLog(`Hoàn tất xem Reels. Đã xem ${reelsCount} video.`, '✅');
+      stats.reelsSec = Math.round((Date.now() - startTime) / 1000);
+      sendLog(`Hoàn tất xem Reels: Đã xem ${stats.reelsWatched} video, thả tim ${stats.reelsLiked} video (${stats.reelsSec}s).`, '✅');
     } catch (err) {
       sendLog('Lỗi xem Reels: ' + err.message, '⚠️');
     }
   }
 
-  // ── 6. Bấm xem Thông báo để tăng độ tin cậy của tài khoản ────────────────────
-  async function runCheckNotifications() {
+  // ── 7. Bấm xem Thông báo để tăng độ tin cậy của tài khoản ────────────────────
+  async function runCheckNotifications(stats) {
     if (isCancelled) return;
     sendLog('Mở xem danh sách Thông báo (Notifications)...', '🔔');
 
+    const startTime = Date.now();
     try {
       // Tìm nút chuông thông báo trên thanh header Facebook
-      const notifBtn = document.querySelector(
-        '[aria-label*="Thông báo"], [aria-label*="Notifications"], [aria-label*="Thông báo mới"]'
-      );
+      const notifBtn = document.querySelector(`
+        [aria-label*="Thông báo" i],
+        [aria-label*="Notifications" i],
+        [aria-label*="Notification" i]
+      `);
 
       if (notifBtn) {
-        notifBtn.click();
-        await delay(2500 + Math.random() * 1500);
+        triggerHumanClick(notifBtn);
+        await delay(2000);
 
         // Cuộn nhẹ danh sách thông báo
         const notifList = document.querySelector('[role="dialog"], [role="menu"]');
         if (notifList) {
-          notifList.scrollBy({ top: 120, behavior: 'smooth' });
-          await delay(2000);
+          notifList.scrollBy({ top: 160, behavior: 'smooth' });
+          await delay(2500);
         }
 
-        // Đóng lại
-        notifBtn.click();
-        await delay(1000);
-        sendLog('Đã kiểm tra và cập nhật xong Thông báo.', '✅');
+        // Bấm đóng lại hoặc bấm Escape
+        triggerHumanClick(notifBtn);
+        await delay(800);
+        stats.notifsChecked = 1;
+        stats.notifSec = Math.round((Date.now() - startTime) / 1000);
+        sendLog(`Đã kiểm tra và cập nhật xong danh sách Thông báo (${stats.notifSec}s).`, '✅');
       } else {
         sendLog('Không tìm thấy nút Thông báo trên giao diện hiện tại.', 'ℹ️');
       }
@@ -391,55 +444,84 @@
     }
   }
 
-  // ── 7. Lắng nghe lệnh từ Extension (warmup.js hoặc worker) ───────────────────
+  // ── 8. Lắng nghe lệnh từ Extension (warmup.js hoặc worker) ───────────────────
   const warmupMessageListener = (msg, sender, sendResponse) => {
     if (msg.type === 'START_WARMUP_SESSION') {
       isCancelled = false;
-      const { feedDuration, reelsDuration, enableLike, maxLikes, enableReels, enableNotif } = msg.config || {};
+      const cfg = msg.config || {};
+      const enableFeed = cfg.feed !== false;
+      const enableLike = cfg.enableLike !== false && cfg.like !== false;
+      const maxLikes = parseInt(cfg.maxLikes || '5');
+      const enableReels = Boolean(cfg.enableReels || cfg.reels);
+      const enableNotif = Boolean(cfg.enableNotif || cfg.notif);
 
       // 1. Phản hồi NGAY LẬP TỨC để xác nhận đã nhận lệnh thành công
-      // Tuyệt đối không giữ cổng message chờ 3-5 phút vì Chrome MV3 sẽ tự động ngắt kết nối
       sendResponse({ ok: true, started: true });
 
       // 2. Chạy chu trình tương tác
       (async () => {
+        const stats = {
+          feedPosts: 0,
+          feedSec: 0,
+          likesGiven: 0,
+          maxLikes: maxLikes,
+          likesEnabled: enableLike,
+          reelsWatched: 0,
+          reelsLiked: 0,
+          reelsSec: 0,
+          notifsChecked: 0,
+          notifSec: 0
+        };
+
         try {
-          // Tự động quét và đóng mọi pop-up/hộp thoại cản trở trước khi bắt đầu các hành động
           dismissObstructingDialogs();
 
+          // Tính toán thời lượng cân bằng giữa các hành động
+          const totalDurationMs = (cfg.feedDuration || 0) + (cfg.reelsDuration || 0) || (3 * 60 * 1000);
+          let feedMs = 0;
+          let reelsMs = 0;
+
+          if (enableFeed && enableReels) {
+            feedMs = Math.round(totalDurationMs * 0.50);
+            reelsMs = totalDurationMs - feedMs;
+          } else if (enableFeed) {
+            feedMs = totalDurationMs;
+          } else if (enableReels) {
+            reelsMs = totalDurationMs;
+          }
+
           // Bước 1: Lướt Newsfeed và Thả cảm xúc
-          if (feedDuration > 0 && !isCancelled) {
-            await runFeedSurfing(feedDuration, { enabled: enableLike, maxCount: maxLikes });
+          if (enableFeed && feedMs > 0 && !isCancelled) {
+            await runFeedSurfing(feedMs, { enabled: enableLike, maxCount: maxLikes }, stats);
           }
 
           // Bước 2: Xem Reels nếu được bật
-          if (enableReels && reelsDuration > 0 && !isCancelled) {
-            await runReelsWatching(reelsDuration);
+          if (enableReels && reelsMs > 0 && !isCancelled) {
+            await runReelsWatching(reelsMs, stats);
           }
 
           // Bước 3: Xem Thông báo nếu được bật
           if (enableNotif && !isCancelled) {
-            // Nếu vừa xem reels thì quay về trang chủ trước (Ưu tiên bấm SPA Link)
+            // Quay về trang chủ trước nếu đang ở Reels
             if (window.location.pathname.includes('/reel')) {
-              const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ"], a[aria-label*="Home"]');
+              const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i]');
               if (homeLink) {
-                homeLink.click();
-                await delay(2500);
-              } else {
-                const fakeHome = document.createElement('a');
-                fakeHome.href = '/';
-                fakeHome.style.display = 'none';
-                document.body.appendChild(fakeHome);
-                fakeHome.click();
-                await delay(800);
-                fakeHome.remove();
+                triggerHumanClick(homeLink);
                 await delay(2500);
               }
             }
-            await runCheckNotifications();
+            await runCheckNotifications(stats);
           }
 
-          // Bước 4: Nếu phiên nền vẫn còn thời gian, tiếp tục lướt nhẹ Bảng tin cho đến khi nhận STOP_WARMUP_SESSION
+          // Bước 4: Phát sóng báo cáo chi tiết về các hành động đã thực hiện
+          try {
+            chrome.runtime.sendMessage({
+              type: 'WARMUP_SESSION_REPORT',
+              stats: stats
+            }).catch(() => {});
+          } catch (_) {}
+
+          // Bước 5: Nếu phiên nền vẫn còn thời gian, tiếp tục lướt nhẹ Bảng tin
           while (!isCancelled) {
             dismissObstructingDialogs();
             await humanScrollBy(240);
@@ -453,7 +535,7 @@
         }
       })();
 
-      return false; // Phản hồi đồng bộ xong
+      return false;
     }
 
     if (msg.type === 'STOP_WARMUP_SESSION') {
