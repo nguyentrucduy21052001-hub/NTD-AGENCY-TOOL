@@ -1302,7 +1302,7 @@ async function startScanningProcess() {
   const filterMode = $('scanFilterMode')?.value || 'free_only';
   const minMembers = parseInt($('scanMinMembers')?.value || '10000', 10);
   const checkApproval = $('checkApprovalToggle') ? $('checkApprovalToggle').checked : (filterMode !== 'all');
-  const publicOnly = $('publicOnlyToggle')?.checked ?? true;
+  const privacyMode = $('scanPrivacyMode')?.value || 'public_only';
 
   // Khởi tạo trạng thái giao diện
   isScanning = true;
@@ -1354,6 +1354,31 @@ async function startScanningProcess() {
   );
   renderResultsTable();
   updateScanStats();
+
+  // ── Thử khởi động bằng Background Runner qua Tiện ích mở rộng ──
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'GROUP_SEARCH_START',
+      params: {
+        keywords,
+        maxCountPerKeyword,
+        filterMode,
+        minMembers,
+        privacyMode,
+        dedupeHistory,
+        dedupeCategories,
+        dedupeName,
+        historyKeys: Array.from(historyKeySet),
+        categoryKeys: Array.from(categoryKeySet)
+      }
+    });
+    if (res && res.ok && !res.directFallback) {
+      if ($('scanStatusQuick')) $('scanStatusQuick').textContent = 'Đang tiến hành quét nhóm Facebook...';
+      return;
+    }
+  } catch (err) {
+    console.warn('[GroupSearch] Runner error, fallback to direct scan:', err);
+  }
 
   try {
     const groupMap = new Map();
@@ -1445,7 +1470,8 @@ async function startScanningProcess() {
         const newGroupObjs = [];
 
         for (const item of items) {
-          if (publicOnly && item.privacy === 'Riêng tư') continue;
+          if (privacyMode === 'public_only' && item.privacy === 'Riêng tư') continue;
+          if (privacyMode === 'private_only' && item.privacy === 'Công khai') continue;
 
           // Bỏ qua ngay nếu DOM node của nhóm này đã được đọc ở các vòng cuộn trước
           // Tuyệt đối không tính vào bộ đếm trùng lặp để tránh đếm ảo
@@ -1726,6 +1752,9 @@ async function startScanningProcess() {
 async function stopScanningProcess(userCancelled = true) {
   isScanning = false;
   window.__ntdGroupScanning = false;
+  try {
+    await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_STOP' }).catch(() => {});
+  } catch (_) {}
   if ($('startScanBtn')) $('startScanBtn').style.display = 'inline-flex';
   if ($('stopScanBtn')) $('stopScanBtn').style.display = 'none';
   if ($('focusScanTabBtn')) $('focusScanTabBtn').style.display = 'none';
@@ -1990,6 +2019,9 @@ $('clearScannedResultsBtn')?.addEventListener('click', async () => {
 
 // Chuyển nhanh đến tab Facebook đang quét
 $('focusScanTabBtn')?.addEventListener('click', async () => {
+  try {
+    await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_SHOW_TAB' }).catch(() => {});
+  } catch (_) {}
   if (scanTabId) {
     try {
       await chrome.tabs.update(scanTabId, { active: true });
@@ -2010,6 +2042,49 @@ chrome.tabs?.onRemoved?.addListener?.(tabId => {
     if ($('focusScanTabBtn')) $('focusScanTabBtn').style.display = 'none';
   }
 });
+
+// ── Lắng nghe sự kiện từ Background Runner (worker.js) ────────────────────────
+if (chrome.runtime?.onMessage?.addListener) {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (!msg || typeof msg !== 'object') return;
+
+    if (msg.type === 'GROUP_SEARCH_ITEM' && msg.group) {
+      const g = msg.group;
+      if (!currentScannedGroups.some(x => x.url === g.url)) {
+        currentScannedGroups.push(g);
+        appendNewScannedGroups([g]);
+        updateScanStats();
+        saveScannedGroupsToStorage();
+      }
+    }
+
+    if (msg.type === 'GROUP_SEARCH_STATUS_UPDATE' && msg.url) {
+      const g = currentScannedGroups.find(x => x.url === msg.url);
+      if (g) {
+        g.approvalStatus = msg.approvalStatus;
+        g.approvalLabel = msg.approvalLabel;
+        g.approvalBadge = msg.approvalBadge;
+        updateGroupRowStatus(g);
+        updateScanStats();
+        saveScannedGroupsToStorage();
+      }
+    }
+
+    if (msg.type === 'GROUP_SEARCH_PROGRESS') {
+      updateProgressBar(msg.percent, msg.title, msg.detail);
+      if (msg.count !== undefined && $('scanProgressCount')) {
+        $('scanProgressCount').textContent = `${msg.count} nhóm`;
+      }
+      updateScanStats();
+    }
+
+    if (msg.type === 'GROUP_SEARCH_DONE') {
+      stopScanningProcess(false);
+      updateScanStats();
+      showToast(msg.stopped ? 'Đã dừng quét nhóm.' : `Hoàn tất! Đã thu thập ${currentScannedGroups.length} nhóm.`);
+    }
+  });
+}
 
 // ── Helper: lấy danh sách nhóm theo filter đang active ───────────────────────
 function getGroupsByActiveFilter() {

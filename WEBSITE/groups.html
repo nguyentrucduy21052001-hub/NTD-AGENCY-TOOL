@@ -677,7 +677,7 @@
 
     .scan-controls-grid {
       display: grid;
-      grid-template-columns: 1.3fr 1.3fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
       gap: 16px;
       align-items: end;
     }
@@ -687,7 +687,13 @@
       background: #fef2f2 !important;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 1024px) {
+      .scan-controls-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
       .scan-controls-grid {
         grid-template-columns: 1fr;
       }
@@ -976,10 +982,19 @@
 
       <div class="scan-controls-grid">
         <div class="form-group" style="margin-bottom:0">
-          <label for="scanFilterMode">Bộ lọc phân loại ưu tiên:</label>
+          <label for="scanPrivacyMode">Chế độ nhóm (Quyền riêng tư):</label>
+          <select id="scanPrivacyMode" class="form-input" style="font-weight:600;height:42px">
+            <option value="public_only" selected>Chỉ lấy nhóm CÔNG KHAI (Khuyên dùng)</option>
+            <option value="all">Tất cả nhóm (Công khai &amp; Riêng tư)</option>
+            <option value="private_only">Chỉ lấy nhóm RIÊNG TƯ</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <label for="scanFilterMode">Kiểm định duyệt bài (Phân loại):</label>
           <select id="scanFilterMode" class="form-input" style="font-weight:600;height:42px">
-            <option value="free_only" selected>Chỉ lấy nhóm ĐĂNG TỰ DO (Không kiểm duyệt bài)</option>
-            <option value="approval_only">Chỉ lấy nhóm CÓ KIỂM DUYỆT (Quản trị viên duyệt)</option>
+            <option value="free_only" selected>Chỉ lấy nhóm ĐĂNG TỰ DO (Không kiểm duyệt)</option>
+            <option value="approval_only">Chỉ lấy nhóm CÓ KIỂM DUYỆT (QTV duyệt)</option>
             <option value="all">Lấy tất cả các nhóm tìm thấy</option>
           </select>
         </div>

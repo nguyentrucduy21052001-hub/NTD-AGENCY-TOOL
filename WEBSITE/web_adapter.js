@@ -388,7 +388,16 @@
         'WARMUP_CANCEL',
         'WARMUP_GET_STATUS',
         'WARMUP_SHOW_TAB',
-        'WARMUP_CLOSE_TAB'
+        'WARMUP_CLOSE_TAB',
+        'GROUP_SEARCH_START',
+        'GROUP_SEARCH_STOP',
+        'GROUP_SEARCH_GET_STATUS',
+        'GROUP_SEARCH_SHOW_TAB',
+        'UNIVERSAL_TABS_CREATE',
+        'UNIVERSAL_TABS_UPDATE',
+        'UNIVERSAL_TABS_GET',
+        'UNIVERSAL_TABS_REMOVE',
+        'UNIVERSAL_SCRIPTING_EXECUTE'
       ]);
 
       if (message?.type === 'WARMUP_START' && typeof window.chrome?.runtime?.sendToExtension === 'function') {
@@ -501,6 +510,19 @@
   window.chrome.tabs = window.chrome.tabs || {};
   window.chrome.tabs.create = async function ({ url, active }) {
     console.log('[WebAdapter chrome.tabs.create]', url);
+    if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+      try {
+        const resp = await window.chrome.runtime.sendToExtension({
+          type: 'UNIVERSAL_TABS_CREATE',
+          url,
+          active: Boolean(active)
+        });
+        if (resp && resp.ok && resp.tabId) {
+          return { id: resp.tabId, url, active: Boolean(active), status: 'complete' };
+        }
+      } catch (_) {}
+    }
+
     const newTabId = Date.now();
     try {
       if (url && !url.includes('activate.html') && !url.includes('panel.html')) {
@@ -530,10 +552,34 @@
   };
 
   window.chrome.tabs.get = async function (tabId) {
+    if (typeof window.chrome?.runtime?.sendToExtension === 'function' && typeof tabId === 'number' && tabId < 1000000000) {
+      try {
+        const resp = await window.chrome.runtime.sendToExtension({
+          type: 'UNIVERSAL_TABS_GET',
+          tabId
+        });
+        if (resp && resp.ok && resp.tab) {
+          return resp.tab;
+        }
+      } catch (_) {}
+    }
     return { id: tabId, url: window.location.href, status: 'complete' };
   };
 
   window.chrome.tabs.update = async function (tabId, props) {
+    if (typeof window.chrome?.runtime?.sendToExtension === 'function' && typeof tabId === 'number' && tabId < 1000000000) {
+      try {
+        const resp = await window.chrome.runtime.sendToExtension({
+          type: 'UNIVERSAL_TABS_UPDATE',
+          tabId,
+          props
+        });
+        if (resp && resp.ok && resp.tab) {
+          return resp.tab;
+        }
+      } catch (_) {}
+    }
+
     if (props && props.url) {
       try {
         if (!_webManagedTabWin || _webManagedTabWin.closed) {
@@ -552,6 +598,15 @@
   };
 
   window.chrome.tabs.remove = async function (tabId) {
+    if (typeof window.chrome?.runtime?.sendToExtension === 'function' && typeof tabId === 'number' && tabId < 1000000000) {
+      try {
+        await window.chrome.runtime.sendToExtension({
+          type: 'UNIVERSAL_TABS_REMOVE',
+          tabId
+        });
+      } catch (_) {}
+    }
+
     try {
       if (_webManagedTabWin && !_webManagedTabWin.closed) {
         _webManagedTabWin.close();
@@ -611,6 +666,23 @@
   window.chrome.scripting = window.chrome.scripting || {
     async executeScript(opts) {
       console.log('[WebAdapter chrome.scripting.executeScript]', opts);
+      if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const resp = await window.chrome.runtime.sendToExtension({
+            type: 'UNIVERSAL_SCRIPTING_EXECUTE',
+            opts: {
+              target: opts?.target,
+              world: opts?.world,
+              files: opts?.files,
+              funcCode: typeof opts?.func === 'function' ? opts.func.toString() : null,
+              args: opts?.args
+            }
+          });
+          if (resp && resp.ok && resp.result !== undefined) {
+            return [{ result: resp.result }];
+          }
+        } catch (_) {}
+      }
       return [{ result: null }];
     }
   };

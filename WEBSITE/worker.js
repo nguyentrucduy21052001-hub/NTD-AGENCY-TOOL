@@ -3014,6 +3014,555 @@ async function runWarmupLoop(accountIds, config) {
   }
 }
 
+// ── Facebook Group Discovery & Search Runner (groups.html runner) ───────────
+let groupSearchRunning = false;
+let groupSearchStop = false;
+let groupSearchCurrentTabId = null;
+
+function broadcastGroupSearchMessage(msg) {
+  try {
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch (_) {}
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('ntd_agency_web_bus');
+      bc.postMessage({ message: msg });
+      bc.close();
+    }
+  } catch (_) {}
+  try {
+    if (typeof window !== 'undefined' && typeof window.postMessage === 'function') {
+      window.postMessage({
+        source: 'ntd_extension_bridge',
+        action: 'WORKER_EVENT',
+        payload: msg
+      }, '*');
+    }
+  } catch (_) {}
+  try {
+    if (chrome.tabs?.query) {
+      chrome.tabs.query({}, (tabs) => {
+        if (Array.isArray(tabs)) {
+          for (const t of tabs) {
+            if (t && t.id) chrome.tabs.sendMessage(t.id, msg).catch(() => {});
+          }
+        }
+      });
+    }
+  } catch (_) {}
+}
+
+async function waitForGroupSearchTab(tabId, timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (groupSearchStop) return false;
+    const t = await chrome.tabs.get(tabId).catch(() => null);
+    if (!t) return false;
+    if (t.status === 'complete') return true;
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return true;
+}
+
+// Hàm trích xuất danh sách nhóm Facebook từ trang kết quả tìm kiếm (chạy trong context Facebook tab)
+function inPageExtractGroupsFromSearch() {
+  function normUrl(href) {
+    if (!href) return null;
+    try {
+      const u = new URL(href, window.location.origin);
+      if (!['www.facebook.com', 'facebook.com', 'm.facebook.com', 'web.facebook.com'].includes(u.hostname)) return null;
+      const m = u.pathname.match(/^\/groups\/([a-zA-Z0-9._-]+)/i);
+      if (!m || ['feed', 'discover', 'joins', 'create', 'search'].includes(m[1].toLowerCase())) return null;
+      return `https://www.facebook.com/groups/${m[1].toLowerCase()}/`;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function parseMemberCount(str) {
+    if (!str) return 0;
+    const clean = String(str).toLowerCase().trim();
+    const m = clean.match(/([\d.,]+)\s*(triệu|nghìn|ngàn|tỷ|tr|[kmb])?/i);
+    if (!m) return 0;
+    let numStr = m[1].replace(/,/g, '.');
+    if ((numStr.match(/\./g) || []).length > 1) {
+      numStr = numStr.replace(/\./g, '');
+    }
+    let num = parseFloat(numStr);
+    if (isNaN(num)) return 0;
+    const unit = m[2] ? m[2].toLowerCase() : '';
+    if (unit === 'k' || unit === 'nghìn' || unit === 'ngàn') num *= 1000;
+    else if (unit === 'm' || unit === 'triệu' || unit === 'tr') num *= 1000000;
+    else if (unit === 'b' || unit === 'tỷ') num *= 1000000000;
+    return Math.round(num);
+  }
+
+  const items = [];
+  const seen = new Set();
+  const anchors = document.querySelectorAll('a[href*="/groups/"]');
+
+  for (const a of anchors) {
+    const rawHref = a.getAttribute('href') || a.href;
+    const cleanUrl = normUrl(rawHref);
+    if (!cleanUrl || seen.has(cleanUrl)) continue;
+
+    let container = a.closest('[role="article"]') ||
+                    a.closest('[data-virtualized]') ||
+                    a.parentElement?.parentElement?.parentElement?.parentElement;
+
+    let cardText = container ? container.innerText : (a.parentElement?.innerText || '');
+
+    let name = (a.innerText || a.textContent || '').trim().replace(/\r?\n.*/s, '').trim();
+    if (!name || name.length < 2) {
+      const heading = container?.querySelector('h2, h3, [role="heading"], strong');
+      if (heading) name = heading.innerText.trim();
+    }
+    if (!name) {
+      const m = cleanUrl.match(/\/groups\/([^\/]+)\//);
+      name = m ? m[1] : 'Nhóm Facebook';
+    }
+
+    let privacy = 'Công khai';
+    if (/riêng tư|private/i.test(cardText)) {
+      privacy = 'Riêng tư';
+    } else if (/công khai|public/i.test(cardText)) {
+      privacy = 'Công khai';
+    }
+
+    let members = '';
+    const memMatch = cardText.match(/([\d.,]+\s*(?:triệu|nghìn|ngàn|tỷ|tr|[kmKmMbB])?)\s*(thành viên|members|người theo dõi|followers)/i);
+    if (memMatch) {
+      members = memMatch[1].trim() + ' thành viên';
+    } else {
+      const subMatch = cardText.match(/·\s*([^·\n]+(?:thành viên|members)[^·\n]*)/i);
+      if (subMatch) members = subMatch[1].trim();
+    }
+
+    seen.add(cleanUrl);
+    items.push({
+      name: name.slice(0, 90),
+      url: cleanUrl,
+      privacy,
+      members: members || 'Đang cập nhật',
+      memberCount: parseMemberCount(members)
+    });
+  }
+
+  return items;
+}
+
+function inPageScrollSearch() {
+  try {
+    const scrollDistance = 3500;
+    window.scrollBy({ top: scrollDistance, behavior: 'auto' });
+    if (document.documentElement) document.documentElement.scrollTop += scrollDistance;
+    if (document.body) document.body.scrollTop += scrollDistance;
+
+    window.dispatchEvent(new Event('scroll'));
+    document.dispatchEvent(new Event('scroll'));
+
+    const scrollables = document.querySelectorAll('div[data-virtualized], div[role="feed"], div[tabindex="-1"], div[role="main"]');
+    for (const el of scrollables) {
+      if (el.scrollHeight > el.clientHeight) {
+        el.scrollTop += scrollDistance;
+        el.dispatchEvent(new Event('scroll'));
+      }
+    }
+
+    if (typeof window.__ntdTriggerSentinels === 'function') {
+      window.__ntdTriggerSentinels();
+    }
+  } catch (_) {}
+}
+
+function inPageCheckApproval() {
+  function norm(s) {
+    return (s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd');
+  }
+
+  const pageText = norm(document.body ? document.body.innerText : '');
+
+  const isPrivate = /nhom rieng tu|private group|nhom bi mat|secret group/i.test(pageText) ||
+                    /chi thanh vien moi nhin thay|only members can see/i.test(pageText);
+
+  const isMember = /da tham gia|joined|roi khoi nhom|leave group/i.test(pageText);
+  if (isPrivate && !isMember) {
+    return {
+      status: 'private',
+      badge: 'Nhóm riêng tư',
+      label: 'Nhóm riêng tư (Chưa tham gia)',
+      canPost: false,
+      requiresApproval: true
+    };
+  }
+
+  const approvalRegex = /kiem duyet|phe duyet|cho duyet|quan tri vien.*(duyet|phe duyet)|gui de phe duyet|bai viet.*phai duoc.*duyet|bai viet.*can.*duyet|admin approval|pending approval|require.*approval|needs? approval|must be approved|submit for approval/i;
+
+  const allClickables = [...document.querySelectorAll('[role="button"], div[tabindex="0"], a')];
+  const composerTrigger = allClickables.find(el => {
+    const t = norm(el.textContent);
+    return t.includes('ban viet gi di') ||
+           t.includes('tao bai viet cong khai') ||
+           t.includes('tao bai viet') ||
+           t.includes('viet gi do') ||
+           t.includes('write something') ||
+           t.includes('create a public post');
+  });
+
+  if (composerTrigger) {
+    const area = composerTrigger.closest('[role="region"], [role="main"], div[data-pagelet]') || composerTrigger.parentElement?.parentElement;
+    const areaText = area ? norm(area.innerText || '') : '';
+
+    if (approvalRegex.test(areaText)) {
+      return {
+        status: 'approval',
+        badge: 'Cần kiểm duyệt',
+        label: 'Bài viết cần Quản trị viên duyệt',
+        canPost: true,
+        requiresApproval: true
+      };
+    }
+
+    try { composerTrigger.click(); } catch (_) {}
+
+    const dialog = document.querySelector('[role="dialog"]');
+    if (dialog) {
+      const dialogText = norm(dialog.innerText || '');
+      const hasApprovalInDialog = approvalRegex.test(dialogText);
+
+      const buttons = [...dialog.querySelectorAll('[role="button"]')];
+      const isSubmitApproval = buttons.some(b => /gui de phe duyet|submit for approval|cho duyet/i.test(norm(b.textContent)));
+
+      const closeBtn = dialog.querySelector('[aria-label="Đóng"], [aria-label="Close"], [aria-label*="Dong"]') ||
+                       dialog.querySelector('[role="button"][tabindex="0"]');
+      if (closeBtn) {
+        try { closeBtn.click(); } catch (_) {}
+      } else {
+        try { dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); } catch (_) {}
+      }
+
+      if (hasApprovalInDialog || isSubmitApproval) {
+        return {
+          status: 'approval',
+          badge: 'Cần kiểm duyệt',
+          label: 'Bài viết cần Quản trị viên duyệt',
+          canPost: true,
+          requiresApproval: true
+        };
+      }
+    }
+
+    return {
+      status: 'free',
+      badge: 'Đăng tự do',
+      label: 'Không kiểm duyệt (Đăng tự do)',
+      canPost: true,
+      requiresApproval: false
+    };
+  }
+
+  if (approvalRegex.test(pageText)) {
+    return {
+      status: 'approval',
+      badge: 'Cần kiểm duyệt',
+      label: 'Có dấu hiệu kiểm duyệt bài viết',
+      canPost: true,
+      requiresApproval: true
+    };
+  }
+
+  return {
+    status: isPrivate ? 'private' : 'free',
+    badge: isPrivate ? 'Nhóm riêng tư' : 'Đăng tự do',
+    label: isPrivate ? 'Nhóm riêng tư' : 'Không kiểm duyệt (Đăng tự do)',
+    canPost: true,
+    requiresApproval: false
+  };
+}
+
+async function runGroupSearchLoop(params) {
+  if (groupSearchRunning) return { ok: true, alreadyRunning: true };
+  groupSearchRunning = true;
+  groupSearchStop = false;
+
+  const keywords = Array.isArray(params?.keywords) ? params.keywords.filter(Boolean) : [];
+  if (!keywords.length) {
+    groupSearchRunning = false;
+    return { ok: false, error: 'Chưa có từ khóa tìm kiếm.' };
+  }
+
+  const maxCountPerKeyword = Math.max(1, Math.min(500, parseInt(params.maxCountPerKeyword || '30', 10)));
+  const filterMode = params.filterMode || 'free_only';
+  const minMembers = parseInt(params.minMembers || '10000', 10);
+  const privacyMode = params.privacyMode || 'public_only';
+  const checkApproval = filterMode !== 'all';
+
+  const historyKeys = new Set(Array.isArray(params.historyKeys) ? params.historyKeys : []);
+  const categoryKeys = new Set(Array.isArray(params.categoryKeys) ? params.categoryKeys : []);
+
+  const totalKw = keywords.length;
+  const discoveredGroups = [];
+  const discoveredGroupKeys = new Set();
+  const sessionScannedUrls = new Set();
+
+  try {
+    chrome.power?.requestKeepAwake?.('system');
+  } catch (_) {}
+
+  broadcastGroupSearchMessage({
+    type: 'GROUP_SEARCH_PROGRESS',
+    percent: 5,
+    title: `Bắt đầu quét ${totalKw} từ khóa...`,
+    detail: `Danh sách: ${keywords.slice(0, 3).map(k => `"${k}"`).join(', ')}`,
+    count: 0
+  });
+
+  try {
+    for (let kwIdx = 0; kwIdx < totalKw; kwIdx++) {
+      if (groupSearchStop) break;
+      const currentKw = keywords[kwIdx];
+      const searchUrl = `https://www.facebook.com/search/groups/?q=${encodeURIComponent(currentKw)}`;
+
+      const basePct = (kwIdx / totalKw) * (checkApproval ? 40 : 90);
+      broadcastGroupSearchMessage({
+        type: 'GROUP_SEARCH_PROGRESS',
+        percent: Math.round(basePct),
+        title: `[Từ khóa ${kwIdx + 1}/${totalKw}] "${currentKw}"`,
+        detail: `Đang mở kết quả tìm kiếm Facebook cho từ khóa "${currentKw}"...`,
+        count: discoveredGroups.length
+      });
+
+      if (groupSearchCurrentTabId) {
+        try {
+          await chrome.tabs.get(groupSearchCurrentTabId);
+          await chrome.tabs.update(groupSearchCurrentTabId, { url: searchUrl, autoDiscardable: false });
+        } catch (_) {
+          groupSearchCurrentTabId = null;
+        }
+      }
+      if (!groupSearchCurrentTabId) {
+        const tab = await chrome.tabs.create({ url: searchUrl, active: false });
+        groupSearchCurrentTabId = tab.id;
+        await chrome.tabs.update(groupSearchCurrentTabId, { autoDiscardable: false }).catch(() => {});
+      }
+
+      await waitForGroupSearchTab(groupSearchCurrentTabId, 15000);
+      if (groupSearchStop) break;
+
+      // Nạp fb_scroll_hook.js trong MAIN world
+      await chrome.scripting.executeScript({
+        target: { tabId: groupSearchCurrentTabId },
+        world: 'MAIN',
+        files: ['fb_scroll_hook.js']
+      }).catch(() => {});
+
+      await new Promise(r => setTimeout(r, 1800));
+      if (groupSearchStop) break;
+
+      let stagnantCount = 0;
+      let round = 0;
+      let countForThisKw = 0;
+      const processedDomUrls = new Set();
+
+      while (!groupSearchStop && countForThisKw < maxCountPerKeyword && stagnantCount < 25) {
+        round++;
+
+        const res = await chrome.scripting.executeScript({
+          target: { tabId: groupSearchCurrentTabId },
+          func: inPageExtractGroupsFromSearch
+        }).catch(() => null);
+
+        const items = res?.[0]?.result || [];
+        let newCount = 0;
+
+        for (const item of items) {
+          if (processedDomUrls.has(item.url)) continue;
+          processedDomUrls.add(item.url);
+
+          // 1. Lọc theo Chế độ nhóm (Quyền riêng tư: Công khai vs Riêng tư)
+          if (privacyMode === 'public_only' && item.privacy === 'Riêng tư') continue;
+          if (privacyMode === 'private_only' && item.privacy === 'Công khai') continue;
+
+          // 2. Lọc theo Số lượng thành viên tối thiểu
+          if (minMembers > 0 && item.memberCount < minMembers) continue;
+
+          // 3. Lọc trùng URL và group key
+          const keyMatch = item.url.match(/\/groups\/([^\/]+)/);
+          const key = keyMatch ? keyMatch[1].toLowerCase() : item.url;
+          if (sessionScannedUrls.has(item.url) || discoveredGroupKeys.has(key)) continue;
+          if (historyKeys.has(key) || categoryKeys.has(key)) continue;
+
+          sessionScannedUrls.add(item.url);
+          discoveredGroupKeys.add(key);
+
+          const groupObj = {
+            id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: item.name,
+            url: item.url,
+            privacy: item.privacy,
+            members: item.members,
+            memberCount: item.memberCount,
+            keyword: currentKw,
+            approvalStatus: checkApproval ? 'loading' : 'uninspected',
+            approvalLabel: checkApproval ? 'Đang chờ kiểm tra...' : 'Chưa kiểm tra',
+            approvalBadge: checkApproval ? '⏳ Đang chờ' : '⚪ Chưa kiểm tra',
+            selected: true
+          };
+
+          discoveredGroups.push(groupObj);
+          newCount++;
+          countForThisKw++;
+
+          // Phát sóng ngay nhóm mới tìm thấy cho Web UI
+          broadcastGroupSearchMessage({
+            type: 'GROUP_SEARCH_ITEM',
+            group: groupObj
+          });
+
+          if (countForThisKw >= maxCountPerKeyword) break;
+        }
+
+        if (newCount === 0) {
+          stagnantCount++;
+        } else {
+          stagnantCount = 0;
+        }
+
+        const kwProgressSlice = (Math.min(countForThisKw, maxCountPerKeyword) / maxCountPerKeyword) * ((checkApproval ? 40 : 90) / totalKw);
+        const currentPct = Math.round(basePct + kwProgressSlice);
+
+        broadcastGroupSearchMessage({
+          type: 'GROUP_SEARCH_PROGRESS',
+          percent: currentPct,
+          title: `[Từ khóa ${kwIdx + 1}/${totalKw}: "${currentKw}"] Thu thập ${countForThisKw}/${maxCountPerKeyword} nhóm...`,
+          detail: `Tổng nhóm duy nhất đã gom: ${discoveredGroups.length} nhóm (Cuộn vòng ${round} - Mới: +${newCount})`,
+          count: discoveredGroups.length
+        });
+
+        if (countForThisKw >= maxCountPerKeyword) break;
+
+        // Cuộn tab Facebook
+        await chrome.scripting.executeScript({
+          target: { tabId: groupSearchCurrentTabId },
+          func: inPageScrollSearch
+        }).catch(() => null);
+
+        await new Promise(r => setTimeout(r, newCount === 0 ? 2000 : 1200));
+      }
+
+      if (groupSearchStop) break;
+      if (kwIdx < totalKw - 1) {
+        await new Promise(r => setTimeout(r, 1200));
+      }
+    }
+
+    // ── GIAI ĐOẠN 2: KIỂM ĐỊNH DUYỆT BÀI TỪNG NHÓM (NẾU BẬT) ───────────────
+    if (checkApproval && !groupSearchStop && discoveredGroups.length > 0) {
+      const groupsToCheck = discoveredGroups.filter(g =>
+        !['free', 'approval', 'private', 'admin_only'].includes(g.approvalStatus)
+      );
+      const totalToCheck = groupsToCheck.length;
+
+      for (let i = 0; i < totalToCheck; i++) {
+        if (groupSearchStop) break;
+        const grp = groupsToCheck[i];
+
+        grp.approvalStatus = 'loading';
+        grp.approvalLabel = 'Đang kiểm tra...';
+        grp.approvalBadge = '⏳ Đang kiểm tra';
+
+        broadcastGroupSearchMessage({
+          type: 'GROUP_SEARCH_STATUS_UPDATE',
+          url: grp.url,
+          approvalStatus: 'loading',
+          approvalLabel: 'Đang kiểm tra...',
+          approvalBadge: '⏳ Đang kiểm tra'
+        });
+
+        const pct = Math.round(40 + ((i + 1) / totalToCheck) * 55);
+        broadcastGroupSearchMessage({
+          type: 'GROUP_SEARCH_PROGRESS',
+          percent: pct,
+          title: `Kiểm tra duyệt bài (${i + 1}/${totalToCheck})...`,
+          detail: `Đang kiểm tra: "${grp.name.slice(0, 35)}..."`,
+          count: `${i + 1}/${totalToCheck}`
+        });
+
+        try {
+          await chrome.tabs.update(groupSearchCurrentTabId, { url: grp.url, autoDiscardable: false });
+          await waitForGroupSearchTab(groupSearchCurrentTabId, 12000);
+          if (groupSearchStop) break;
+
+          await new Promise(r => setTimeout(r, 2000));
+          if (groupSearchStop) break;
+
+          const res = await chrome.scripting.executeScript({
+            target: { tabId: groupSearchCurrentTabId },
+            func: inPageCheckApproval
+          }).catch(() => null);
+
+          const r = res?.[0]?.result;
+          if (r) {
+            grp.approvalStatus = r.status;
+            grp.approvalLabel = r.label;
+            grp.approvalBadge = r.badge;
+          } else {
+            grp.approvalStatus = 'uninspected';
+            grp.approvalLabel = 'Chưa kiểm tra';
+            grp.approvalBadge = '⚪ Chưa kiểm tra';
+          }
+
+          broadcastGroupSearchMessage({
+            type: 'GROUP_SEARCH_STATUS_UPDATE',
+            url: grp.url,
+            approvalStatus: grp.approvalStatus,
+            approvalLabel: grp.approvalLabel,
+            approvalBadge: grp.approvalBadge
+          });
+        } catch (_) {}
+
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+  } catch (err) {
+    console.error('[GroupSearch] Lỗi quét nhóm:', err);
+  } finally {
+    groupSearchRunning = false;
+    try {
+      if (!mapsScanRunning && !warmupRunning) chrome.power?.releaseKeepAwake?.();
+    } catch (_) {}
+
+    broadcastGroupSearchMessage({
+      type: 'GROUP_SEARCH_PROGRESS',
+      percent: 100,
+      title: groupSearchStop ? 'Đã dừng quét' : 'Hoàn tất quét nhóm',
+      detail: `Đã thu thập tổng cộng ${discoveredGroups.length} nhóm Facebook phù hợp.`,
+      count: discoveredGroups.length
+    });
+
+    broadcastGroupSearchMessage({
+      type: 'GROUP_SEARCH_DONE',
+      totalFound: discoveredGroups.length
+    });
+  }
+}
+
+function stopGroupSearchScan() {
+  groupSearchStop = true;
+  groupSearchRunning = false;
+  if (groupSearchCurrentTabId) {
+    try { chrome.tabs.remove(groupSearchCurrentTabId); } catch (_) {}
+    groupSearchCurrentTabId = null;
+  }
+  broadcastGroupSearchMessage({
+    type: 'GROUP_SEARCH_DONE',
+    stopped: true
+  });
+  return { ok: true, stopped: true };
+}
+
 try {
   chrome.alarms.create('rinRetry', { periodInMinutes: 1 });
 } catch (_) {}
@@ -3764,6 +4313,121 @@ function handleRuntimeMessage(m, sender, reply) {
         const res = await chrome.cookies.remove(m.details || {});
         reply({ ok: true, result: res });
       } catch (e) { reply({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+
+  // ── GROUP_SEARCH Runner Messages ───────────────────────────────────────────
+  if (m.type === 'GROUP_SEARCH_START') {
+    runGroupSearchLoop(m.params || {}).catch(err => {
+      console.error('[GroupSearch] Lỗi bắt đầu quét:', err);
+    });
+    reply({ ok: true, running: true });
+    return true;
+  }
+  if (m.type === 'GROUP_SEARCH_STOP') {
+    reply(stopGroupSearchScan());
+    return true;
+  }
+  if (m.type === 'GROUP_SEARCH_GET_STATUS') {
+    reply({ ok: true, running: groupSearchRunning, tabId: groupSearchCurrentTabId });
+    return true;
+  }
+  if (m.type === 'GROUP_SEARCH_SHOW_TAB') {
+    if (groupSearchCurrentTabId) {
+      chrome.tabs.update(groupSearchCurrentTabId, { active: true }).catch(() => {});
+    }
+    reply({ ok: true });
+    return true;
+  }
+
+  // ── UNIVERSAL TABS & SCRIPTING PROXIES ─────────────────────────────────────
+  if (m.type === 'UNIVERSAL_TABS_CREATE') {
+    (async () => {
+      try {
+        const tab = await chrome.tabs.create({ url: m.url, active: Boolean(m.active) });
+        reply({ ok: true, tabId: tab.id, tab });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_TABS_UPDATE') {
+    (async () => {
+      try {
+        const tab = await chrome.tabs.update(m.tabId, m.props || {});
+        reply({ ok: true, tab });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_TABS_GET') {
+    (async () => {
+      try {
+        const tab = await chrome.tabs.get(m.tabId);
+        reply({ ok: true, tab });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_TABS_REMOVE') {
+    (async () => {
+      try {
+        await chrome.tabs.remove(m.tabId);
+        reply({ ok: true });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+  if (m.type === 'UNIVERSAL_SCRIPTING_EXECUTE') {
+    (async () => {
+      try {
+        const opts = m.opts || {};
+        const tabId = opts.target?.tabId;
+        if (!tabId) {
+          reply({ ok: false, error: 'Chưa có tabId.' });
+          return;
+        }
+
+        if (Array.isArray(opts.files) && opts.files.length > 0) {
+          const res = await chrome.scripting.executeScript({
+            target: { tabId },
+            world: opts.world || 'ISOLATED',
+            files: opts.files
+          });
+          reply({ ok: true, result: res?.[0]?.result });
+          return;
+        }
+
+        if (opts.funcCode) {
+          const res = await chrome.scripting.executeScript({
+            target: { tabId },
+            world: opts.world || 'ISOLATED',
+            func: (codeStr, args) => {
+              try {
+                const fn = new Function('return (' + codeStr + ')')();
+                return fn.apply(null, args || []);
+              } catch (e) {
+                return null;
+              }
+            },
+            args: [opts.funcCode, opts.args || []]
+          });
+          reply({ ok: true, result: res?.[0]?.result });
+          return;
+        }
+
+        reply({ ok: false, error: 'Không có hàm hoặc file để thực thi.' });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
     })();
     return true;
   }
