@@ -837,20 +837,114 @@ if (!activeLicense) {
     }
   }
 
-  // Tự động gửi telemetry sau khi mở trang 2.5 giây
+  // ── 10. [CLOUD DATA SYNC] Tự động đồng bộ 2 chiều dữ liệu nghiệp vụ lên Supabase ──
+  let _applyingRemoteSupabaseSync = false;
+  let _cloudPushTimer = null;
+  const _pendingCloudSyncKeys = new Set();
+
+  function getActiveUsernameForSync() {
+    const lic = activeLicense || (() => {
+      try { return JSON.parse(localStorage.getItem('ntd_store_license') || 'null'); } catch (_) { return null; }
+    })();
+    return (lic?.username || '').trim().toLowerCase();
+  }
+
+  async function flushPendingCloudSync() {
+    const username = getActiveUsernameForSync();
+    if (!username || _pendingCloudSyncKeys.size === 0) return;
+    const keys = Array.from(_pendingCloudSyncKeys);
+    _pendingCloudSyncKeys.clear();
+    try {
+      const sb = await import('./supabase.js');
+      if (typeof sb.pushLocalChangesToSupabase === 'function') {
+        await sb.pushLocalChangesToSupabase(username, keys);
+      }
+    } catch (e) {
+      console.warn('Cloud push sync ignored:', e?.message || e);
+    }
+  }
+
+  async function runInitialCloudWorkspaceSync() {
+    const username = getActiveUsernameForSync();
+    if (!username) return;
+    try {
+      const sb = await import('./supabase.js');
+      if (typeof sb.hydrateLocalFromSupabase !== 'function') return;
+
+      _applyingRemoteSupabaseSync = true;
+      let hydrateRes = null;
+      try {
+        hydrateRes = await sb.hydrateLocalFromSupabase(username, { force: false });
+      } finally {
+        setTimeout(() => { _applyingRemoteSupabaseSync = false; }, 400);
+      }
+
+      // Đẩy toàn bộ dữ liệu hiện có trên máy lên Supabase 1 lần/phiên trình duyệt để backup tập trung
+      const syncFlagKey = `ntd_sb_init_sync_${username}`;
+      const alreadyInitPushed = sessionStorage.getItem(syncFlagKey) === '1';
+      if (!alreadyInitPushed && hydrateRes && hydrateRes.ok && typeof sb.pushLocalChangesToSupabase === 'function') {
+        const pushRes = await sb.pushLocalChangesToSupabase(username);
+        if (pushRes && pushRes.ok && !pushRes.needTables) {
+          sessionStorage.setItem(syncFlagKey, '1');
+        }
+      }
+    } catch (e) {
+      _applyingRemoteSupabaseSync = false;
+      console.warn('Initial Supabase workspace sync ignored:', e?.message || e);
+    }
+  }
+
+  // Tự động gửi telemetry & đồng bộ Cloud sau khi mở trang
   setTimeout(() => {
     reportUserActivity().catch(() => {});
   }, 2500);
 
-  // Lắng nghe thay đổi dữ liệu để gửi telemetry (Debounced 5s)
+  setTimeout(() => {
+    runInitialCloudWorkspaceSync().catch(() => {});
+  }, 1500);
+
+  // Lắng nghe thay đổi dữ liệu để gửi telemetry + đẩy ngầm thay đổi lên Supabase
   if (chrome?.storage?.onChanged) {
     let _telemetryTimer = null;
+    const watchedSyncKeys = new Set([
+      'accounts',
+      'groupCategories',
+      'draft',
+      'dailyPostStats',
+      'warmupConfig',
+      'warmupReports',
+      'rinZalo',
+      'postedGroupHistory',
+      'scannedGroupHistory',
+      'lastScannedGroups',
+      'lastSelectedCategory',
+      'rinMaps',
+      'rinFbGroup'
+    ]);
+
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && (changes.accounts || changes.dailyPostStats || changes.rinFbGroup || changes.rinMaps)) {
+      if (area !== 'local') return;
+
+      if (changes.accounts || changes.dailyPostStats || changes.rinFbGroup || changes.rinMaps) {
         if (_telemetryTimer) clearTimeout(_telemetryTimer);
         _telemetryTimer = setTimeout(() => {
           reportUserActivity().catch(() => {});
         }, 5000);
+      }
+
+      if (_applyingRemoteSupabaseSync) return;
+      let hasSyncChange = false;
+      for (const key of Object.keys(changes)) {
+        if (watchedSyncKeys.has(key)) {
+          _pendingCloudSyncKeys.add(key);
+          hasSyncChange = true;
+        }
+      }
+      if (hasSyncChange) {
+        if (_cloudPushTimer) clearTimeout(_cloudPushTimer);
+        _cloudPushTimer = setTimeout(() => {
+          flushPendingCloudSync().catch(() => {});
+        }, 3500);
       }
     });
   }

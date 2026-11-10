@@ -17,6 +17,8 @@ import {
   supabaseRenewUser,
   supabaseResetMachine,
   supabaseDeleteUser,
+  pushLocalChangesToSupabase,
+  hydrateLocalFromSupabase,
   SUPABASE_SETUP_SQL
 } from './supabase.js';
 
@@ -167,6 +169,67 @@ $('copySqlBtn')?.addEventListener('click', async () => {
     }
   } catch (_) {
     alert('Không thể tự động sao chép. Hãy bôi đen khung mã SQL bên dưới và nhấn Ctrl+C.');
+  }
+});
+
+$('pushCloudSyncNowBtn')?.addEventListener('click', async () => {
+  const msg = $('sbConfigMsg');
+  const btn = $('pushCloudSyncNowBtn');
+  try {
+    const lic = await checkCurrentLicense(false);
+    const username = lic?.username;
+    if (!username) throw new Error('Không tìm thấy tài khoản đang đăng nhập.');
+    if (btn) btn.disabled = true;
+    if (msg) {
+      msg.className = 'msg-box info';
+      msg.textContent = 'Đang đồng bộ toàn bộ tài khoản FB, danh mục nhóm, SĐT Maps & FB Group lên Supabase...';
+    }
+    const res = await pushLocalChangesToSupabase(username);
+    if (res.needTables) {
+      if (msg) {
+        msg.className = 'msg-box err';
+        msg.textContent = 'Chưa có các bảng đồng bộ trên Supabase! Hãy bấm "Sao chép mã SQL tạo bảng (1-Chạm)" rồi chạy trong Supabase SQL Editor.';
+      }
+      return;
+    }
+    if (msg) {
+      msg.className = 'msg-box ok';
+      msg.textContent = `Đã đẩy thành công ${res.count || 0} bản ghi dữ liệu của "${username}" lên Supabase!`;
+    }
+  } catch (err) {
+    if (msg) {
+      msg.className = 'msg-box err';
+      msg.textContent = 'Lỗi đẩy dữ liệu lên Supabase: ' + (err?.message || String(err));
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
+$('pullCloudSyncNowBtn')?.addEventListener('click', async () => {
+  const msg = $('sbConfigMsg');
+  const btn = $('pullCloudSyncNowBtn');
+  try {
+    const lic = await checkCurrentLicense(false);
+    const username = lic?.username;
+    if (!username) throw new Error('Không tìm thấy tài khoản đang đăng nhập.');
+    if (btn) btn.disabled = true;
+    if (msg) {
+      msg.className = 'msg-box info';
+      msg.textContent = 'Đang tải và gộp dữ liệu từ Supabase về trình duyệt...';
+    }
+    const res = await hydrateLocalFromSupabase(username, { force: true });
+    if (msg) {
+      msg.className = 'msg-box ok';
+      msg.textContent = `Đã đồng bộ từ Supabase: ${res.counts?.workspaces || 0} mục cấu hình, ${res.counts?.phones || 0} SĐT, ${res.counts?.groups || 0} nhóm FB (cập nhật: ${res.updatedKeys?.length || 0} nhóm dữ liệu).`;
+    }
+  } catch (err) {
+    if (msg) {
+      msg.className = 'msg-box err';
+      msg.textContent = 'Lỗi tải dữ liệu từ Supabase: ' + (err?.message || String(err));
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
 

@@ -504,8 +504,24 @@
   <script src="web_adapter.js"></script>
   <script>
     (function () {
-      const SUPABASE_URL = 'https://jwketbnfapscggpvnbui.supabase.co';
-      const SUPABASE_KEY = 'sb_publishable_HK-WyUKi4lK9RBJvSrf4Kg_i920nRCv';
+      const LEGACY_SB_URL = 'https://jwketbnfapscggpvnbui.supabase.co';
+      const LEGACY_SB_KEY = 'sb_publishable_HK-WyUKi4lK9RBJvSrf4Kg_i920nRCv';
+      const DEFAULT_SB_URL = 'https://textwlxfxksdtnbzzzok.supabase.co';
+      const DEFAULT_SB_KEY = 'sb_publishable_r6WLubmJTN-dRmSvAMQZ3Q_RW02M_WE';
+      let savedSbUrl = '';
+      let savedSbKey = '';
+      try {
+        savedSbUrl = JSON.parse(localStorage.getItem('ntd_store_ntd_supabase_url') || '""') || '';
+        savedSbKey = JSON.parse(localStorage.getItem('ntd_store_ntd_supabase_key') || '""') || '';
+      } catch (_) {}
+      const useNewDefaultSb = !savedSbUrl || savedSbUrl === LEGACY_SB_URL || savedSbKey === LEGACY_SB_KEY;
+      const SUPABASE_URL = (useNewDefaultSb ? DEFAULT_SB_URL : savedSbUrl).trim().replace(/\/+$/, '');
+      const SUPABASE_KEY = (useNewDefaultSb ? DEFAULT_SB_KEY : (savedSbKey || DEFAULT_SB_KEY)).trim();
+      const buildSbHeaders = (extra = {}) => {
+        const h = { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json', ...extra };
+        if (SUPABASE_KEY.startsWith('eyJ')) h['Authorization'] = `Bearer ${SUPABASE_KEY}`;
+        return h;
+      };
 
       // 1. Tạo hoặc lấy Machine ID ngay lập tức (không để bị treo ở "Đang tải mã máy...")
       let mid = localStorage.getItem('dg_machine_id');
@@ -569,15 +585,14 @@
             // Gọi trực tiếp Supabase REST API
             const res = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}&select=*`, {
               method: 'GET',
-              headers: {
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': 'application/json'
-              }
+              headers: buildSbHeaders()
             });
 
             if (!res.ok) {
               const text = await res.text();
+              if (res.status === 404 || text.includes('PGRST205') || text.includes('ntd_users')) {
+                throw new Error('Supabase chưa có bảng ntd_users. Quản trị viên cần chạy đoạn SQL khởi tạo trong Supabase SQL Editor.');
+              }
               throw new Error(`Supabase phản hồi lỗi HTTP ${res.status}: ${text}`);
             }
 
@@ -604,11 +619,7 @@
             if (!user.machine_id) {
               fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}`, {
                 method: 'PATCH',
-                headers: {
-                  'apikey': SUPABASE_KEY,
-                  'Authorization': `Bearer ${SUPABASE_KEY}`,
-                  'Content-Type': 'application/json'
-                },
+                headers: buildSbHeaders(),
                 body: JSON.stringify({ machine_id: mid, last_login: new Date().toISOString() })
               }).catch(() => {});
             }

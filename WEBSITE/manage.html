@@ -831,8 +831,8 @@
             <label>Supabase Project URL
               <input id="sbUrlInput" type="text" placeholder="https://your-project.supabase.co">
             </label>
-            <label>Supabase Anon Public API Key
-              <input id="sbKeyInput" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+            <label>Supabase Publishable / Anon Public API Key
+              <input id="sbKeyInput" type="password" placeholder="sb_publishable_...">
             </label>
           </div>
 
@@ -840,6 +840,8 @@
             <button id="saveSupabaseBtn" class="btn-primary">💾 Lưu cấu hình Supabase</button>
             <button id="testSupabaseBtn" class="btn-secondary">⚡ Kiểm tra kết nối</button>
             <button id="copySqlBtn" class="btn-secondary" style="border-color:#ea580c;color:var(--primary)">📋 Sao chép mã SQL tạo bảng (1-Chạm)</button>
+            <button id="pushCloudSyncNowBtn" class="btn-secondary" style="border-color:#10b981;color:#34d399">☁️ Đẩy toàn bộ dữ liệu lên Supabase</button>
+            <button id="pullCloudSyncNowBtn" class="btn-secondary" style="border-color:#38bdf8;color:#7dd3fc">⬇️ Tải &amp; Gộp dữ liệu từ Supabase</button>
           </div>
           <div id="sbConfigMsg" class="msg-box"></div>
 
