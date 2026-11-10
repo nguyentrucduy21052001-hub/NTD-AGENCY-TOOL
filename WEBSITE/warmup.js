@@ -7,12 +7,13 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 
 let personalAccounts = [];
 let isRunning = false;
+let isPaused = false;
 let isStopRequested = false;
 let currentTabId = null;
 let countdownInterval = null;
 
 // ── 1. Thêm dòng nhật ký vào khung Console Log ──────────────────────────────
-function appendLog(text) {
+function appendLog(text, icon = 'ℹ️') {
   const container = $('logContainer');
   if (!container) return;
 
@@ -179,51 +180,151 @@ async function startWarmup() {
 
   // Khởi tạo trạng thái đang chạy
   isRunning = true;
+  isPaused = false;
   isStopRequested = false;
   $('btnStartWarmup').disabled = true;
   $('btnStopWarmup').disabled = false;
+  $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+  $('btnCancelWarmup').disabled = false;
   if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
   $('progressSection').style.display = 'block';
-  $('statWarmupStatus').textContent = 'Đang nuôi...';
+  $('statWarmupStatus').textContent = 'Đang khởi động...';
   $('statWarmupStatus').style.color = '#f59e0b';
 
   await saveCurrentConfig();
   const { warmupConfig: cfg = {} } = await chrome.storage.local.get('warmupConfig');
 
-  selectedIds.forEach(id => {
-    updateAccountBadge(id, 'waiting', 'Đang chờ...');
+  selectedIds.forEach((id, idx) => {
+    updateAccountBadge(id, idx === 0 ? 'running' : 'waiting', idx === 0 ? 'Đang nạp...' : 'Đang chờ...');
   });
 
-  appendLog(`Đã gửi lệnh khởi động đợt nuôi cho ${targetAccounts.length} tài khoản (Chạy ngầm Service Worker)...`);
+  appendLog(`🚀 Bắt đầu chiến dịch nuôi tự động cho ${targetAccounts.length} tài khoản...`, '🚀');
+
+  // Luôn đồng bộ danh sách tài khoản và cấu hình sang Tiện ích mở rộng trước
+  if (window.chrome?.runtime?.sendToExtension) {
+    const { accounts = [] } = await chrome.storage.local.get('accounts');
+    await window.chrome.runtime.sendToExtension({
+      type: 'SYNC_DATA_TO_EXTENSION',
+      data: { accounts, warmupConfig: { ...cfg, backgroundMode: false } }
+    }).catch(() => {});
+  }
 
   try {
-    await chrome.runtime.sendMessage({
+    const res = await chrome.runtime.sendMessage({
       type: 'WARMUP_START',
       accountIds: selectedIds,
-      config: cfg
+      config: { ...cfg, backgroundMode: false }
     });
+    if (res && res.ok) {
+      appendLog('✅ Đã kết nối tiến trình nuôi tự động tới Tiện ích mở rộng Chrome.', '✅');
+    }
   } catch (err) {
-    appendLog('Lỗi gửi lệnh nuôi ngầm: ' + err.message);
+    appendLog('❌ Lỗi gửi lệnh nuôi ngầm: ' + err.message, '❌');
     isRunning = false;
     $('btnStartWarmup').disabled = false;
     $('btnStopWarmup').disabled = true;
+    $('btnCancelWarmup').disabled = true;
   }
 }
 
-// ── 6. Dừng tiến trình ──────────────────────────────────────────────────────
-async function stopWarmup() {
-  appendLog('Đang gửi lệnh dừng khẩn cấp tới tiến trình nền...');
+// ── 6. Tạm dừng / Tiếp tục tiến trình ───────────────────────────────────────
+async function togglePauseWarmup() {
+  if (!isRunning && !isPaused) return;
+
+  if (!isPaused) {
+    appendLog('Đang tạm dừng chiến dịch nuôi tài khoản...', '⏸️');
+    try {
+      if (window.chrome?.runtime?.sendToExtension) {
+        await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => {});
+      }
+      await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
+    } catch (_) {}
+
+    isPaused = true;
+    $('btnStopWarmup').querySelector('span').textContent = '▶️ Tiếp tục';
+    $('statWarmupStatus').textContent = 'Đã tạm dừng';
+    $('statWarmupStatus').style.color = '#f59e0b';
+    $('countdownText').textContent = 'Đã tạm dừng (Bấm "Tiếp tục" để chạy tiếp)';
+    stopLiveCountdown();
+    appendLog('⏸️ Đã tạm dừng chiến dịch. Bạn có thể bấm "Tiếp tục" để chạy tiếp hoặc "Tắt chiến dịch" để dừng hoàn toàn.', '⏸️');
+  } else {
+    appendLog('Đang tiếp tục chiến dịch nuôi tài khoản...', '▶️');
+    isPaused = false;
+    $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+    $('statWarmupStatus').textContent = 'Đang nuôi...';
+    $('statWarmupStatus').style.color = '#f59e0b';
+
+    const selectedChks = [...document.querySelectorAll('.acc-chk:checked')];
+    const selectedIds = selectedChks.map(c => c.getAttribute('data-id'));
+    const uncompletedIds = selectedIds.filter(id => {
+      const badge = $(`statusBadge_${id}`);
+      return !badge || !badge.innerText.includes('Hoàn thành');
+    });
+    const targetIds = uncompletedIds.length > 0 ? uncompletedIds : selectedIds;
+    const { warmupConfig: cfg = {} } = await chrome.storage.local.get('warmupConfig');
+
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'WARMUP_START',
+        accountIds: targetIds,
+        config: { ...cfg, backgroundMode: false }
+      });
+      appendLog(`▶️ Đã gửi lệnh tiếp tục nuôi cho ${targetIds.length} tài khoản còn lại.`, '🚀');
+    } catch (err) {
+      appendLog('❌ Lỗi tiếp tục nuôi: ' + err.message, '❌');
+    }
+  }
+}
+
+// ── 6.1. Tắt hẳn chiến dịch (Hủy hoàn toàn & Đóng tab Facebook) ────────────
+async function cancelWarmup() {
+  if (!confirm('Bạn có chắc chắn muốn TẮT HẲN chiến dịch nuôi tài khoản không?\n\n- Tiến trình nuôi sẽ dừng hoàn toàn.\n- Tab Facebook đang mở sẽ được đóng.\n- Trạng thái các nick trong bảng sẽ trở về Sẵn sàng.')) {
+    return;
+  }
+
+  appendLog('🛑 Đang tắt hẳn chiến dịch nuôi tài khoản...', '🛑');
+  stopLiveCountdown();
+
   try {
-    await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' });
+    if (window.chrome?.runtime?.sendToExtension) {
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_CANCEL' }).catch(() => {});
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => {});
+    }
+    await chrome.runtime.sendMessage({ type: 'WARMUP_CANCEL' }).catch(() => {});
+    await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
   } catch (_) {}
 
   isRunning = false;
+  isPaused = false;
+  isStopRequested = true;
+
+  await chrome.storage.local.set({
+    warmupStatus: {
+      running: false,
+      currentIndex: 0,
+      totalAccounts: 0,
+      progressPercent: 0,
+      cancelledAt: Date.now()
+    }
+  });
+
   $('btnStartWarmup').disabled = false;
   $('btnStopWarmup').disabled = true;
+  $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+  $('btnCancelWarmup').disabled = true;
   if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
-  $('statWarmupStatus').textContent = 'Đã dừng';
-  $('statWarmupStatus').style.color = '#ef4444';
-  $('countdownText').textContent = 'Đã tạm dừng';
+
+  $('progressFill').style.width = '0%';
+  $('progressText').textContent = 'Tiến trình: 0/0 tài khoản (0%)';
+  $('countdownText').textContent = 'Đã tắt chiến dịch';
+  $('statWarmupStatus').textContent = 'Sẵn sàng';
+  $('statWarmupStatus').style.color = '#10b981';
+
+  personalAccounts.forEach(acc => {
+    updateAccountBadge(acc.id, 'waiting', 'Sẵn sàng');
+  });
+
+  appendLog('🛑 Đã tắt hẳn chiến dịch nuôi tài khoản và đóng tab Facebook. Tất cả nick đã sẵn sàng cho đợt nuôi mới.', '✅');
 }
 
 // ── 7. Helpers đếm ngược & Badge ─────────────────────────────────────────────
@@ -400,8 +501,54 @@ async function renderReportTable() {
   tbody.innerHTML = html;
 }
 
+function applyWarmupStatus(s) {
+  if (!s) return;
+  if (s.running) {
+    isRunning = true;
+    isPaused = false;
+    $('btnStartWarmup').disabled = true;
+    $('btnStopWarmup').disabled = false;
+    $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+    $('btnCancelWarmup').disabled = false;
+    if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
+    $('progressSection').style.display = 'block';
+
+    $('statWarmupStatus').textContent = s.currentAccountName ? `Nuôi: ${s.currentAccountName}` : 'Đang nuôi...';
+    $('statWarmupStatus').style.color = '#f59e0b';
+
+    if (s.progressPercent !== undefined) {
+      $('progressFill').style.width = `${s.progressPercent}%`;
+      $('progressText').textContent = `Tiến trình: Tài khoản ${s.currentIndex || 1}/${s.totalAccounts || 1} (${s.progressPercent}%)`;
+    }
+    if (s.currentAccountId) {
+      updateAccountBadge(s.currentAccountId, 'running', 'Đang nuôi...');
+    }
+    if (s.remainingSec !== undefined) {
+      const m = Math.floor(s.remainingSec / 60);
+      const sec = s.remainingSec % 60;
+      $('countdownText').textContent = s.statusText ? `${s.statusText} (${m}m ${sec.toString().padStart(2, '0')}s)` : `Còn lại: ${m}m ${sec.toString().padStart(2, '0')}s`;
+    } else if (s.statusText) {
+      $('countdownText').textContent = s.statusText;
+    }
+  } else {
+    if (isRunning) {
+      isRunning = false;
+      isPaused = false;
+      $('btnStartWarmup').disabled = false;
+      $('btnStopWarmup').disabled = true;
+      $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+      $('btnCancelWarmup').disabled = true;
+      if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
+      $('statWarmupStatus').textContent = 'Sẵn sàng';
+      $('statWarmupStatus').style.color = '#10b981';
+      $('countdownText').textContent = 'Hoàn tất!';
+    }
+  }
+}
+
 $('btnStartWarmup')?.addEventListener('click', startWarmup);
-$('btnStopWarmup')?.addEventListener('click', stopWarmup);
+$('btnStopWarmup')?.addEventListener('click', togglePauseWarmup);
+$('btnCancelWarmup')?.addEventListener('click', cancelWarmup);
 
 // ── 9. Khởi động trang ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -412,27 +559,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Kiểm tra trạng thái nuôi ngầm từ worker
   const status = await chrome.runtime.sendMessage({ type: 'WARMUP_GET_STATUS' }).catch(() => null);
   const { warmupStatus } = await chrome.storage.local.get('warmupStatus');
-  isRunning = Boolean(status?.running || warmupStatus?.running);
 
-  if (isRunning) {
-    $('btnStartWarmup').disabled = true;
-    $('btnStopWarmup').disabled = false;
-    if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
-    $('progressSection').style.display = 'block';
-    $('statWarmupStatus').textContent = warmupStatus?.currentAccountName ? `Nuôi: ${warmupStatus.currentAccountName}` : 'Đang nuôi...';
-    $('statWarmupStatus').style.color = '#f59e0b';
-    if (warmupStatus?.progressPercent !== undefined) {
-      $('progressFill').style.width = `${warmupStatus.progressPercent}%`;
-      $('progressText').textContent = `Tiến trình: (${warmupStatus.progressPercent}%)`;
+  const isActuallyRunning = Boolean(status?.running);
+  const isStale = warmupStatus?.startedAt && (Date.now() - warmupStatus.startedAt > 60 * 60 * 1000);
+
+  if (!isActuallyRunning || isStale) {
+    if (warmupStatus?.running) {
+      await chrome.storage.local.set({ warmupStatus: { running: false, currentIndex: 0, progressPercent: 0 } });
     }
-    if (warmupStatus?.currentAccountId) {
-      updateAccountBadge(warmupStatus.currentAccountId, 'running', 'Đang nuôi...');
-    }
-    if (warmupStatus?.remainingSec !== undefined) {
-      const m = Math.floor(warmupStatus.remainingSec / 60);
-      const sec = warmupStatus.remainingSec % 60;
-      $('countdownText').textContent = warmupStatus.statusText ? `${warmupStatus.statusText} (${m}m ${sec.toString().padStart(2, '0')}s)` : `Còn lại: ${m}m ${sec.toString().padStart(2, '0')}s`;
-    }
+    isRunning = false;
+    isPaused = false;
+    $('btnStartWarmup').disabled = false;
+    $('btnStopWarmup').disabled = true;
+    $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+    $('btnCancelWarmup').disabled = true;
+    if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
+    $('statWarmupStatus').textContent = 'Sẵn sàng';
+    $('statWarmupStatus').style.color = '#10b981';
+    $('countdownText').textContent = 'Sẵn sàng';
+  } else {
+    applyWarmupStatus(warmupStatus);
     appendLog('Tiến trình nuôi tài khoản đang chạy ngầm trong hệ thống.');
   }
 });
@@ -441,36 +587,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.warmupStatus) {
     const s = changes.warmupStatus.newValue;
-    if (s) {
-      isRunning = Boolean(s.running);
-      $('btnStartWarmup').disabled = isRunning;
-      $('btnStopWarmup').disabled = !isRunning;
-      if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = isRunning ? 'inline-flex' : 'none';
-
-      if (isRunning) {
-        $('progressSection').style.display = 'block';
-        $('statWarmupStatus').textContent = s.currentAccountName ? `Nuôi: ${s.currentAccountName}` : 'Đang nuôi...';
-        $('statWarmupStatus').style.color = '#f59e0b';
-        if (s.progressPercent !== undefined) {
-          $('progressFill').style.width = `${s.progressPercent}%`;
-          $('progressText').textContent = `Tiến trình: Tài khoản ${s.currentIndex}/${s.totalAccounts} (${s.progressPercent}%)`;
-        }
-        if (s.currentAccountId) {
-          updateAccountBadge(s.currentAccountId, 'running', 'Đang nuôi...');
-        }
-        if (s.remainingSec !== undefined) {
-          const m = Math.floor(s.remainingSec / 60);
-          const sec = s.remainingSec % 60;
-          $('countdownText').textContent = s.statusText ? `${s.statusText} (${m}m ${sec.toString().padStart(2, '0')}s)` : `Còn lại: ${m}m ${sec.toString().padStart(2, '0')}s`;
-        } else if (s.statusText) {
-          $('countdownText').textContent = s.statusText;
-        }
-      } else {
-        $('statWarmupStatus').textContent = 'Sẵn sàng';
-        $('statWarmupStatus').style.color = '#10b981';
-        $('countdownText').textContent = 'Hoàn tất!';
-      }
-    }
+    applyWarmupStatus(s);
   }
   if (area === 'local' && changes.warmupReports) {
     renderReportTable();
@@ -480,9 +597,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Lắng nghe log thời gian thực từ tiến trình nền
+// Lắng nghe log thời gian thực & trạng thái từ Background Worker & Content Script
 chrome.runtime.onMessage.addListener(m => {
   if (m?.type === 'WARMUP_LOG_EVENT' && m.text) {
     appendLog(m.text);
+  }
+  if (m?.type === 'WARMUP_EVENT' && m.event === 'log' && m.text) {
+    appendLog(m.text);
+  }
+  if (m?.type === 'WARMUP_STATUS_EVENT' && m.status) {
+    applyWarmupStatus(m.status);
   }
 });

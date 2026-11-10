@@ -382,12 +382,30 @@
         'LOGOUT_FACEBOOK',
         'GET_FACEBOOK_COOKIES',
         'SYNC_COOKIES_NOW',
-        'SYNC_DATA_TO_EXTENSION'
+        'SYNC_DATA_TO_EXTENSION',
+        'WARMUP_START',
+        'WARMUP_STOP',
+        'WARMUP_CANCEL',
+        'WARMUP_GET_STATUS',
+        'WARMUP_SHOW_TAB',
+        'WARMUP_CLOSE_TAB'
       ]);
+
+      if (message?.type === 'WARMUP_START' && typeof window.chrome?.runtime?.sendToExtension === 'function') {
+        try {
+          const { accounts = [] } = await localStore.get('accounts');
+          const { warmupConfig = {} } = await localStore.get('warmupConfig');
+          await window.chrome.runtime.sendToExtension({
+            type: 'SYNC_DATA_TO_EXTENSION',
+            data: { accounts, warmupConfig: { ...warmupConfig, ...(message.config || {}) } }
+          });
+        } catch (_) {}
+      }
+
       if (message?.type && EXT_PRIVILEGED.has(message.type) && typeof window.chrome?.runtime?.sendToExtension === 'function') {
         try {
           const extResp = await window.chrome.runtime.sendToExtension(message);
-          if (extResp && extResp.ok) {
+          if (extResp && (extResp.ok || extResp.success)) {
             sendResponse(extResp);
             return;
           }
@@ -430,8 +448,8 @@
           setTimeout(() => { if (!resolved) sendResponse({ ok: true, running: false }); }, 20);
           return;
         }
-        if (message.type === 'MAPS_STOP_SCAN' || message.type === 'FB_GROUP_STOP_SCAN' || message.type === 'WARMUP_STOP') {
-          setTimeout(() => { if (!resolved) sendResponse({ ok: true, stopped: true }); }, 20);
+        if (message.type === 'MAPS_STOP_SCAN' || message.type === 'FB_GROUP_STOP_SCAN' || message.type === 'WARMUP_STOP' || message.type === 'WARMUP_CANCEL') {
+          setTimeout(() => { if (!resolved) sendResponse({ ok: true, stopped: true, cancelled: true }); }, 20);
           return;
         }
         if (message.type === 'MAPS_SHOW_TAB' || message.type === 'FB_GROUP_SHOW_TAB' || message.type === 'WARMUP_SHOW_TAB') {

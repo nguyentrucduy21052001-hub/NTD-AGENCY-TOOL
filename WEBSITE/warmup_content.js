@@ -134,10 +134,39 @@
   }
 
   // ── 3. Cuộn trang mượt mà mô phỏng hành vi tự nhiên của con người ───────────
+  function getScrollContainers() {
+    const list = [window, document.scrollingElement, document.documentElement, document.body];
+    try {
+      const feeds = document.querySelectorAll('div[role="feed"], div[role="main"], [data-pagelet*="Feed"], div[tabindex="-1"]');
+      feeds.forEach(el => {
+        let cur = el;
+        while (cur && cur !== document.body) {
+          try {
+            const style = window.getComputedStyle(cur);
+            if (style && (style.overflowY === 'auto' || style.overflowY === 'scroll')) {
+              if (!list.includes(cur)) list.push(cur);
+            }
+          } catch (_) {}
+          cur = cur.parentElement;
+        }
+      });
+    } catch (_) {}
+    return list;
+  }
+
   async function humanScrollBy(distance, stepCount = 15) {
     if (isCancelled) return;
     dismissObstructingDialogs();
+
+    // Mở khóa thanh cuộn nếu Facebook bị kẹt overflow: hidden
+    try {
+      if (document.body.style.overflow === 'hidden') document.body.style.overflow = '';
+      if (document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = '';
+    } catch (_) {}
+
     const step = distance / stepCount;
+    const containers = getScrollContainers();
+
     for (let i = 0; i < stepCount; i++) {
       if (isCancelled) break;
       window.scrollBy({
@@ -145,9 +174,20 @@
         left: 0,
         behavior: 'auto'
       });
+      for (const c of containers) {
+        if (c && typeof c.scrollBy === 'function' && c !== window) {
+          try { c.scrollBy({ top: step, left: 0, behavior: 'auto' }); } catch (_) {}
+        }
+      }
       // Delay ngẫu nhiên giữa các bước cuộn để tạo gia tốc tự nhiên
       await delay(25 + Math.random() * 35);
     }
+
+    // Phát xung phím ArrowDown nhẹ để kích hoạt tải thêm bài viết (Infinite Virtualized List) của Facebook
+    try {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+    } catch (_) {}
   }
 
   // ── 4. Lướt Bảng tin & Đọc bài viết ─────────────────────────────────────────

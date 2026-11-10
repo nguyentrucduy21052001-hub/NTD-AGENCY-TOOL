@@ -472,6 +472,31 @@
     cursor: not-allowed;
   }
 
+  .btn-warning-outline {
+    background: transparent;
+    color: #f59e0b;
+    border: 1.5px solid #f59e0b;
+    border-radius: 12px;
+    padding: 13px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+  .btn-warning-outline:hover:not(:disabled) {
+    background: #fef3c7;
+  }
+  .btn-warning-outline:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: #cbd5e1;
+    color: #94a3b8;
+  }
+
   .btn-danger-outline {
     background: transparent;
     color: #ef4444;
@@ -713,15 +738,18 @@
     </div>
 
     <!-- Nút bắt đầu nuôi & điều khiển (chuyển lên từ phần 3) -->
-    <div class="btn-group" style="margin-top:16px">
+    <div class="btn-group" style="margin-top:16px;flex-wrap:wrap">
       <button type="button" class="btn-primary-big" id="btnStartWarmup">
         <span>▶️ Bắt đầu nuôi tự động (0 tài khoản)</span>
       </button>
-      <button type="button" id="btnFocusFbTab" style="display:none;padding:14px 18px;border-radius:12px;font-weight:700;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:13.5px">
-        <span>Xem tab nuôi</span>
+      <button type="button" id="btnFocusFbTab" style="display:none;padding:13px 18px;border-radius:12px;font-weight:700;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:13.5px">
+        <span>👁️ Xem tab nuôi</span>
       </button>
-      <button type="button" class="btn-danger-outline" id="btnStopWarmup" disabled>
-        <span>⏹️ Dừng lại</span>
+      <button type="button" class="btn-warning-outline" id="btnStopWarmup" disabled>
+        <span>⏸️ Tạm dừng</span>
+      </button>
+      <button type="button" class="btn-danger-outline" id="btnCancelWarmup" disabled title="Tắt hẳn chiến dịch và đóng tab Facebook">
+        <span>🛑 Tắt chiến dịch</span>
       </button>
     </div>
   </div>

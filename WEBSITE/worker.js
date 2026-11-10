@@ -2804,7 +2804,10 @@ async function runWarmupLoop(accountIds, config) {
         await chrome.scripting.executeScript({
           target: { tabId: warmupCurrentTabId },
           files: ['warmup_content.js']
-        }).catch(err => console.warn('Lỗi inject warmup_content:', err));
+        }).catch(err => {
+          console.warn('Lỗi inject warmup_content:', err);
+          broadcastWarmupLog(`⚠️ Cảnh báo nạp kịch bản tương tác: ${err.message}`, '⚠️');
+        });
 
         await sleepMs(1200);
 
@@ -2843,19 +2846,19 @@ async function runWarmupLoop(accountIds, config) {
 
             const elapsed = Date.now() - waitStartTime;
             const remainingSec = Math.max(0, Math.ceil((targetDurationMs - elapsed) / 1000));
-            await chrome.storage.local.set({
-              warmupStatus: {
-                running: true,
-                totalAccounts: targetAccounts.length,
-                currentIndex: accIndex,
-                currentAccountId: acc.id,
-                currentAccountName: acc.name,
-                progressPercent,
-                remainingSec: remainingSec,
-                durationMin: durationMin,
-                startedAt: waitStartTime
-              }
-            }).catch(() => {});
+            const statusUpdate = {
+              running: true,
+              totalAccounts: targetAccounts.length,
+              currentIndex: accIndex,
+              currentAccountId: acc.id,
+              currentAccountName: acc.name,
+              progressPercent,
+              remainingSec: remainingSec,
+              durationMin: durationMin,
+              startedAt: waitStartTime
+            };
+            await chrome.storage.local.set({ warmupStatus: statusUpdate }).catch(() => {});
+            chrome.runtime.sendMessage({ type: 'WARMUP_STATUS_EVENT', status: statusUpdate }).catch(() => {});
           }
 
           // Phiên tương tác đã hoàn thành đủ thời lượng: Gửi lệnh dừng tương tác
@@ -3274,6 +3277,28 @@ function handleRuntimeMessage(m, sender, reply) {
       chrome.tabs.sendMessage(warmupCurrentTabId, { type: 'STOP_WARMUP_SESSION' }).catch(() => {});
     }
     reply({ ok: true, stopped: true });
+    return true;
+  }
+  if (m.type === 'WARMUP_CANCEL') {
+    warmupStop = true;
+    warmupRunning = false;
+    if (warmupCurrentTabId) {
+      chrome.tabs.sendMessage(warmupCurrentTabId, { type: 'STOP_WARMUP_SESSION' }).catch(() => {});
+      chrome.tabs.remove(warmupCurrentTabId).catch(() => {});
+      warmupCurrentTabId = null;
+    }
+    chrome.storage.local.set({
+      warmupStatus: { running: false, currentIndex: 0, progressPercent: 0, cancelledAt: Date.now() }
+    }).catch(() => {});
+    try {
+      if (!mapsScanRunning) chrome.power?.releaseKeepAwake?.();
+    } catch (_) {}
+    broadcastWarmupLog('🛑 Đã tắt hẳn chiến dịch nuôi tài khoản và đóng tab Facebook.', '🛑');
+    chrome.runtime.sendMessage({
+      type: 'WARMUP_STATUS_EVENT',
+      status: { running: false, currentIndex: 0, progressPercent: 0 }
+    }).catch(() => {});
+    reply({ ok: true, cancelled: true });
     return true;
   }
   if (m.type === 'WARMUP_GET_STATUS') {
