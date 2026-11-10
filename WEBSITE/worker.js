@@ -2701,7 +2701,7 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam = 
 
         const scrollInfo = scrollRes?.[0]?.result;
         if (scrollInfo?.isDialog && scrollInfo?.closed) {
-          broadcastFbGroupLog('💬 Đã quét xong bình luận trong bài viết. Đã đóng bài viết để cuộn tiếp nhóm...');
+          broadcastFbGroupLog(scrollInfo.message || '💬 Đã bỏ qua/đóng bài viết và cuộn tiếp sang bài mới.');
         } else if (scrollInfo?.isDialog) {
           broadcastFbGroupLog(`💬 Đang lướt đọc bình luận trong bài viết (Lượt ${scrollInfo.scrollRounds || 1})...`);
         }

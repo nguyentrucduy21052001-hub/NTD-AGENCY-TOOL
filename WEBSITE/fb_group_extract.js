@@ -186,20 +186,21 @@ function getActivePostDialog() {
  */
 function closePostDialog() {
   const dialog = getActivePostDialog();
+  if (!dialog) return false;
   let closed = false;
 
-  // 1. Tìm và bấm nút Đóng (X) trên dialog
+  // 1. Tìm và bấm nút Đóng (X) thuộc về chính dialog đang mở
   const closeSelectors = [
     'div[aria-label="Đóng" i]',
     'div[aria-label="Close" i]',
     'div[aria-label="Đóng bài viết" i]',
-    'div[aria-label="Đóng cuộc trò chuyện" i]',
     '[aria-label="Đóng" i]',
     '[aria-label="Close" i]'
   ];
 
+  const scope = dialog.parentElement || dialog;
   for (const sel of closeSelectors) {
-    const btn = (dialog ? dialog.querySelector(sel) : null) || document.querySelector(sel);
+    const btn = dialog.querySelector(sel) || scope.querySelector(sel);
     if (btn) {
       try {
         btn.click();
@@ -209,18 +210,18 @@ function closePostDialog() {
     }
   }
 
-  // 2. Kích hoạt phím Escape trên window & document
+  // 2. Kích hoạt phím Escape trên dialog/document
   try {
     const escDown = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true });
     const escUp = new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true });
+    dialog.dispatchEvent(escDown);
+    dialog.dispatchEvent(escUp);
     document.dispatchEvent(escDown);
     document.dispatchEvent(escUp);
-    window.dispatchEvent(escDown);
-    window.dispatchEvent(escUp);
   } catch (_) {}
 
-  // 3. Nếu URL chứa /permalink/ hoặc /posts/ và dialog chưa đóng, lùi trang lại
-  if (location.pathname.includes('/permalink/') || location.pathname.includes('/posts/')) {
+  // 3. Nếu URL nhảy sang /permalink/ hoặc /posts/ do mở dialog từ Feed mà bấm Đóng chưa thoát, lùi lại Feed
+  if (!closed && (location.pathname.includes('/permalink/') || location.pathname.includes('/posts/'))) {
     try {
       window.history.back();
     } catch (_) {}
@@ -236,51 +237,64 @@ let _dialogScrollState = {
 };
 
 /**
- * Tự động tìm và bấm các nút 'Xem thêm', 'Xem thêm bình luận' trong DOM
+ * Tự động tìm và bấm các nút 'Xem thêm' & mở rộng bình luận NỘI TUYẾN (không click nút mở popup bài viết)
  */
 function expandSeeMoreAndComments(maxCommentClicks = 8) {
   let expandedCount = 0;
   const dialog = getActivePostDialog();
-  const root = dialog || document;
+  const root = dialog || document.querySelector('div[role="feed"]') || document.querySelector('div[role="main"]') || document;
 
-  // 1. Mở rộng bài viết: "Xem thêm" / "See more"
+  const isSafeInlineBtn = (el) => {
+    if (!el || el.dataset?.ntdExpanded === '1') return false;
+    if (el.tagName === 'A' || el.closest('a[href]')) return false;
+    return true;
+  };
+
+  // 1. Mở rộng bài viết nội tuyến: "Xem thêm" / "See more"
   try {
     const seeMoreButtons = Array.from(root.querySelectorAll('div[role="button"], span[role="button"]'))
       .filter(el => {
+        if (!isSafeInlineBtn(el)) return false;
         const t = (el.innerText || '').trim();
         return t === 'Xem thêm' || t === 'See more' || t === 'Xem thêm...' || t === 'See More';
       });
 
     for (const btn of seeMoreButtons) {
       try {
+        btn.dataset.ntdExpanded = '1';
         btn.click();
         expandedCount++;
       } catch (_) {}
     }
   } catch (_) {}
 
-  // 2. Mở rộng bình luận: "Xem thêm bình luận", "Xem các bình luận trước", "X câu trả lời"...
+  // 2. Chỉ bấm các nút tải bình luận/phản hồi nội tuyến — TUYỆT ĐỐI KHÔNG bấm "X bình luận" (vì sẽ bật popup modal lặp vô hạn)
   try {
     let commentClicks = 0;
-    const commentButtons = Array.from(root.querySelectorAll('div[role="button"], span[role="button"], a[role="button"]'))
+    const commentButtons = Array.from(root.querySelectorAll('div[role="button"], span[role="button"]'))
       .filter(el => {
+        if (!isSafeInlineBtn(el)) return false;
         const t = (el.innerText || '').trim().toLowerCase();
+        if (!t || /^\d+\s+(bình luận|comments)$/i.test(t) || t.includes('xem tất cả bình luận')) {
+          return false;
+        }
         return (
           t.includes('xem thêm bình luận') ||
           t.includes('xem các bình luận trước') ||
-          t.includes('xem tất cả bình luận') ||
           t.includes('xem thêm câu trả lời') ||
           t.includes('xem các câu trả lời') ||
           t.includes('xem phản hồi') ||
           t.includes('view more comments') ||
           t.includes('view previous comments') ||
-          /^\d+\s+(bình luận|phản hồi|câu trả lời|replies|comments)$/i.test(t)
+          t.includes('view more replies') ||
+          /^(?:xem\s+)?\d+\s+(?:phản hồi|câu trả lời|replies)$/i.test(t)
         );
       });
 
     for (const btn of commentButtons) {
       if (commentClicks >= maxCommentClicks) break;
       try {
+        btn.dataset.ntdExpanded = '1';
         btn.click();
         commentClicks++;
         expandedCount++;
@@ -483,7 +497,7 @@ function extractGroupPhonesFromDOM(options = {}) {
 
       // 2. Link trực tiếp đến bài viết (permalink)
       let postUrl = currentUrl;
-      const permalinkEl = postEl.querySelector('a[href*="/posts/"], a[href*="/permalink/"], a[href*="multi_permalinks="], a[href*="/permalink.php?"]');
+      const permalinkEl = postEl.querySelector('a[href*="/posts/"], a[href*="/permalink/"], a[href*="multi_permalinks="], a[href*="/permalink.php?"], a[href*="story_fbid="]');
       if (permalinkEl?.href) {
         try {
           const u = new URL(permalinkEl.href);
@@ -497,8 +511,8 @@ function extractGroupPhonesFromDOM(options = {}) {
 
       // Tạo mã định danh duy nhất cho bài viết để đếm chính xác số bài đã duyệt
       let pKey = '';
-      if (permalinkEl?.href) {
-        pKey = permalinkEl.href;
+      if (permalinkEl?.href && postUrl && postUrl !== currentUrl) {
+        pKey = postUrl;
       } else {
         const snippet = (postEl.innerText || '').slice(0, 70).replace(/\s+/g, ' ').trim();
         pKey = authorName + '::' + snippet;
@@ -679,11 +693,27 @@ function extractGroupPhonesFromDOM(options = {}) {
   };
 }
 
+function scrollGroupFeedForward(stagnantRound = 0) {
+  if (typeof window.__ntdTriggerSentinels === 'function') {
+    window.__ntdTriggerSentinels();
+  }
+  const scrollDelta = 3000 + (stagnantRound * 600);
+  window.scrollBy(0, scrollDelta);
+
+  const feeds = document.querySelectorAll('div[role="feed"], div[role="main"]');
+  for (const f of feeds) {
+    if (f.scrollHeight > f.clientHeight + 40) {
+      f.scrollTop += scrollDelta;
+    }
+  }
+  return scrollDelta;
+}
+
 /**
  * Cuộn trang thông minh:
- * - Nếu đang mở popup bài viết: Cuộn thanh cuộn của popup để tải và quét toàn bộ bình luận.
- *   Khi đã hết bình luận hoặc cuộn tới đáy, tự động ĐÓNG POPUP để tiếp tục cuộn nhóm.
- * - Nếu đang ở bảng tin nhóm: Cuộn bảng tin bình thường để duyệt bài tiếp theo.
+ * - Nếu lỡ đang mở popup bài viết: quét/cuộn nhanh tối đa 2 lượt (hoặc đóng ngay nếu bài viết không có SĐT / đã cuộn hết),
+ *   đồng thời ĐÓNG POPUP và CUỘN BẢNG TIN TIẾP ngay lập tức để không bao giờ bị kẹt bật/tắt cùng 1 bài viết.
+ * - Nếu đang ở bảng tin nhóm: Cuộn bảng tin thẳng xuống để duyệt các bài tiếp theo.
  */
 function scrollPostDialogOrFeed(stagnantRound = 0) {
   try {
@@ -700,51 +730,41 @@ function scrollPostDialogOrFeed(stagnantRound = 0) {
 
       _dialogScrollState.scrollRounds++;
 
-      // Tìm tất cả các phần tử có thể cuộn bên trong dialog
+      const dialogHasPhones = extractPhonesWithContext(dialog.innerText || '').length > 0;
       const allEls = Array.from(dialog.querySelectorAll('*'));
       const scrollableEls = allEls.filter(el => {
         const style = window.getComputedStyle(el);
         const overflowY = style.overflowY || '';
         return (overflowY === 'auto' || overflowY === 'scroll' || el.scrollHeight > el.clientHeight + 40) && el.clientHeight > 100;
       });
-
-      if (!scrollableEls.length) {
-        scrollableEls.push(dialog);
-      }
+      if (!scrollableEls.length) scrollableEls.push(dialog);
 
       let maxScrollTop = 0;
       let reachedBottom = false;
-
       for (const el of scrollableEls) {
         el.scrollTop += 1800;
         if (el.scrollTop > maxScrollTop) maxScrollTop = el.scrollTop;
-
-        // Nếu đã cuộn tới đáy của phần tử
         if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
           reachedBottom = true;
         }
       }
 
-      // Cuộn cả window hỗ trợ
-      window.scrollBy({ top: 1200, behavior: 'smooth' });
-
       const isStagnant = maxScrollTop === _dialogScrollState.lastScrollTop;
       _dialogScrollState.lastScrollTop = maxScrollTop;
 
-      // Điều kiện thoát bài viết:
-      // 1. Đã cuộn tới đáy
-      // 2. Hoặc vị trí cuộn không đổi sau 2 vòng
-      // 3. Hoặc đã cuộn tối đa 6 vòng trong 1 bài viết
-      const shouldClose = reachedBottom || (isStagnant && _dialogScrollState.scrollRounds >= 2) || _dialogScrollState.scrollRounds >= 6;
-
+      // Bài viết không có SĐT hoặc đã chạm đáy -> đóng ngay & cuộn tiếp bảng tin nhóm để sang bài mới!
+      const shouldClose = !dialogHasPhones || reachedBottom || isStagnant || _dialogScrollState.scrollRounds >= 2;
       if (shouldClose) {
         closePostDialog();
         _dialogScrollState.activeUrl = '';
         _dialogScrollState.scrollRounds = 0;
+        scrollGroupFeedForward(stagnantRound);
         return {
           isDialog: true,
           closed: true,
-          message: 'Đã cuộn hết bình luận trong bài viết. Đang thoát bài viết để cuộn tiếp nhóm...'
+          message: !dialogHasPhones
+            ? 'Bài viết không có SĐT — đã bỏ qua và cuộn sang bài mới.'
+            : 'Đã cuộn xong bài viết — đã đóng và cuộn tiếp bảng tin nhóm.'
         };
       }
 
@@ -758,20 +778,7 @@ function scrollPostDialogOrFeed(stagnantRound = 0) {
     // ── TRƯỜNG HỢP 2: Đang ở bảng tin nhóm (Feed) ──
     _dialogScrollState.activeUrl = '';
     _dialogScrollState.scrollRounds = 0;
-
-    if (typeof window.__ntdTriggerSentinels === 'function') {
-      window.__ntdTriggerSentinels();
-    }
-
-    const scrollDelta = 3000 + (stagnantRound * 600);
-    window.scrollBy(0, scrollDelta);
-
-    const feeds = document.querySelectorAll('div[role="feed"], div[role="main"]');
-    for (const f of feeds) {
-      if (f.scrollHeight > f.clientHeight + 40) {
-        f.scrollTop += scrollDelta;
-      }
-    }
+    scrollGroupFeedForward(stagnantRound);
 
     return {
       isDialog: false,
