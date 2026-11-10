@@ -3052,13 +3052,23 @@ function broadcastGroupSearchMessage(msg) {
   } catch (_) {}
 }
 
-async function waitForGroupSearchTab(tabId, timeoutMs = 20000) {
+async function waitForGroupSearchTab(tabId, expectedUrl = '', timeoutMs = 15000) {
+  // Chờ 400ms để Chrome bắt đầu điều hướng URL mới (tránh đọc nhầm status='complete' của trang cũ)
+  await new Promise(r => setTimeout(r, 400));
+  let expectedPathHint = '';
+  if (expectedUrl) {
+    const gm = expectedUrl.match(/\/groups\/([^/?#]+)/i);
+    if (gm) expectedPathHint = `/groups/${gm[1].toLowerCase()}`;
+    else if (expectedUrl.includes('/search/groups')) expectedPathHint = '/search/groups';
+  }
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (groupSearchStop) return false;
     const t = await chrome.tabs.get(tabId).catch(() => null);
     if (!t) return false;
-    if (t.status === 'complete') return true;
+    const curUrl = (t.url || '').toLowerCase();
+    const urlMatches = !expectedPathHint || curUrl.includes(expectedPathHint) || curUrl.includes('/login') || curUrl.includes('checkpoint');
+    if (t.status === 'complete' && !t.pendingUrl && urlMatches) return true;
     await new Promise(r => setTimeout(r, 400));
   }
   return true;
@@ -3066,14 +3076,24 @@ async function waitForGroupSearchTab(tabId, timeoutMs = 20000) {
 
 // Hàm trích xuất danh sách nhóm Facebook từ trang kết quả tìm kiếm (chạy trong context Facebook tab)
 function inPageExtractGroupsFromSearch() {
+  const RESERVED = new Set([
+    'feed', 'discover', 'joins', 'joined', 'create', 'search', 'category',
+    'categories', 'notifications', 'requests', 'invitations', 'invites',
+    'your_posts', 'pending_posts', 'settings', 'insights', 'groups', 'browse'
+  ]);
+  const REJECT_TEXT = /^(?:tham gia(?:\s+nhóm)?|join(?:\s+group)?|đã tham gia|joined|xem nhóm|view group|mở|open|đang chờ|pending|hủy yêu cầu)$/i;
+  const META_LINE = /^(?:công khai|riêng tư|không công khai|nhóm công khai|nhóm riêng tư|public(?:\s+group)?|private(?:\s+group)?|\d[\d.,]*\s*(?:k|m|tr|triệu|nghìn|ngàn)?\+?\s*(?:thành viên|members?)|[\d+]+\s*bài viết|\d+\s*người bạn.*)$/i;
+
   function normUrl(href) {
     if (!href) return null;
     try {
       const u = new URL(href, window.location.origin);
       if (!['www.facebook.com', 'facebook.com', 'm.facebook.com', 'web.facebook.com'].includes(u.hostname)) return null;
-      const m = u.pathname.match(/^\/groups\/([a-zA-Z0-9._-]+)/i);
-      if (!m || ['feed', 'discover', 'joins', 'create', 'search'].includes(m[1].toLowerCase())) return null;
-      return `https://www.facebook.com/groups/${m[1].toLowerCase()}/`;
+      const m = u.pathname.match(/^\/groups\/([a-zA-Z0-9._-]+)\/?$/i);
+      if (!m) return null;
+      const slug = m[1].toLowerCase();
+      if (!slug || slug.length < 2 || RESERVED.has(slug)) return null;
+      return `https://www.facebook.com/groups/${slug}/`;
     } catch (_) {
       return null;
     }
@@ -3082,65 +3102,115 @@ function inPageExtractGroupsFromSearch() {
   function parseMemberCount(str) {
     if (!str) return 0;
     const clean = String(str).toLowerCase().trim();
-    const m = clean.match(/([\d.,]+)\s*(triệu|nghìn|ngàn|tỷ|tr|[kmb])?/i);
+    const m = clean.match(/([\d.,]+)\s*(triệu|trieu|nghìn|nghin|ngàn|ngan|tỷ|ty|tr|[km])?\s*\+?(?![a-z\u00C0-\u024F\u1EA0-\u1EF9])/i);
     if (!m) return 0;
-    let numStr = m[1].replace(/,/g, '.');
-    if ((numStr.match(/\./g) || []).length > 1) {
-      numStr = numStr.replace(/\./g, '');
+    let numPart = m[1].trim();
+    const unit = (m[2] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+    if (unit) {
+      numPart = numPart.replace(',', '.');
+      const val = parseFloat(numPart);
+      if (isNaN(val)) return 0;
+      if (unit === 'k' || unit === 'nghin' || unit === 'ngan') return Math.round(val * 1000);
+      if (unit === 'm' || unit === 'trieu' || unit === 'tr') return Math.round(val * 1000000);
+      if (unit === 'ty') return Math.round(val * 1000000000);
+      return Math.round(val);
     }
-    let num = parseFloat(numStr);
-    if (isNaN(num)) return 0;
-    const unit = m[2] ? m[2].toLowerCase() : '';
-    if (unit === 'k' || unit === 'nghìn' || unit === 'ngàn') num *= 1000;
-    else if (unit === 'm' || unit === 'triệu' || unit === 'tr') num *= 1000000;
-    else if (unit === 'b' || unit === 'tỷ') num *= 1000000000;
-    return Math.round(num);
+    if (/^\d{1,3}([.,]\d{3})+$/.test(numPart)) {
+      return parseInt(numPart.replace(/[.,]/g, ''), 10) || 0;
+    }
+    const val = parseFloat(numPart.replace(',', '.'));
+    return isNaN(val) ? 0 : Math.round(val);
+  }
+
+  function distinctUrlsIn(el) {
+    const s = new Set();
+    if (!el) return s;
+    const links = el.querySelectorAll('a[href*="/groups/"]');
+    for (let i = 0; i < links.length; i++) {
+      const u = normUrl(links[i].getAttribute('href') || links[i].href);
+      if (u) {
+        s.add(u);
+        if (s.size > 1) return s;
+      }
+    }
+    return s;
+  }
+
+  const anchorsByUrl = new Map();
+  const anchors = document.querySelectorAll('a[href*="/groups/"]');
+  for (const a of anchors) {
+    const cleanUrl = normUrl(a.getAttribute('href') || a.href);
+    if (!cleanUrl) continue;
+    if (!anchorsByUrl.has(cleanUrl)) anchorsByUrl.set(cleanUrl, []);
+    anchorsByUrl.get(cleanUrl).push(a);
   }
 
   const items = [];
-  const seen = new Set();
-  const anchors = document.querySelectorAll('a[href*="/groups/"]');
+  for (const [cleanUrl, anchorList] of anchorsByUrl.entries()) {
+    const titleAnchor = anchorList.find(a => {
+      const t = (a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim();
+      return t.length >= 2 && !REJECT_TEXT.test(t) && !META_LINE.test(t);
+    }) || anchorList[0];
 
-  for (const a of anchors) {
-    const rawHref = a.getAttribute('href') || a.href;
-    const cleanUrl = normUrl(rawHref);
-    if (!cleanUrl || seen.has(cleanUrl)) continue;
+    let container = titleAnchor;
+    let curr = titleAnchor.parentElement;
+    let steps = 0;
+    while (curr && curr !== document.body && steps < 10) {
+      if (distinctUrlsIn(curr).size > 1) break;
+      const txtLen = (curr.innerText || '').length;
+      if (txtLen > 1200) break;
+      container = curr;
+      curr = curr.parentElement;
+      steps++;
+    }
 
-    let container = a.closest('[role="article"]') ||
-                    a.closest('[data-virtualized]') ||
-                    a.parentElement?.parentElement?.parentElement?.parentElement;
+    const cardText = (container?.innerText || titleAnchor.parentElement?.innerText || '').trim();
 
-    let cardText = container ? container.innerText : (a.parentElement?.innerText || '');
-
-    let name = (a.innerText || a.textContent || '').trim().replace(/\r?\n.*/s, '').trim();
-    if (!name || name.length < 2) {
-      const heading = container?.querySelector('h2, h3, [role="heading"], strong');
-      if (heading) name = heading.innerText.trim();
+    let name = '';
+    for (const a of anchorList) {
+      const t = (a.innerText || a.textContent || '').split(/\r?\n/)[0].replace(/\s+/g, ' ').trim();
+      if (t && t.length >= 2 && !REJECT_TEXT.test(t) && !META_LINE.test(t) && !/^\d+$/.test(t)) {
+        name = t;
+        break;
+      }
+    }
+    if (!name && container) {
+      const heading = container.querySelector('h2, h3, h4, [role="heading"], strong, span[dir="auto"]');
+      const hTxt = (heading?.innerText || '').split(/\r?\n/)[0].trim();
+      if (hTxt && hTxt.length >= 2 && !REJECT_TEXT.test(hTxt) && !META_LINE.test(hTxt)) {
+        name = hTxt;
+      }
     }
     if (!name) {
       const m = cleanUrl.match(/\/groups\/([^\/]+)\//);
       name = m ? m[1] : 'Nhóm Facebook';
     }
 
-    let privacy = 'Công khai';
-    if (/riêng tư|private/i.test(cardText)) {
+    let metaText = cardText;
+    if (name.length >= 2) {
+      metaText = metaText.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+    }
+    metaText = metaText.replace(/\b\d[\d.,]*\s*(?:người\s*bạn|bạn\s*chung|friends?)(?:\s+(?:là\s+thành\s+viên|(?:is|are)\s+(?:a\s+)?members?))?/gi, ' ');
+
+    let privacy = 'Chưa rõ';
+    const folded = metaText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+    if (/(?:^|[\s·•\-|(\[])(?:nhom\s+)?(?:rieng\s+tu|khong\s+cong\s+khai|nhom\s+kin|private(?:\s+group)?)(?=$|[\s\d·•\-|)\],.:])/.test(folded)) {
       privacy = 'Riêng tư';
-    } else if (/công khai|public/i.test(cardText)) {
+    } else if (!/\bkhong\s+cong\s+khai\b/.test(folded) && /(?:^|[\s·•\-|(\[])(?:nhom\s+)?(?:cong\s+khai|public(?:\s+group)?)(?=$|[\s\d·•\-|)\],.:])/.test(folded)) {
       privacy = 'Công khai';
     }
 
     let members = '';
-    const memMatch = cardText.match(/([\d.,]+\s*(?:triệu|nghìn|ngàn|tỷ|tr|[kmKmMbB])?)\s*(thành viên|members|người theo dõi|followers)/i);
+    const memMatch = metaText.match(/([\d.,]+\s*(?:triệu|nghìn|ngàn|tỷ|tr|[km])?\+?)\s*(?:tổng\s*)?(?:thành\s*viên|members?|người\s*theo\s*dõi|followers?)(?![a-z\u00C0-\u024F\u1EA0-\u1EF9])/i);
     if (memMatch) {
-      members = memMatch[1].trim() + ' thành viên';
+      members = memMatch[1].replace(/\s+/g, ' ').trim() + ' thành viên';
     } else {
-      const subMatch = cardText.match(/·\s*([^·\n]+(?:thành viên|members)[^·\n]*)/i);
+      const subMatch = metaText.match(/[·•]\s*([^·•\n]*(?:thành viên|members?)[^·•\n]*)/i);
       if (subMatch) members = subMatch[1].trim();
     }
 
-    seen.add(cleanUrl);
     items.push({
-      name: name.slice(0, 90),
+      name: name.slice(0, 120),
       url: cleanUrl,
       privacy,
       members: members || 'Đang cập nhật',
@@ -3175,33 +3245,74 @@ function inPageScrollSearch() {
   } catch (_) {}
 }
 
-function inPageCheckApproval() {
+async function inPageCheckApproval() {
   function norm(s) {
     return (s || '').toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/đ/g, 'd');
   }
 
-  const pageText = norm(document.body ? document.body.innerText : '');
+  // Trích xuất tên thật của nhóm trên trang nhóm
+  let groupName = '';
+  const h1 = document.querySelector('[role="main"] h1, h1');
+  if (h1 && h1.innerText && h1.innerText.trim().length > 1) {
+    groupName = h1.innerText.trim().replace(/\s+/g, ' ').slice(0, 120);
+  }
+  if (!groupName) {
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) groupName = (ogTitle.getAttribute('content') || '').trim().slice(0, 120);
+  }
+  if (!groupName) {
+    groupName = (document.title || '').replace(/\s*[|\-–]\s*Facebook.*$/i, '').trim().slice(0, 120);
+  }
 
-  const isPrivate = /nhom rieng tu|private group|nhom bi mat|secret group/i.test(pageText) ||
-                    /chi thanh vien moi nhin thay|only members can see/i.test(pageText);
+  const rawBodyText = document.body ? document.body.innerText : '';
+  const pageText = norm(rawBodyText);
+  const headerSlice = norm(rawBodyText.slice(0, 1800));
 
-  const isMember = /da tham gia|joined|roi khoi nhom|leave group/i.test(pageText);
-  if (isPrivate && !isMember) {
+  const isPrivateHeader = /(?:^|\n)\s*(?:nhom rieng tu|private group|nhom bi mat|secret group)\b/m.test(headerSlice) ||
+                          /chi thanh vien moi nhin thay|only members can see who's in the group/i.test(headerSlice);
+  const isPublicHeader = /(?:^|\n)\s*(?:nhom cong khai|public group)\b/m.test(headerSlice) ||
+                         /bat ky ai cung co the nhin thay moi nguoi trong nhom|anyone can see who's in the group/i.test(headerSlice);
+  const privacy = isPrivateHeader ? 'Riêng tư' : (isPublicHeader ? 'Công khai' : null);
+
+  const buttonsAndLinks = [...document.querySelectorAll('[role="button"], button, a')];
+  const isMember = buttonsAndLinks.some(el => {
+    const t = norm(el.innerText || el.getAttribute('aria-label') || '');
+    return t === 'da tham gia' || t === 'joined' || t.includes('roi khoi nhom') || t.includes('leave group');
+  });
+  const hasJoinBtn = buttonsAndLinks.some(el => {
+    const t = norm(el.innerText || el.getAttribute('aria-label') || '');
+    return t === 'tham gia nhom' || t === 'tham gia' || t === 'join group' || t === 'join';
+  });
+
+  if (isPrivateHeader && !isMember) {
     return {
       status: 'private',
-      badge: 'Nhóm riêng tư',
-      label: 'Nhóm riêng tư (Chưa tham gia)',
+      badge: '🔒 Riêng tư',
+      label: 'Nhóm riêng tư (Cần tham gia)',
       canPost: false,
-      requiresApproval: true
+      requiresApproval: true,
+      groupName,
+      privacy: 'Riêng tư'
     };
   }
 
-  const approvalRegex = /kiem duyet|phe duyet|cho duyet|quan tri vien.*(duyet|phe duyet)|gui de phe duyet|bai viet.*phai duoc.*duyet|bai viet.*can.*duyet|admin approval|pending approval|require.*approval|needs? approval|must be approved|submit for approval/i;
+  if (/chi quan tri vien moi co the dang|only admins can post|posting is disabled|tinh nang dang bai bi tat/i.test(headerSlice)) {
+    return {
+      status: 'admin_only',
+      badge: 'Chỉ Admin',
+      label: 'Chỉ quản trị viên mới được đăng',
+      canPost: false,
+      requiresApproval: true,
+      groupName,
+      privacy: privacy || 'Công khai'
+    };
+  }
 
-  const allClickables = [...document.querySelectorAll('[role="button"], div[tabindex="0"], a')];
-  const composerTrigger = allClickables.find(el => {
+  const approvalRegex = /kiem duyet|phe duyet|cho duyet|quan tri vien.*?(?:duyet|phe duyet)|gui de phe duyet|bai viet.*?(?:phai|can).*?(?:duyet|phe duyet)|admin approval|pending approval|require.*approval|needs? approval|must be approved|submit.*for approval/i;
+
+  const composerTrigger = buttonsAndLinks.find(el => {
     const t = norm(el.textContent);
     return t.includes('ban viet gi di') ||
            t.includes('tao bai viet cong khai') ||
@@ -3221,19 +3332,28 @@ function inPageCheckApproval() {
         badge: 'Cần kiểm duyệt',
         label: 'Bài viết cần Quản trị viên duyệt',
         canPost: true,
-        requiresApproval: true
+        requiresApproval: true,
+        groupName,
+        privacy: privacy || 'Công khai'
       };
     }
 
     try { composerTrigger.click(); } catch (_) {}
 
-    const dialog = document.querySelector('[role="dialog"]');
+    // Đợi hộp thoại tạo bài viết mở ra (tối đa 1200ms) để đọc chính xác thông báo phê duyệt
+    let dialog = null;
+    for (let w = 0; w < 8; w++) {
+      dialog = document.querySelector('[role="dialog"]');
+      if (dialog && (dialog.innerText || '').trim().length > 10) break;
+      await new Promise(r => setTimeout(r, 150));
+    }
+
     if (dialog) {
       const dialogText = norm(dialog.innerText || '');
       const hasApprovalInDialog = approvalRegex.test(dialogText);
 
-      const buttons = [...dialog.querySelectorAll('[role="button"]')];
-      const isSubmitApproval = buttons.some(b => /gui de phe duyet|submit for approval|cho duyet/i.test(norm(b.textContent)));
+      const dButtons = [...dialog.querySelectorAll('[role="button"], button')];
+      const isSubmitApproval = dButtons.some(b => /gui de phe duyet|submit for approval|cho duyet|gui bai viet.*duyet/i.test(norm(b.textContent)));
 
       const closeBtn = dialog.querySelector('[aria-label="Đóng"], [aria-label="Close"], [aria-label*="Dong"]') ||
                        dialog.querySelector('[role="button"][tabindex="0"]');
@@ -3249,36 +3369,66 @@ function inPageCheckApproval() {
           badge: 'Cần kiểm duyệt',
           label: 'Bài viết cần Quản trị viên duyệt',
           canPost: true,
-          requiresApproval: true
+          requiresApproval: true,
+          groupName,
+          privacy: privacy || 'Công khai'
         };
       }
+
+      return {
+        status: 'free',
+        badge: 'Đăng tự do',
+        label: 'Không kiểm duyệt (Đăng tự do)',
+        canPost: true,
+        requiresApproval: false,
+        groupName,
+        privacy: privacy || 'Công khai'
+      };
     }
 
     return {
       status: 'free',
       badge: 'Đăng tự do',
-      label: 'Không kiểm duyệt (Đăng tự do)',
+      label: 'Có khung đăng bài (Không phát hiện yêu cầu kiểm duyệt)',
       canPost: true,
-      requiresApproval: false
+      requiresApproval: false,
+      groupName,
+      privacy: privacy || 'Công khai'
     };
   }
 
-  if (approvalRegex.test(pageText)) {
+  if (approvalRegex.test(headerSlice)) {
     return {
       status: 'approval',
       badge: 'Cần kiểm duyệt',
       label: 'Có dấu hiệu kiểm duyệt bài viết',
       canPost: true,
-      requiresApproval: true
+      requiresApproval: true,
+      groupName,
+      privacy: privacy || 'Công khai'
+    };
+  }
+
+  if (hasJoinBtn && !isMember) {
+    return {
+      status: 'uninspected',
+      badge: '👥 Cần tham gia nhóm',
+      label: 'Nhóm Công khai yêu cầu Tham gia trước khi mở khung đăng bài',
+      canPost: false,
+      requiresApproval: null,
+      groupName,
+      privacy: privacy || 'Công khai'
     };
   }
 
   return {
-    status: isPrivate ? 'private' : 'free',
-    badge: isPrivate ? 'Nhóm riêng tư' : 'Đăng tự do',
-    label: isPrivate ? 'Nhóm riêng tư' : 'Không kiểm duyệt (Đăng tự do)',
-    canPost: true,
-    requiresApproval: false
+    status: isPrivateHeader ? 'private' : 'free',
+    badge: isPrivateHeader ? '🔒 Riêng tư' : 'Đăng tự do',
+    label: isPrivateHeader ? 'Nhóm riêng tư' : 'Không kiểm duyệt (Đăng tự do)',
+    canPost: !isPrivateHeader,
+    requiresApproval: isPrivateHeader ? true : false,
+    groupName,
+    privacy: privacy || (isPrivateHeader ? 'Riêng tư' : 'Công khai')
   };
 }
 
@@ -3348,7 +3498,7 @@ async function runGroupSearchLoop(params) {
         await chrome.tabs.update(groupSearchCurrentTabId, { autoDiscardable: false }).catch(() => {});
       }
 
-      await waitForGroupSearchTab(groupSearchCurrentTabId, 15000);
+      await waitForGroupSearchTab(groupSearchCurrentTabId, searchUrl, 15000);
       if (groupSearchStop) break;
 
       // Nạp fb_scroll_hook.js trong MAIN world
@@ -3382,8 +3532,8 @@ async function runGroupSearchLoop(params) {
           processedDomUrls.add(item.url);
 
           // 1. Lọc theo Chế độ nhóm (Quyền riêng tư: Công khai vs Riêng tư)
-          if (privacyMode === 'public_only' && item.privacy === 'Riêng tư') continue;
-          if (privacyMode === 'private_only' && item.privacy === 'Công khai') continue;
+          if (privacyMode === 'public_only' && item.privacy !== 'Công khai') continue;
+          if (privacyMode === 'private_only' && item.privacy !== 'Riêng tư') continue;
 
           // 2. Lọc theo Số lượng thành viên tối thiểu
           if (minMembers > 0 && item.memberCount < minMembers) continue;
@@ -3492,10 +3642,10 @@ async function runGroupSearchLoop(params) {
 
         try {
           await chrome.tabs.update(groupSearchCurrentTabId, { url: grp.url, autoDiscardable: false });
-          await waitForGroupSearchTab(groupSearchCurrentTabId, 12000);
+          await waitForGroupSearchTab(groupSearchCurrentTabId, grp.url, 12000);
           if (groupSearchStop) break;
 
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 1800));
           if (groupSearchStop) break;
 
           const res = await chrome.scripting.executeScript({
@@ -3508,6 +3658,12 @@ async function runGroupSearchLoop(params) {
             grp.approvalStatus = r.status;
             grp.approvalLabel = r.label;
             grp.approvalBadge = r.badge;
+            if (r.groupName && !/^\d+$/.test(r.groupName.trim())) {
+              grp.name = r.groupName;
+            }
+            if (r.privacy) {
+              grp.privacy = r.privacy;
+            }
           } else {
             grp.approvalStatus = 'uninspected';
             grp.approvalLabel = 'Chưa kiểm tra';
@@ -3517,6 +3673,8 @@ async function runGroupSearchLoop(params) {
           broadcastGroupSearchMessage({
             type: 'GROUP_SEARCH_STATUS_UPDATE',
             url: grp.url,
+            name: grp.name,
+            privacy: grp.privacy,
             approvalStatus: grp.approvalStatus,
             approvalLabel: grp.approvalLabel,
             approvalBadge: grp.approvalBadge

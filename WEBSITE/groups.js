@@ -7,7 +7,7 @@ import {
   parseMemberCount,
   extractGroupsFromClipboardPayload,
   filterAndPrepareImportedGroups
-} from './group_parser.js?v=20261110_1200';
+} from './group_parser.js?v=20261110_1505';
 await enforceLicenseGate();
 
 const $ = id => document.getElementById(id);
@@ -661,6 +661,8 @@ const isNativeExtensionPage = (
 let extensionSupportsGroupSearch = isNativeExtensionPage;
 
 let isScanning = false;
+let activeExtensionRun = false;
+let activeScanConfig = null;
 window.__ntdGroupScanning = false;
 let scanTabId = null;
 let currentScannedGroups = []; // Array of group items
@@ -1609,6 +1611,8 @@ async function startScanningProcess() {
 
   // Khởi tạo trạng thái giao diện (Chế độ Extension native)
   isScanning = true;
+  activeExtensionRun = false;
+  activeScanConfig = { filterMode, privacyMode, minMembers, maxCountPerKeyword };
   window.__ntdGroupScanning = true;
   chrome.storage?.local?.set?.({ isGroupScanning: true }).catch(() => {});
   // KHÔNG xóa currentScannedGroups: giữ lại các nhóm đã quét trước đó cho đến khi bấm "Xóa dữ liệu"
@@ -1681,6 +1685,7 @@ async function startScanningProcess() {
       }
     });
     if (res && res.ok && !res.directFallback && !res.webFallback) {
+      activeExtensionRun = true;
       if ($('scanStatusQuick')) $('scanStatusQuick').textContent = 'Đang tiến hành quét nhóm Facebook...';
       return;
     }
@@ -2090,9 +2095,79 @@ async function startScanningProcess() {
   }
 }
 
+function applyPostScanFilter() {
+  const filterMode = activeScanConfig?.filterMode || $('scanFilterMode')?.value || 'free_only';
+  const privacyMode = activeScanConfig?.privacyMode || $('scanPrivacyMode')?.value || 'public_only';
+
+  if (filterMode === 'free_only' && currentScannedGroups.some(g => g.approvalStatus === 'free')) {
+    applyFilter('free');
+  } else if (filterMode === 'approval_only' && currentScannedGroups.some(g => g.approvalStatus === 'approval')) {
+    applyFilter('approval');
+  } else if (privacyMode === 'public_only' && currentScannedGroups.some(g => g.privacy === 'Công khai')) {
+    applyFilter('public');
+  } else if (privacyMode === 'private_only' && currentScannedGroups.some(g => g.privacy === 'Riêng tư' || g.approvalStatus === 'private')) {
+    applyFilter('private');
+  } else {
+    applyFilter('all');
+  }
+}
+
+async function finishExtensionScanUI({ stopped = false } = {}) {
+  isScanning = false;
+  activeExtensionRun = false;
+  window.__ntdGroupScanning = false;
+
+  if ($('startScanBtn')) $('startScanBtn').style.display = 'inline-flex';
+  if ($('stopScanBtn')) {
+    $('stopScanBtn').style.display = 'none';
+    $('stopScanBtn').textContent = '⏹ Dừng quét';
+  }
+  if ($('focusScanTabBtn')) $('focusScanTabBtn').style.display = 'none';
+  if ($('webScanAssistBox')) $('webScanAssistBox').style.display = 'none';
+  $('scanProgressBar')?.classList.remove('scanning');
+  if ($('scanStatusQuick')) {
+    $('scanStatusQuick').textContent = stopped ? 'Đã dừng quét.' : 'Hoàn tất.';
+  }
+
+  let fixedLoading = false;
+  currentScannedGroups.forEach(g => {
+    if (g.approvalStatus === 'loading') {
+      g.approvalStatus = 'uninspected';
+      g.approvalLabel = stopped ? 'Đã dừng trước khi kiểm tra' : 'Chưa kiểm tra';
+      g.approvalBadge = '⚪ Chưa kiểm tra';
+      fixedLoading = true;
+    }
+  });
+
+  await chrome.storage.local.set({ groupScanTabId: null, isGroupScanning: false }).catch(() => {});
+  await saveScannedGroupsToStorage(true);
+  try { chrome.power?.releaseKeepAwake?.(); } catch (_) {}
+
+  updateScanStats();
+  applyPostScanFilter();
+
+  const total = currentScannedGroups.length;
+  const freeCnt = currentScannedGroups.filter(g => g.approvalStatus === 'free').length;
+  const appCnt = currentScannedGroups.filter(g => g.approvalStatus === 'approval').length;
+  const pubCnt = currentScannedGroups.filter(g => g.privacy === 'Công khai').length;
+  const privCnt = currentScannedGroups.filter(g => g.privacy === 'Riêng tư' || g.approvalStatus === 'private').length;
+  if ($('scanProgressCount')) $('scanProgressCount').textContent = `${total} nhóm`;
+
+  const breakdown = `Công khai: ${pubCnt} | Đăng tự do: ${freeCnt} | Cần duyệt: ${appCnt} | Riêng tư: ${privCnt}`;
+  if (stopped) {
+    updateProgressBar(100, '⏹ Đã dừng quét nhóm', `Đã giữ lại ${total} nhóm (${breakdown}).`);
+    showToast(`Đã dừng quét nhóm (${total} nhóm).`);
+  } else {
+    updateProgressBar(100, '✅ Quét & phân loại nhóm hoàn tất!', `Tổng ${total} nhóm (${breakdown}).`);
+    showToast(`🎉 Hoàn tất! ${breakdown}`);
+  }
+  if (fixedLoading && currentActiveFilter === 'all') renderResultsTable();
+}
+
 async function stopScanningProcess(userCancelled = true) {
   const wasWebMode = webScanState.active;
   isScanning = false;
+  activeExtensionRun = false;
   window.__ntdGroupScanning = false;
   webScanState.active = false;
 
@@ -2100,6 +2175,13 @@ async function stopScanningProcess(userCancelled = true) {
     try {
       await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_STOP' }).catch(() => {});
     } catch (_) {}
+    currentScannedGroups.forEach(g => {
+      if (g.approvalStatus === 'loading') {
+        g.approvalStatus = 'uninspected';
+        g.approvalLabel = userCancelled ? 'Đã dừng trước khi kiểm tra' : 'Chưa kiểm tra';
+        g.approvalBadge = '⚪ Chưa kiểm tra';
+      }
+    });
   }
 
   if ($('startScanBtn')) $('startScanBtn').style.display = 'inline-flex';
@@ -2127,6 +2209,11 @@ async function stopScanningProcess(userCancelled = true) {
       await chrome.tabs.remove(scanTabId);
     } catch (_) {}
     scanTabId = null;
+  }
+
+  if (!wasWebMode) {
+    updateScanStats();
+    renderResultsTable();
   }
 
   if (userCancelled) {
@@ -2253,6 +2340,12 @@ function updateGroupRowStatus(grp) {
   const nameSpan = tr.querySelector('.group-row-name');
   if (nameSpan && grp.name) {
     nameSpan.textContent = grp.name;
+  }
+  const privSpan = tr.querySelector('.privacy-badge');
+  if (privSpan) {
+    const privInfo = getPrivacyBadgeInfo(grp.privacy);
+    privSpan.className = `privacy-badge ${privInfo.cls}`;
+    privSpan.textContent = privInfo.text;
   }
 }
 
@@ -2420,26 +2513,36 @@ chrome.tabs?.onRemoved?.addListener?.(tabId => {
 });
 
 // ── Xử lý nhóm Facebook mới tìm thấy (từ Extension Runner hoặc từ Tab Facebook trực tiếp) ──
-function handleDiscoveredGroup(g) {
+function handleDiscoveredGroup(g, fromExtensionRunner = false) {
   if (!isScanning || !g || !g.url) return;
 
-  const privacyMode = $('scanPrivacyMode')?.value || 'public_only';
-  if (privacyMode === 'public_only' && g.privacy === 'Riêng tư') return;
-  if (privacyMode === 'private_only' && g.privacy === 'Công khai') return;
+  const privacyMode = activeScanConfig?.privacyMode || $('scanPrivacyMode')?.value || 'public_only';
+  if (privacyMode === 'public_only' && g.privacy !== 'Công khai') return;
+  if (privacyMode === 'private_only' && g.privacy !== 'Riêng tư') return;
 
-  const minMembers = parseInt($('scanMinMembers')?.value || '10000', 10);
+  const minMembers = activeScanConfig?.minMembers ?? parseInt($('scanMinMembers')?.value || '10000', 10);
   const memCount = g.memberCount || parseMemberCount(g.members);
   if (minMembers > 0 && memCount < minMembers) return;
 
   // Chống quét trùng URL
   if (currentScannedGroups.some(x => x.url === g.url)) return;
 
-  const filterMode = $('scanFilterMode')?.value || 'free_only';
+  const filterMode = activeScanConfig?.filterMode || $('scanFilterMode')?.value || 'free_only';
   const checkApproval = filterMode !== 'all';
-  if (!g.approvalStatus || g.approvalStatus === 'uninspected') {
-    g.approvalStatus = checkApproval ? 'loading' : (g.privacy === 'Riêng tư' ? 'private' : 'free');
-    g.approvalBadge = checkApproval ? '⏳ Đang chờ' : (g.privacy === 'Riêng tư' ? 'Nhóm riêng tư' : 'Đăng tự do');
-    g.approvalLabel = checkApproval ? 'Đang chờ kiểm tra...' : (g.privacy === 'Riêng tư' ? 'Nhóm riêng tư' : 'Không kiểm duyệt (Đăng tự do)');
+  if (!g.approvalStatus || (checkApproval && g.approvalStatus === 'uninspected')) {
+    if (checkApproval) {
+      g.approvalStatus = 'loading';
+      g.approvalBadge = '⏳ Đang chờ';
+      g.approvalLabel = 'Đang chờ kiểm tra duyệt bài...';
+    } else if (g.privacy === 'Riêng tư') {
+      g.approvalStatus = 'private';
+      g.approvalBadge = '🔒 Riêng tư';
+      g.approvalLabel = 'Nhóm riêng tư (Quyền riêng tư trên Facebook)';
+    } else {
+      g.approvalStatus = 'uninspected';
+      g.approvalBadge = '🌐 Công khai (Chưa check bài)';
+      g.approvalLabel = 'Chưa bật kiểm tra duyệt từng bài';
+    }
   }
 
   currentScannedGroups.push(g);
@@ -2447,19 +2550,21 @@ function handleDiscoveredGroup(g) {
   updateScanStats();
   saveScannedGroupsToStorage();
 
-  const maxCountPerKeyword = parseInt($('scanMaxCount')?.value || '30', 10);
-  const pct = Math.min(95, Math.round((currentScannedGroups.length / maxCountPerKeyword) * 80));
+  if ($('scanProgressCount')) $('scanProgressCount').textContent = `${currentScannedGroups.length} nhóm`;
+
+  // Khi chạy Extension background runner (Stage 1 + Stage 2), tuyệt đối KHÔNG tự ý dừng ở đây
+  // để Extension tiếp tục chạy sang Stage 2 kiểm tra từng nhóm Đăng tự do vs Cần kiểm duyệt!
+  if (fromExtensionRunner || activeExtensionRun) {
+    return;
+  }
+
+  const maxCountPerKeyword = activeScanConfig?.maxCountPerKeyword ?? parseInt($('scanMaxCount')?.value || '30', 10);
+  const pct = Math.min(95, Math.round((currentScannedGroups.length / Math.max(1, maxCountPerKeyword)) * 80));
   updateProgressBar(
     pct,
     `Đang thu thập ${currentScannedGroups.length}/${maxCountPerKeyword} nhóm...`,
     `Tổng nhóm duy nhất đã gom: ${currentScannedGroups.length} nhóm`
   );
-  if ($('scanProgressCount')) $('scanProgressCount').textContent = `${currentScannedGroups.length} nhóm`;
-
-  if (currentScannedGroups.length >= maxCountPerKeyword) {
-    stopScanningProcess(false);
-    showToast(`✅ Đã gom đủ ${currentScannedGroups.length} nhóm theo yêu cầu!`);
-  }
 }
 
 // 1. Lắng nghe thông điệp từ Tab Facebook (fb_scroll_hook.js qua window.opener)
@@ -2467,7 +2572,7 @@ window.addEventListener('message', (e) => {
   if (!e.data || typeof e.data !== 'object') return;
   if (e.data.source === 'ntd_fb_search_tab') {
     if (e.data.type === 'GROUP_SEARCH_ITEM' && e.data.group) {
-      handleDiscoveredGroup(e.data.group);
+      handleDiscoveredGroup(e.data.group, false);
     } else if (e.data.type === 'GROUP_SEARCH_PROGRESS') {
       updateScanStats();
     }
@@ -2480,7 +2585,7 @@ if (chrome.runtime?.onMessage?.addListener) {
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'GROUP_SEARCH_ITEM' && msg.group) {
-      handleDiscoveredGroup(msg.group);
+      handleDiscoveredGroup(msg.group, true);
     }
 
     if (msg.type === 'GROUP_SEARCH_STATUS_UPDATE' && msg.url) {
@@ -2489,7 +2594,17 @@ if (chrome.runtime?.onMessage?.addListener) {
         g.approvalStatus = msg.approvalStatus;
         g.approvalLabel = msg.approvalLabel;
         g.approvalBadge = msg.approvalBadge;
-        updateGroupRowStatus(g);
+        if (msg.name && !/^\d+$/.test(String(msg.name).trim())) {
+          g.name = msg.name;
+        }
+        if (msg.privacy) {
+          g.privacy = msg.privacy;
+        }
+        if (currentActiveFilter === 'all') {
+          updateGroupRowStatus(g);
+        } else {
+          renderResultsTable();
+        }
         updateScanStats();
         saveScannedGroupsToStorage();
       }
@@ -2504,9 +2619,7 @@ if (chrome.runtime?.onMessage?.addListener) {
     }
 
     if (msg.type === 'GROUP_SEARCH_DONE') {
-      stopScanningProcess(false);
-      updateScanStats();
-      showToast(msg.stopped ? 'Đã dừng quét nhóm.' : `Hoàn tất! Đã thu thập ${currentScannedGroups.length} nhóm.`);
+      finishExtensionScanUI({ stopped: Boolean(msg.stopped), totalFound: msg.totalFound });
     }
   });
 }

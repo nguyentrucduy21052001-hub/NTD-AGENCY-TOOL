@@ -116,15 +116,24 @@
   if (window.location.pathname.includes('/search')) {
     let scanActive = true;
     const scannedGroupUrls = new Set();
+    const RESERVED = new Set([
+      'feed', 'discover', 'joins', 'joined', 'create', 'search', 'category',
+      'categories', 'notifications', 'requests', 'invitations', 'invites',
+      'your_posts', 'pending_posts', 'settings', 'insights', 'groups', 'browse'
+    ]);
+    const REJECT_TEXT = /^(?:tham gia(?:\s+nhóm)?|join(?:\s+group)?|đã tham gia|joined|xem nhóm|view group|mở|open|đang chờ|pending|hủy yêu cầu)$/i;
+    const META_LINE = /^(?:công khai|riêng tư|không công khai|nhóm công khai|nhóm riêng tư|public(?:\s+group)?|private(?:\s+group)?|\d[\d.,]*\s*(?:k|m|tr|triệu|nghìn|ngàn)?\+?\s*(?:thành viên|members?)|[\d+]+\s*bài viết|\d+\s*người bạn.*)$/i;
 
     function normGroupUrl(href) {
       if (!href) return null;
       try {
         const u = new URL(href, window.location.origin);
         if (!['www.facebook.com', 'facebook.com', 'm.facebook.com', 'web.facebook.com'].includes(u.hostname)) return null;
-        const m = u.pathname.match(/^\/groups\/([a-zA-Z0-9._-]+)/i);
-        if (!m || ['feed', 'discover', 'joins', 'create', 'search'].includes(m[1].toLowerCase())) return null;
-        return `https://www.facebook.com/groups/${m[1].toLowerCase()}/`;
+        const m = u.pathname.match(/^\/groups\/([a-zA-Z0-9._-]+)\/?$/i);
+        if (!m) return null;
+        const slug = m[1].toLowerCase();
+        if (!slug || slug.length < 2 || RESERVED.has(slug)) return null;
+        return `https://www.facebook.com/groups/${slug}/`;
       } catch (_) {
         return null;
       }
@@ -133,60 +142,111 @@
     function parseMemberCount(str) {
       if (!str) return 0;
       const clean = String(str).toLowerCase().trim();
-      const m = clean.match(/([\d.,]+)\s*(triệu|nghìn|ngàn|tỷ|tr|[kmb])?/i);
+      const m = clean.match(/([\d.,]+)\s*(triệu|trieu|nghìn|nghin|ngàn|ngan|tỷ|ty|tr|[km])?\s*\+?(?![a-z\u00C0-\u024F\u1EA0-\u1EF9])/i);
       if (!m) return 0;
-      let numStr = m[1].replace(/,/g, '.');
-      if ((numStr.match(/\./g) || []).length > 1) {
-        numStr = numStr.replace(/\./g, '');
+      let numPart = m[1].trim();
+      const unit = (m[2] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+      if (unit) {
+        numPart = numPart.replace(',', '.');
+        const val = parseFloat(numPart);
+        if (isNaN(val)) return 0;
+        if (unit === 'k' || unit === 'nghin' || unit === 'ngan') return Math.round(val * 1000);
+        if (unit === 'm' || unit === 'trieu' || unit === 'tr') return Math.round(val * 1000000);
+        if (unit === 'ty') return Math.round(val * 1000000000);
+        return Math.round(val);
       }
-      let num = parseFloat(numStr);
-      if (isNaN(num)) return 0;
-      const unit = m[2] ? m[2].toLowerCase() : '';
-      if (unit === 'k' || unit === 'nghìn' || unit === 'ngàn') num *= 1000;
-      else if (unit === 'm' || unit === 'triệu' || unit === 'tr') num *= 1000000;
-      else if (unit === 'b' || unit === 'tỷ') num *= 1000000000;
-      return Math.round(num);
+      if (/^\d{1,3}([.,]\d{3})+$/.test(numPart)) {
+        return parseInt(numPart.replace(/[.,]/g, ''), 10) || 0;
+      }
+      const val = parseFloat(numPart.replace(',', '.'));
+      return isNaN(val) ? 0 : Math.round(val);
+    }
+
+    function distinctUrlsIn(el) {
+      const s = new Set();
+      if (!el) return s;
+      const links = el.querySelectorAll('a[href*="/groups/"]');
+      for (let i = 0; i < links.length; i++) {
+        const u = normGroupUrl(links[i].getAttribute('href') || links[i].href);
+        if (u) {
+          s.add(u);
+          if (s.size > 1) return s;
+        }
+      }
+      return s;
     }
 
     function doExtractAndScroll() {
       if (!scanActive) return;
 
       const anchors = document.querySelectorAll('a[href*="/groups/"]');
+      const anchorsByUrl = new Map();
       for (const a of anchors) {
-        const rawHref = a.getAttribute('href') || a.href;
-        const cleanUrl = normGroupUrl(rawHref);
+        const cleanUrl = normGroupUrl(a.getAttribute('href') || a.href);
         if (!cleanUrl || scannedGroupUrls.has(cleanUrl)) continue;
+        if (!anchorsByUrl.has(cleanUrl)) anchorsByUrl.set(cleanUrl, []);
+        anchorsByUrl.get(cleanUrl).push(a);
+      }
 
-        let container = a.closest('[role="article"]') ||
-                        a.closest('[data-virtualized]') ||
-                        a.closest('div[role="feed"] > div') ||
-                        a.parentElement?.parentElement?.parentElement?.parentElement;
+      for (const [cleanUrl, anchorList] of anchorsByUrl.entries()) {
+        const titleAnchor = anchorList.find(a => {
+          const t = (a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim();
+          return t.length >= 2 && !REJECT_TEXT.test(t) && !META_LINE.test(t);
+        }) || anchorList[0];
 
-        let cardText = container ? container.innerText : (a.parentElement?.innerText || '');
+        let container = titleAnchor;
+        let curr = titleAnchor.parentElement;
+        let steps = 0;
+        while (curr && curr !== document.body && steps < 10) {
+          if (distinctUrlsIn(curr).size > 1) break;
+          if ((curr.innerText || '').length > 1200) break;
+          container = curr;
+          curr = curr.parentElement;
+          steps++;
+        }
 
-        let name = (a.innerText || a.textContent || '').trim().replace(/\r?\n.*/s, '').trim();
-        if (!name || name.length < 2) {
-          const heading = container?.querySelector('h2, h3, [role="heading"], strong');
-          if (heading) name = heading.innerText.trim();
+        const cardText = (container?.innerText || titleAnchor.parentElement?.innerText || '').trim();
+
+        let name = '';
+        for (const a of anchorList) {
+          const t = (a.innerText || a.textContent || '').split(/\r?\n/)[0].replace(/\s+/g, ' ').trim();
+          if (t && t.length >= 2 && !REJECT_TEXT.test(t) && !META_LINE.test(t) && !/^\d+$/.test(t)) {
+            name = t;
+            break;
+          }
+        }
+        if (!name && container) {
+          const heading = container.querySelector('h2, h3, h4, [role="heading"], strong, span[dir="auto"]');
+          const hTxt = (heading?.innerText || '').split(/\r?\n/)[0].trim();
+          if (hTxt && hTxt.length >= 2 && !REJECT_TEXT.test(hTxt) && !META_LINE.test(hTxt)) {
+            name = hTxt;
+          }
         }
         if (!name) {
           const m = cleanUrl.match(/\/groups\/([^\/]+)\//);
           name = m ? m[1] : 'Nhóm Facebook';
         }
 
-        let privacy = 'Công khai';
-        if (/riêng tư|private/i.test(cardText)) {
+        let metaText = cardText;
+        if (name.length >= 2) {
+          metaText = metaText.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+        }
+        metaText = metaText.replace(/\b\d[\d.,]*\s*(?:người\s*bạn|bạn\s*chung|friends?)(?:\s+(?:là\s+thành\s+viên|(?:is|are)\s+(?:a\s+)?members?))?/gi, ' ');
+
+        let privacy = 'Chưa rõ';
+        const folded = metaText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+        if (/(?:^|[\s·•\-|(\[])(?:nhom\s+)?(?:rieng\s+tu|khong\s+cong\s+khai|nhom\s+kin|private(?:\s+group)?)(?=$|[\s\d·•\-|)\],.:])/.test(folded)) {
           privacy = 'Riêng tư';
-        } else if (/công khai|public/i.test(cardText)) {
+        } else if (!/\bkhong\s+cong\s+khai\b/.test(folded) && /(?:^|[\s·•\-|(\[])(?:nhom\s+)?(?:cong\s+khai|public(?:\s+group)?)(?=$|[\s\d·•\-|)\],.:])/.test(folded)) {
           privacy = 'Công khai';
         }
 
         let members = '';
-        const memMatch = cardText.match(/([\d.,]+\s*(?:triệu|nghìn|ngàn|tỷ|tr|[kmKmMbB])?)\s*(thành viên|members|người theo dõi|followers)/i);
+        const memMatch = metaText.match(/([\d.,]+\s*(?:triệu|nghìn|ngàn|tỷ|tr|[km])?\+?)\s*(?:tổng\s*)?(?:thành\s*viên|members?|người\s*theo\s*dõi|followers?)(?![a-z\u00C0-\u024F\u1EA0-\u1EF9])/i);
         if (memMatch) {
-          members = memMatch[1].trim() + ' thành viên';
+          members = memMatch[1].replace(/\s+/g, ' ').trim() + ' thành viên';
         } else {
-          const subMatch = cardText.match(/·\s*([^·\n]+(?:thành viên|members)[^·\n]*)/i);
+          const subMatch = metaText.match(/[·•]\s*([^·•\n]*(?:thành viên|members?)[^·•\n]*)/i);
           if (subMatch) members = subMatch[1].trim();
         }
 
@@ -194,7 +254,7 @@
 
         const groupObj = {
           id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          name: name.slice(0, 90),
+          name: name.slice(0, 120),
           url: cleanUrl,
           privacy,
           members: members || 'Đang cập nhật',
