@@ -111,5 +111,171 @@
   window.addEventListener('wheel', () => {
     try { window.__ntdTriggerSentinels(); } catch (_) {}
   }, { passive: true });
+
+  // 5. Tự động cuộn & trích xuất nhóm Facebook trên trang Tìm kiếm
+  if (window.location.pathname.includes('/search')) {
+    let scanActive = true;
+    const scannedGroupUrls = new Set();
+
+    function normGroupUrl(href) {
+      if (!href) return null;
+      try {
+        const u = new URL(href, window.location.origin);
+        if (!['www.facebook.com', 'facebook.com', 'm.facebook.com', 'web.facebook.com'].includes(u.hostname)) return null;
+        const m = u.pathname.match(/^\/groups\/([a-zA-Z0-9._-]+)/i);
+        if (!m || ['feed', 'discover', 'joins', 'create', 'search'].includes(m[1].toLowerCase())) return null;
+        return `https://www.facebook.com/groups/${m[1].toLowerCase()}/`;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function parseMemberCount(str) {
+      if (!str) return 0;
+      const clean = String(str).toLowerCase().trim();
+      const m = clean.match(/([\d.,]+)\s*(triệu|nghìn|ngàn|tỷ|tr|[kmb])?/i);
+      if (!m) return 0;
+      let numStr = m[1].replace(/,/g, '.');
+      if ((numStr.match(/\./g) || []).length > 1) {
+        numStr = numStr.replace(/\./g, '');
+      }
+      let num = parseFloat(numStr);
+      if (isNaN(num)) return 0;
+      const unit = m[2] ? m[2].toLowerCase() : '';
+      if (unit === 'k' || unit === 'nghìn' || unit === 'ngàn') num *= 1000;
+      else if (unit === 'm' || unit === 'triệu' || unit === 'tr') num *= 1000000;
+      else if (unit === 'b' || unit === 'tỷ') num *= 1000000000;
+      return Math.round(num);
+    }
+
+    function doExtractAndScroll() {
+      if (!scanActive) return;
+
+      const anchors = document.querySelectorAll('a[href*="/groups/"]');
+      for (const a of anchors) {
+        const rawHref = a.getAttribute('href') || a.href;
+        const cleanUrl = normGroupUrl(rawHref);
+        if (!cleanUrl || scannedGroupUrls.has(cleanUrl)) continue;
+
+        let container = a.closest('[role="article"]') ||
+                        a.closest('[data-virtualized]') ||
+                        a.closest('div[role="feed"] > div') ||
+                        a.parentElement?.parentElement?.parentElement?.parentElement;
+
+        let cardText = container ? container.innerText : (a.parentElement?.innerText || '');
+
+        let name = (a.innerText || a.textContent || '').trim().replace(/\r?\n.*/s, '').trim();
+        if (!name || name.length < 2) {
+          const heading = container?.querySelector('h2, h3, [role="heading"], strong');
+          if (heading) name = heading.innerText.trim();
+        }
+        if (!name) {
+          const m = cleanUrl.match(/\/groups\/([^\/]+)\//);
+          name = m ? m[1] : 'Nhóm Facebook';
+        }
+
+        let privacy = 'Công khai';
+        if (/riêng tư|private/i.test(cardText)) {
+          privacy = 'Riêng tư';
+        } else if (/công khai|public/i.test(cardText)) {
+          privacy = 'Công khai';
+        }
+
+        let members = '';
+        const memMatch = cardText.match(/([\d.,]+\s*(?:triệu|nghìn|ngàn|tỷ|tr|[kmKmMbB])?)\s*(thành viên|members|người theo dõi|followers)/i);
+        if (memMatch) {
+          members = memMatch[1].trim() + ' thành viên';
+        } else {
+          const subMatch = cardText.match(/·\s*([^·\n]+(?:thành viên|members)[^·\n]*)/i);
+          if (subMatch) members = subMatch[1].trim();
+        }
+
+        scannedGroupUrls.add(cleanUrl);
+
+        const groupObj = {
+          id: `g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name: name.slice(0, 90),
+          url: cleanUrl,
+          privacy,
+          members: members || 'Đang cập nhật',
+          memberCount: parseMemberCount(members),
+          selected: true
+        };
+
+        // Gửi về Opener Window (groups.html trên Web)
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({
+              source: 'ntd_fb_search_tab',
+              type: 'GROUP_SEARCH_ITEM',
+              group: groupObj
+            }, '*');
+          }
+        } catch (_) {}
+
+        // Gửi qua chrome.runtime nếu có
+        try {
+          if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+            chrome.runtime.sendMessage({
+              type: 'GROUP_SEARCH_ITEM',
+              group: groupObj
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      // Tự động cuộn trang để Facebook load thêm bài
+      try {
+        const scrollDistance = 3500;
+        window.scrollBy({ top: scrollDistance, behavior: 'auto' });
+        if (document.documentElement) document.documentElement.scrollTop += scrollDistance;
+        if (document.body) document.body.scrollTop += scrollDistance;
+        window.dispatchEvent(new Event('scroll'));
+        document.dispatchEvent(new Event('scroll'));
+
+        const scrollables = document.querySelectorAll('div[data-virtualized], div[role="feed"], div[tabindex="-1"], div[role="main"]');
+        for (const el of scrollables) {
+          if (el.scrollHeight > el.clientHeight) {
+            el.scrollTop += scrollDistance;
+            el.dispatchEvent(new Event('scroll'));
+          }
+        }
+
+        if (typeof window.__ntdTriggerSentinels === 'function') {
+          window.__ntdTriggerSentinels();
+        }
+      } catch (_) {}
+
+      // Gửi báo cáo tiến trình
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage({
+            source: 'ntd_fb_search_tab',
+            type: 'GROUP_SEARCH_PROGRESS',
+            count: scannedGroupUrls.size
+          }, '*');
+        }
+      } catch (_) {}
+    }
+
+    // Lắng nghe lệnh dừng
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.action === 'STOP_GROUP_SEARCH') {
+        scanActive = false;
+      }
+    });
+
+    // Bắt đầu quét lặp tự động sau khi trang load
+    setTimeout(() => {
+      doExtractAndScroll();
+      const interval = setInterval(() => {
+        if (!scanActive) {
+          clearInterval(interval);
+          return;
+        }
+        doExtractAndScroll();
+      }, 1500);
+    }, 1500);
+  }
 })();
 

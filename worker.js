@@ -4340,6 +4340,15 @@ function handleRuntimeMessage(m, sender, reply) {
     reply({ ok: true });
     return true;
   }
+  if (m.type === 'RELOAD_EXTENSION') {
+    try {
+      chrome.runtime.reload();
+      reply({ ok: true });
+    } catch (e) {
+      reply({ ok: false, error: e.message });
+    }
+    return true;
+  }
 
   // ── UNIVERSAL TABS & SCRIPTING PROXIES ─────────────────────────────────────
   if (m.type === 'UNIVERSAL_TABS_CREATE') {

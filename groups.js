@@ -1557,13 +1557,26 @@ async function startScanningProcess() {
           if (countForThisKw >= maxCountPerKeyword) break;
         }
 
+        // Đồng bộ số lượng nhóm nhận được từ Tab Facebook (fb_scroll_hook.js) hoặc Runner
+        if (currentScannedGroups.length > groupMap.size) {
+          currentScannedGroups.forEach(g => {
+            if (!groupMap.has(g.url)) {
+              groupMap.set(g.url, g);
+              newCount++;
+              countForThisKw++;
+            }
+          });
+        }
+
         if (newCount === 0) {
           stagnantCount++;
         } else {
           stagnantCount = 0;
           // Hiệu năng cao: Chỉ thêm dòng mới vào DOM, không vẽ lại toàn bộ bảng gây lag
-          appendNewScannedGroups(newGroupObjs);
-          saveScannedGroupsToStorage();
+          if (newGroupObjs.length > 0) {
+            appendNewScannedGroups(newGroupObjs);
+            saveScannedGroupsToStorage();
+          }
         }
 
         const kwProgressSlice = (Math.min(countForThisKw, maxCountPerKeyword) / maxCountPerKeyword) * (40 / totalKw);
@@ -2043,19 +2056,68 @@ chrome.tabs?.onRemoved?.addListener?.(tabId => {
   }
 });
 
-// ── Lắng nghe sự kiện từ Background Runner (worker.js) ────────────────────────
+// ── Xử lý nhóm Facebook mới tìm thấy (từ Extension Runner hoặc từ Tab Facebook trực tiếp) ──
+function handleDiscoveredGroup(g) {
+  if (!isScanning || !g || !g.url) return;
+
+  const privacyMode = $('scanPrivacyMode')?.value || 'public_only';
+  if (privacyMode === 'public_only' && g.privacy === 'Riêng tư') return;
+  if (privacyMode === 'private_only' && g.privacy === 'Công khai') return;
+
+  const minMembers = parseInt($('scanMinMembers')?.value || '10000', 10);
+  const memCount = g.memberCount || parseMemberCount(g.members);
+  if (minMembers > 0 && memCount < minMembers) return;
+
+  // Chống quét trùng URL
+  if (currentScannedGroups.some(x => x.url === g.url)) return;
+
+  const filterMode = $('scanFilterMode')?.value || 'free_only';
+  const checkApproval = filterMode !== 'all';
+  if (!g.approvalStatus || g.approvalStatus === 'uninspected') {
+    g.approvalStatus = checkApproval ? 'loading' : (g.privacy === 'Riêng tư' ? 'private' : 'free');
+    g.approvalBadge = checkApproval ? '⏳ Đang chờ' : (g.privacy === 'Riêng tư' ? 'Nhóm riêng tư' : 'Đăng tự do');
+    g.approvalLabel = checkApproval ? 'Đang chờ kiểm tra...' : (g.privacy === 'Riêng tư' ? 'Nhóm riêng tư' : 'Không kiểm duyệt (Đăng tự do)');
+  }
+
+  currentScannedGroups.push(g);
+  appendNewScannedGroups([g]);
+  updateScanStats();
+  saveScannedGroupsToStorage();
+
+  const maxCountPerKeyword = parseInt($('scanMaxCount')?.value || '30', 10);
+  const pct = Math.min(95, Math.round((currentScannedGroups.length / maxCountPerKeyword) * 80));
+  updateProgressBar(
+    pct,
+    `Đang thu thập ${currentScannedGroups.length}/${maxCountPerKeyword} nhóm...`,
+    `Tổng nhóm duy nhất đã gom: ${currentScannedGroups.length} nhóm`
+  );
+  if ($('scanProgressCount')) $('scanProgressCount').textContent = `${currentScannedGroups.length} nhóm`;
+
+  if (currentScannedGroups.length >= maxCountPerKeyword) {
+    stopScanningProcess(false);
+    showToast(`✅ Đã gom đủ ${currentScannedGroups.length} nhóm theo yêu cầu!`);
+  }
+}
+
+// 1. Lắng nghe thông điệp từ Tab Facebook (fb_scroll_hook.js qua window.opener)
+window.addEventListener('message', (e) => {
+  if (!e.data || typeof e.data !== 'object') return;
+  if (e.data.source === 'ntd_fb_search_tab') {
+    if (e.data.type === 'GROUP_SEARCH_ITEM' && e.data.group) {
+      handleDiscoveredGroup(e.data.group);
+    } else if (e.data.type === 'GROUP_SEARCH_PROGRESS') {
+      updateScanStats();
+    }
+  }
+});
+
+// 2. Lắng nghe sự kiện từ Background Runner (worker.js)
 if (chrome.runtime?.onMessage?.addListener) {
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'GROUP_SEARCH_ITEM' && msg.group) {
-      const g = msg.group;
-      if (!currentScannedGroups.some(x => x.url === g.url)) {
-        currentScannedGroups.push(g);
-        appendNewScannedGroups([g]);
-        updateScanStats();
-        saveScannedGroupsToStorage();
-      }
+      handleDiscoveredGroup(msg.group);
     }
 
     if (msg.type === 'GROUP_SEARCH_STATUS_UPDATE' && msg.url) {
