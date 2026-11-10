@@ -1372,7 +1372,7 @@ async function startScanningProcess() {
         categoryKeys: Array.from(categoryKeySet)
       }
     });
-    if (res && res.ok && !res.directFallback) {
+    if (res && res.ok && !res.directFallback && !res.webFallback) {
       if ($('scanStatusQuick')) $('scanStatusQuick').textContent = 'Đang tiến hành quét nhóm Facebook...';
       return;
     }
