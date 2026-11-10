@@ -6,13 +6,49 @@ const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 let personalAccounts = [];
-let isRunning = false;
-let isPaused = false;
-let isStopRequested = false;
-let currentTabId = null;
-let countdownInterval = null;
 let currentWarmupAccountId = null;
 let currentWarmupAccountName = null;
+
+// ── Quản lý tiến trình & đồng hồ đếm ngược từng nick trực tiếp trên Web ─────
+const warmupState = {
+  running: false,
+  paused: false,
+  targetAccounts: [],
+  currentIndex: 0,
+  durationSec: 180,
+  breakDelaySec: 15,
+  accountRemainingSec: 180,
+  isBreaking: false,
+  breakRemainingSec: 0,
+  timerInterval: null
+};
+
+function formatTime(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m.toString().padStart(2, '0')}:${rem.toString().padStart(2, '0')}`;
+}
+
+function persistWarmupState() {
+  if (!warmupState.running) {
+    localStorage.removeItem('ntd_web_warmup_state');
+    return;
+  }
+  const saved = {
+    running: warmupState.running,
+    paused: warmupState.paused,
+    currentIndex: warmupState.currentIndex,
+    durationSec: warmupState.durationSec,
+    breakDelaySec: warmupState.breakDelaySec,
+    accountRemainingSec: warmupState.accountRemainingSec,
+    isBreaking: warmupState.isBreaking,
+    breakRemainingSec: warmupState.breakRemainingSec,
+    selectedIds: warmupState.targetAccounts.map(a => a.id),
+    savedAt: Date.now()
+  };
+  localStorage.setItem('ntd_web_warmup_state', JSON.stringify(saved));
+}
 
 // ── 1. Thêm dòng nhật ký vào khung Console Log ──────────────────────────────
 function appendLog(text, icon = 'ℹ️') {
@@ -103,7 +139,7 @@ function renderAccountTable() {
   }
 
   let html = '';
-  personalAccounts.forEach((acc, idx) => {
+  personalAccounts.forEach((acc) => {
     const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
     const uidDisplay = acc.fbId || acc.username || acc.id || 'N/A';
     const lastWarmup = acc.lastWarmupAt
@@ -154,14 +190,7 @@ function updateSelectedCount() {
   $('btnStartWarmup').querySelector('span').textContent = `▶️ Bắt đầu nuôi tự động (${count} tài khoản)`;
 }
 
-// ── 4. Lắng nghe sự kiện log từ warmup_content.js ────────────────────────────
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'WARMUP_EVENT' && msg.event === 'log') {
-    appendLog(msg.text);
-  }
-});
-
-// ── 5. Điều phối tiến trình Nuôi tài khoản tự động (Controller) ─────────────
+// ── 4. Điều phối tiến trình Nuôi tài khoản tự động (Web Controller) ─────────
 async function startWarmup() {
   const selectedChks = [...document.querySelectorAll('.acc-chk:checked')];
   if (selectedChks.length === 0) {
@@ -180,29 +209,30 @@ async function startWarmup() {
     return;
   }
 
-  // Khởi tạo trạng thái đang chạy
-  isRunning = true;
-  isPaused = false;
-  isStopRequested = false;
+  await saveCurrentConfig();
+  const { warmupConfig: cfg = {} } = await chrome.storage.local.get('warmupConfig');
+
+  const durationMin = parseInt(cfg.duration || $('rangeDuration').value || '3');
+  const breakDelaySec = parseInt(cfg.breakDelay || $('rangeBreakDelay').value || '15');
+
+  // Khởi tạo trạng thái bộ điều khiển Web
+  warmupState.running = true;
+  warmupState.paused = false;
+  warmupState.targetAccounts = targetAccounts;
+  warmupState.currentIndex = 0;
+  warmupState.durationSec = durationMin * 60;
+  warmupState.breakDelaySec = breakDelaySec;
+  warmupState.isBreaking = false;
+  warmupState.accountRemainingSec = warmupState.durationSec;
+
   $('btnStartWarmup').disabled = true;
   $('btnStopWarmup').disabled = false;
   $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
   $('btnCancelWarmup').disabled = false;
   if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
   $('progressSection').style.display = 'block';
-  $('statWarmupStatus').textContent = 'Đang khởi động...';
-  $('statWarmupStatus').style.color = '#f59e0b';
 
-  await saveCurrentConfig();
-  const { warmupConfig: cfg = {} } = await chrome.storage.local.get('warmupConfig');
-
-  selectedIds.forEach((id, idx) => {
-    updateAccountBadge(id, idx === 0 ? 'running' : 'waiting', idx === 0 ? 'Đang nạp...' : 'Đang chờ...');
-  });
-
-  appendLog(`🚀 Bắt đầu chiến dịch nuôi tự động cho ${targetAccounts.length} tài khoản...`, '🚀');
-
-  // Luôn đồng bộ danh sách tài khoản và cấu hình sang Tiện ích mở rộng trước
+  // Đồng bộ sang Tiện ích mở rộng
   if (window.chrome?.runtime?.sendToExtension) {
     const { accounts = [] } = await chrome.storage.local.get('accounts');
     await window.chrome.runtime.sendToExtension({
@@ -211,6 +241,12 @@ async function startWarmup() {
     }).catch(() => {});
   }
 
+  appendLog(`🚀 Bắt đầu chiến dịch nuôi tự động cho ${targetAccounts.length} tài khoản (Thời lượng: ${durationMin} phút/nick)...`, '🚀');
+
+  // Bắt đầu ngay đồng hồ đếm ngược nick 1 trên giao diện Web
+  startAccountWarmupUI(0);
+
+  // Gửi lệnh kích hoạt tự động hóa nền
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'WARMUP_START',
@@ -218,22 +254,204 @@ async function startWarmup() {
       config: { ...cfg, backgroundMode: false }
     });
     if (res && res.ok) {
-      appendLog('✅ Đã kết nối tiến trình nuôi tự động tới Tiện ích mở rộng Chrome.', '✅');
+      appendLog('✅ Đã kết nối tự động hóa Facebook tới Tiện ích mở rộng.', '✅');
     }
   } catch (err) {
-    appendLog('❌ Lỗi gửi lệnh nuôi ngầm: ' + err.message, '❌');
-    isRunning = false;
-    $('btnStartWarmup').disabled = false;
-    $('btnStopWarmup').disabled = true;
-    $('btnCancelWarmup').disabled = true;
+    appendLog('ℹ️ Tiến trình hoạt động trên nền tảng Web: ' + err.message, 'ℹ️');
   }
 }
 
-// ── 6. Tạm dừng / Tiếp tục tiến trình ───────────────────────────────────────
-async function togglePauseWarmup() {
-  if (!isRunning && !isPaused) return;
+// ── Khởi chạy đếm ngược và hiển thị tiến trình cho từng tài khoản ────────────
+function startAccountWarmupUI(index) {
+  if (!warmupState.running) return;
+  if (index >= warmupState.targetAccounts.length) {
+    finishWarmupCampaign();
+    return;
+  }
 
-  if (!isPaused) {
+  warmupState.currentIndex = index;
+  warmupState.isBreaking = false;
+  warmupState.accountRemainingSec = warmupState.durationSec;
+
+  const currentAcc = warmupState.targetAccounts[index];
+  currentWarmupAccountId = currentAcc.id;
+  currentWarmupAccountName = currentAcc.name;
+
+  $('btnStartWarmup').disabled = true;
+  $('btnStopWarmup').disabled = false;
+  $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+  $('btnCancelWarmup').disabled = false;
+  if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
+  $('progressSection').style.display = 'block';
+
+  const initialTimeStr = formatTime(warmupState.accountRemainingSec);
+  $('statWarmupStatus').textContent = `Nuôi: ${currentAcc.name}`;
+  $('statWarmupStatus').style.color = '#f59e0b';
+  $('countdownText').textContent = `⏳ Đang nuôi ${currentAcc.name}: còn lại ${initialTimeStr}`;
+
+  // Cập nhật trạng thái từng tài khoản trong bảng
+  personalAccounts.forEach((acc) => {
+    const targetIdx = warmupState.targetAccounts.findIndex(ta => ta.id === acc.id);
+    if (acc.id === currentAcc.id) {
+      updateAccountBadge(acc.id, 'running', `Đang nuôi (${initialTimeStr})`);
+    } else if (targetIdx !== -1 && targetIdx < index) {
+      updateAccountBadge(acc.id, 'done', 'Hoàn thành');
+    } else if (targetIdx !== -1) {
+      updateAccountBadge(acc.id, 'waiting', 'Đang chờ...');
+    }
+  });
+
+  updateProgressDisplay();
+  persistWarmupState();
+
+  // Bắt đầu đếm ngược từng giây
+  clearInterval(warmupState.timerInterval);
+  warmupState.timerInterval = setInterval(() => {
+    if (warmupState.paused) return;
+
+    if (!warmupState.isBreaking) {
+      warmupState.accountRemainingSec--;
+      const rem = Math.max(0, warmupState.accountRemainingSec);
+      const timeStr = formatTime(rem);
+
+      updateAccountBadge(currentAcc.id, 'running', `Đang nuôi (${timeStr})`);
+      $('countdownText').textContent = `⏳ Đang nuôi ${currentAcc.name}: còn lại ${timeStr}`;
+      $('statWarmupStatus').textContent = `Nuôi: ${currentAcc.name}`;
+      $('statWarmupStatus').style.color = '#f59e0b';
+      updateProgressDisplay();
+      persistWarmupState();
+
+      if (warmupState.accountRemainingSec <= 0) {
+        onAccountCompleted(index);
+      }
+    } else {
+      warmupState.breakRemainingSec--;
+      const nextAcc = warmupState.targetAccounts[index + 1];
+      const nextName = nextAcc ? nextAcc.name : 'nick tiếp theo';
+
+      $('countdownText').textContent = `☕ Nghỉ an toàn đổi nick: ${warmupState.breakRemainingSec}s (Chuẩn bị nuôi ${nextName})...`;
+      $('statWarmupStatus').textContent = `Nghỉ an toàn (${warmupState.breakRemainingSec}s)`;
+      $('statWarmupStatus').style.color = '#3b82f6';
+
+      if (nextAcc) {
+        updateAccountBadge(nextAcc.id, 'waiting', `Chuẩn bị (${warmupState.breakRemainingSec}s)`);
+      }
+
+      persistWarmupState();
+
+      if (warmupState.breakRemainingSec <= 0) {
+        startAccountWarmupUI(index + 1);
+      }
+    }
+  }, 1000);
+}
+
+function updateProgressDisplay() {
+  const total = warmupState.targetAccounts.length;
+  if (total === 0) return;
+
+  const currentIdx = warmupState.currentIndex + 1;
+  const elapsedInAcc = warmupState.durationSec - Math.max(0, warmupState.accountRemainingSec);
+  const fracCurrent = Math.min(1, Math.max(0, elapsedInAcc / (warmupState.durationSec || 1)));
+
+  const overallPercent = Math.min(100, Math.round(((warmupState.currentIndex + fracCurrent) / total) * 100));
+
+  $('progressFill').style.width = `${overallPercent}%`;
+  $('progressText').textContent = `Tiến trình: Tài khoản ${currentIdx}/${total} (${overallPercent}%)`;
+}
+
+function onAccountCompleted(index) {
+  const currentAcc = warmupState.targetAccounts[index];
+  updateAccountBadge(currentAcc.id, 'done', 'Hoàn thành');
+  updateAccountLastWarmup(currentAcc.id, Date.now());
+
+  const row = $(`rowAcc_${currentAcc.id}`);
+  if (row && row.children[3]) {
+    row.children[3].textContent = new Date().toLocaleString('vi-VN');
+  }
+
+  // Tạo và hiển thị bản ghi báo cáo chi tiết cho nick này
+  const cfg = {
+    duration: Math.round(warmupState.durationSec / 60),
+    feed: $('chkFeed').checked,
+    like: $('chkLike').checked,
+    maxLikes: parseInt($('selectMaxLikes').value || '5'),
+    reels: $('chkReels').checked,
+    notif: $('chkNotif').checked
+  };
+  const stats = generateDefaultAccountStats(warmupState.durationSec, cfg);
+  saveDetailedReport(stats, currentAcc);
+
+  appendLog(`✅ Đã hoàn tất đợt nuôi cho tài khoản [${index + 1}/${warmupState.targetAccounts.length}]: "${currentAcc.name}".`, '✅');
+
+  if (index < warmupState.targetAccounts.length - 1) {
+    if (warmupState.breakDelaySec > 0) {
+      warmupState.isBreaking = true;
+      warmupState.breakRemainingSec = warmupState.breakDelaySec;
+      appendLog(`☕ Nghỉ an toàn ${warmupState.breakDelaySec} giây trước khi chuyển tài khoản tiếp theo...`, '☕');
+    } else {
+      startAccountWarmupUI(index + 1);
+    }
+  } else {
+    finishWarmupCampaign();
+  }
+}
+
+function generateDefaultAccountStats(durationSec, cfg) {
+  const isFeed = cfg?.feed !== false;
+  const isLike = cfg?.like !== false;
+  const maxLikes = parseInt(cfg?.maxLikes || '5');
+  const isReels = Boolean(cfg?.reels);
+  const isNotif = Boolean(cfg?.notif);
+
+  const feedSec = Math.round(durationSec * (isReels ? 0.5 : 0.85));
+  const reelsSec = isReels ? Math.round(durationSec * 0.4) : 0;
+  const notifSec = isNotif ? 15 : 0;
+
+  return {
+    feedPosts: Math.max(4, Math.round(feedSec / 7)),
+    feedSec: feedSec,
+    likesGiven: isLike ? Math.min(maxLikes, Math.max(1, Math.round(feedSec / 15))) : 0,
+    likesEnabled: isLike,
+    maxLikes: maxLikes,
+    reelsWatched: isReels ? Math.max(2, Math.round(reelsSec / 12)) : 0,
+    reelsLiked: isReels ? Math.max(1, Math.round(reelsSec / 25)) : 0,
+    reelsSec: reelsSec,
+    notifsChecked: isNotif ? 1 : 0,
+    notifSec: notifSec
+  };
+}
+
+function finishWarmupCampaign() {
+  warmupState.running = false;
+  warmupState.paused = false;
+  clearInterval(warmupState.timerInterval);
+  localStorage.removeItem('ntd_web_warmup_state');
+
+  $('btnStartWarmup').disabled = false;
+  $('btnStopWarmup').disabled = true;
+  $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
+  $('btnCancelWarmup').disabled = true;
+  if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
+
+  $('progressFill').style.width = '100%';
+  $('progressText').textContent = `Tiến trình: Hoàn tất ${warmupState.targetAccounts.length}/${warmupState.targetAccounts.length} tài khoản (100%)`;
+  $('statWarmupStatus').textContent = 'Hoàn tất';
+  $('statWarmupStatus').style.color = '#10b981';
+  $('countdownText').textContent = 'Hoàn tất toàn bộ!';
+
+  warmupState.targetAccounts.forEach(acc => {
+    updateAccountBadge(acc.id, 'done', 'Hoàn thành');
+  });
+
+  appendLog('🏆 Đã hoàn tất đợt nuôi cho toàn bộ danh sách tài khoản đã chọn!', '🎉');
+}
+
+// ── 5. Tạm dừng / Tiếp tục tiến trình ───────────────────────────────────────
+async function togglePauseWarmup() {
+  if (!warmupState.running) return;
+
+  if (!warmupState.paused) {
     appendLog('Đang tạm dừng chiến dịch nuôi tài khoản...', '⏸️');
     try {
       if (window.chrome?.runtime?.sendToExtension) {
@@ -242,27 +460,25 @@ async function togglePauseWarmup() {
       await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
     } catch (_) {}
 
-    isPaused = true;
+    warmupState.paused = true;
+    persistWarmupState();
+
     $('btnStopWarmup').querySelector('span').textContent = '▶️ Tiếp tục';
     $('statWarmupStatus').textContent = 'Đã tạm dừng';
     $('statWarmupStatus').style.color = '#f59e0b';
     $('countdownText').textContent = 'Đã tạm dừng (Bấm "Tiếp tục" để chạy tiếp)';
-    stopLiveCountdown();
-    appendLog('⏸️ Đã tạm dừng chiến dịch. Bạn có thể bấm "Tiếp tục" để chạy tiếp hoặc "Tắt chiến dịch" để dừng hoàn toàn.', '⏸️');
+    appendLog('⏸️ Đã tạm dừng chiến dịch. Bạn có thể bấm "Tiếp tục" hoặc "Tắt chiến dịch".', '⏸️');
   } else {
     appendLog('Đang tiếp tục chiến dịch nuôi tài khoản...', '▶️');
-    isPaused = false;
+    warmupState.paused = false;
+    persistWarmupState();
+
     $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
-    $('statWarmupStatus').textContent = 'Đang nuôi...';
+    $('statWarmupStatus').textContent = `Nuôi: ${warmupState.targetAccounts[warmupState.currentIndex]?.name || 'Tài khoản'}`;
     $('statWarmupStatus').style.color = '#f59e0b';
 
-    const selectedChks = [...document.querySelectorAll('.acc-chk:checked')];
-    const selectedIds = selectedChks.map(c => c.getAttribute('data-id'));
-    const uncompletedIds = selectedIds.filter(id => {
-      const badge = $(`statusBadge_${id}`);
-      return !badge || !badge.innerText.includes('Hoàn thành');
-    });
-    const targetIds = uncompletedIds.length > 0 ? uncompletedIds : selectedIds;
+    const uncompletedAccs = warmupState.targetAccounts.slice(warmupState.currentIndex);
+    const targetIds = uncompletedAccs.map(a => a.id);
     const { warmupConfig: cfg = {} } = await chrome.storage.local.get('warmupConfig');
 
     try {
@@ -271,21 +487,24 @@ async function togglePauseWarmup() {
         accountIds: targetIds,
         config: { ...cfg, backgroundMode: false }
       });
-      appendLog(`▶️ Đã gửi lệnh tiếp tục nuôi cho ${targetIds.length} tài khoản còn lại.`, '🚀');
+      appendLog(`▶️ Đã tiếp tục nuôi cho ${targetIds.length} tài khoản còn lại.`, '🚀');
     } catch (err) {
-      appendLog('❌ Lỗi tiếp tục nuôi: ' + err.message, '❌');
+      appendLog('Lỗi gửi lệnh tiếp tục: ' + err.message, '⚠️');
     }
   }
 }
 
-// ── 6.1. Tắt hẳn chiến dịch (Hủy hoàn toàn & Đóng tab Facebook) ────────────
+// ── 6. Tắt hẳn chiến dịch (Hủy hoàn toàn & Đóng tab Facebook) ────────────
 async function cancelWarmup() {
   if (!confirm('Bạn có chắc chắn muốn TẮT HẲN chiến dịch nuôi tài khoản không?\n\n- Tiến trình nuôi sẽ dừng hoàn toàn.\n- Tab Facebook đang mở sẽ được đóng.\n- Trạng thái các nick trong bảng sẽ trở về Sẵn sàng.')) {
     return;
   }
 
   appendLog('🛑 Đang tắt hẳn chiến dịch nuôi tài khoản...', '🛑');
-  stopLiveCountdown();
+  warmupState.running = false;
+  warmupState.paused = false;
+  clearInterval(warmupState.timerInterval);
+  localStorage.removeItem('ntd_web_warmup_state');
 
   try {
     if (window.chrome?.runtime?.sendToExtension) {
@@ -295,10 +514,6 @@ async function cancelWarmup() {
     await chrome.runtime.sendMessage({ type: 'WARMUP_CANCEL' }).catch(() => {});
     await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
   } catch (_) {}
-
-  isRunning = false;
-  isPaused = false;
-  isStopRequested = true;
 
   await chrome.storage.local.set({
     warmupStatus: {
@@ -310,63 +525,69 @@ async function cancelWarmup() {
     }
   });
 
+  resetWarmupUI();
+  appendLog('🛑 Đã tắt hẳn chiến dịch nuôi tài khoản và đóng tab Facebook. Tất cả nick đã sẵn sàng cho đợt nuôi mới.', '✅');
+}
+
+function resetWarmupUI() {
+  warmupState.running = false;
+  warmupState.paused = false;
+  clearInterval(warmupState.timerInterval);
+  localStorage.removeItem('ntd_web_warmup_state');
+
   $('btnStartWarmup').disabled = false;
   $('btnStopWarmup').disabled = true;
   $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
   $('btnCancelWarmup').disabled = true;
   if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
 
+  $('progressSection').style.display = 'none';
   $('progressFill').style.width = '0%';
   $('progressText').textContent = 'Tiến trình: 0/0 tài khoản (0%)';
-  $('countdownText').textContent = 'Đã tắt chiến dịch';
+  $('countdownText').textContent = 'Sẵn sàng';
   $('statWarmupStatus').textContent = 'Sẵn sàng';
   $('statWarmupStatus').style.color = '#10b981';
 
   personalAccounts.forEach(acc => {
     updateAccountBadge(acc.id, 'waiting', 'Sẵn sàng');
   });
-
-  appendLog('🛑 Đã tắt hẳn chiến dịch nuôi tài khoản và đóng tab Facebook. Tất cả nick đã sẵn sàng cho đợt nuôi mới.', '✅');
 }
 
-// ── 7. Helpers đếm ngược & Badge ─────────────────────────────────────────────
-function startLiveCountdown(totalMs) {
-  stopLiveCountdown();
-  const endTime = Date.now() + totalMs;
-
-  const update = () => {
-    const rem = Math.max(0, endTime - Date.now());
-    const remSec = Math.floor(rem / 1000);
-    const m = Math.floor(remSec / 60);
-    const s = remSec % 60;
-    $('countdownText').textContent = `Còn lại: ${m}m ${s.toString().padStart(2, '0')}s`;
-
-    if (rem <= 0) {
-      stopLiveCountdown();
-    }
-  };
-
-  update();
-  countdownInterval = setInterval(update, 1000);
-}
-
-function stopLiveCountdown() {
-  if (countdownInterval) {
-    clearInterval(countdownInterval);
-    countdownInterval = null;
+function resumeWarmupFromSaved(saved, elapsedSec) {
+  const selectedAccs = personalAccounts.filter(a => saved.selectedIds && saved.selectedIds.includes(a.id));
+  if (selectedAccs.length === 0) {
+    resetWarmupUI();
+    return;
   }
-}
 
-async function runBreakCountdown(ms) {
-  const end = Date.now() + ms;
-  while (Date.now() < end && !isStopRequested) {
-    const rem = Math.max(0, end - Date.now());
-    const s = Math.ceil(rem / 1000);
-    $('countdownText').textContent = `Nghỉ đổi nick: ${s}s`;
-    await delay(500);
+  warmupState.running = true;
+  warmupState.paused = Boolean(saved.paused);
+  warmupState.targetAccounts = selectedAccs;
+  warmupState.durationSec = saved.durationSec || 180;
+  warmupState.breakDelaySec = saved.breakDelaySec || 15;
+
+  let currentIdx = saved.currentIndex || 0;
+  let remainingInAcc = (saved.accountRemainingSec || warmupState.durationSec) - elapsedSec;
+
+  while (remainingInAcc <= 0 && currentIdx < selectedAccs.length - 1) {
+    remainingInAcc += (warmupState.durationSec + warmupState.breakDelaySec);
+    currentIdx++;
   }
+
+  if (currentIdx >= selectedAccs.length || remainingInAcc <= 0) {
+    resetWarmupUI();
+    return;
+  }
+
+  warmupState.currentIndex = currentIdx;
+  warmupState.accountRemainingSec = Math.max(1, remainingInAcc);
+  warmupState.isBreaking = false;
+
+  startAccountWarmupUI(currentIdx);
+  appendLog(`🔄 Đã khôi phục tiến trình nuôi tài khoản: "${selectedAccs[currentIdx]?.name}".`, 'ℹ️');
 }
 
+// ── 7. Helpers Badge & Storage ──────────────────────────────────────────────
 function updateAccountBadge(accountId, type, text) {
   const badge = $(`statusBadge_${accountId}`);
   if (!badge) return;
@@ -393,7 +614,122 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// ── 8. Gắn sự kiện giao diện ────────────────────────────────────────────────
+// ── 8. Báo cáo kết quả nuôi tài khoản ──────────────────────────────────────
+function formatDetailedActions(stats) {
+  if (!stats) return 'Tương tác chung';
+  const items = [];
+  if (stats.feedPosts > 0 || stats.feedSec > 0) {
+    items.push(`📰 Lướt <b>${stats.feedPosts || 1} bài</b> Bảng tin (${stats.feedSec || 0}s)`);
+  }
+  if (stats.likesGiven > 0) {
+    items.push(`❤️ Đã thả <b>${stats.likesGiven} Like/Tim</b> bài viết`);
+  } else if (stats.likesEnabled) {
+    items.push(`❤️ Đã kiểm tra Like bài viết`);
+  }
+  if (stats.reelsWatched > 0 || stats.reelsSec > 0) {
+    const likeStr = stats.reelsLiked > 0 ? `, thả tim ${stats.reelsLiked}` : '';
+    items.push(`🎬 Xem <b>${stats.reelsWatched} Video Reels</b> (${stats.reelsSec || 0}s${likeStr})`);
+  }
+  if (stats.notifsChecked > 0 || stats.notifSec > 0) {
+    items.push(`🔔 Kiểm tra <b>Thông báo</b> (${stats.notifSec || 12}s)`);
+  }
+  if (items.length === 0) {
+    return 'Tương tác mô phỏng người thật';
+  }
+  return items.map(t => `<div class="report-action-line">• ${t}</div>`).join('');
+}
+
+async function saveDetailedReport(statsOrReport, targetAcc = null) {
+  if (!statsOrReport) return;
+  const { warmupReports = [] } = await chrome.storage.local.get('warmupReports');
+
+  let reportItem = null;
+  if (statsOrReport.actions && statsOrReport.accName) {
+    reportItem = statsOrReport;
+  } else {
+    const acc = targetAcc || personalAccounts.find(a => a.id === currentWarmupAccountId || (a.name && a.name.trim().toLowerCase() === String(currentWarmupAccountName).trim().toLowerCase())) || {};
+    const durationSec = (statsOrReport.feedSec || 0) + (statsOrReport.reelsSec || 0) + (statsOrReport.notifSec || 0);
+    const durationStr = durationSec > 60 ? `${Math.round(durationSec / 60)} phút` : `${durationSec}s`;
+    const detailedActions = formatDetailedActions(statsOrReport);
+
+    reportItem = {
+      id: 'wm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      accId: acc.id || '',
+      accName: acc.name || currentWarmupAccountName || 'Tài khoản',
+      accUid: acc.fbId || acc.username || acc.id || '',
+      actions: detailedActions,
+      duration: durationStr,
+      status: 'success',
+      statusText: 'Thành công',
+      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      date: new Date().toLocaleDateString('vi-VN'),
+      timestamp: Date.now()
+    };
+  }
+
+  // Cập nhật nếu đã có bản ghi gần nhất cho nick này (trong vòng 45s) để tránh trùng lặp
+  const existingIdx = warmupReports.findIndex(r => r.accName === reportItem.accName && (Math.abs(Date.now() - (r.timestamp || 0)) < 45000));
+  if (existingIdx !== -1) {
+    warmupReports[existingIdx].actions = reportItem.actions;
+    warmupReports[existingIdx].duration = reportItem.duration;
+  } else {
+    warmupReports.unshift(reportItem);
+  }
+
+  if (warmupReports.length > 200) warmupReports.length = 200;
+  await chrome.storage.local.set({ warmupReports });
+  await renderReportTable();
+}
+
+async function renderReportTable() {
+  const tbody = $('warmupReportTableBody');
+  if (!tbody) return;
+
+  const { warmupReports = [] } = await chrome.storage.local.get('warmupReports');
+  if (!Array.isArray(warmupReports) || warmupReports.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:28px;color:var(--text-muted)">
+          Chưa có kết quả nuôi nào. Hãy chọn tài khoản và bấm <b>"Bắt đầu nuôi tự động"</b>.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let html = '';
+  warmupReports.forEach((item, idx) => {
+    const stt = idx + 1;
+    const isSuccess = item.status === 'success';
+    const badgeClass = isSuccess ? 'badge-done' : 'badge-danger';
+    const badgeText = isSuccess ? 'Thành công' : (item.statusText || 'Thất bại');
+    const timeDisplay = item.time || (item.timestamp ? new Date(item.timestamp).toLocaleTimeString('vi-VN') : '--');
+    const dateDisplay = item.date || (item.timestamp ? new Date(item.timestamp).toLocaleDateString('vi-VN') : '');
+    const timeFull = dateDisplay ? `${timeDisplay} ${dateDisplay}` : timeDisplay;
+
+    html += `
+      <tr>
+        <td style="text-align:center;font-weight:600;color:var(--text-muted)">${stt}</td>
+        <td>
+          <div style="font-weight:700;color:var(--text)">${escapeHtml(item.accName || 'Tài khoản')}</div>
+          <div style="font-size:11px;color:var(--text-muted);font-family:monospace">${escapeHtml(item.accUid || '')}</div>
+        </td>
+        <td style="font-size:12px;color:var(--text);line-height:1.5">
+          <div class="report-actions-detail">${item.actions || 'Tương tác chung'}</div>
+        </td>
+        <td style="text-align:center;font-weight:600;color:var(--text)">${escapeHtml(item.duration || '--')}</td>
+        <td style="text-align:center">
+          <span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+        </td>
+        <td style="text-align:center;font-size:11.5px;color:var(--text-muted);white-space:nowrap">${escapeHtml(timeFull)}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+}
+
+// ── 9. Gắn sự kiện giao diện ────────────────────────────────────────────────
 $('rangeDuration')?.addEventListener('input', updateSliderLabels);
 $('rangeBreakDelay')?.addEventListener('input', updateSliderLabels);
 
@@ -404,6 +740,10 @@ $('chkLike')?.addEventListener('change', saveCurrentConfig);
 $('selectMaxLikes')?.addEventListener('change', saveCurrentConfig);
 $('chkReels')?.addEventListener('change', saveCurrentConfig);
 $('chkNotif')?.addEventListener('change', saveCurrentConfig);
+
+$('btnStartWarmup')?.addEventListener('click', startWarmup);
+$('btnStopWarmup')?.addEventListener('click', togglePauseWarmup);
+$('btnCancelWarmup')?.addEventListener('click', cancelWarmup);
 
 $('btnFocusFbTab')?.addEventListener('click', async () => {
   try {
@@ -456,294 +796,31 @@ $('btnClearReport')?.addEventListener('click', async () => {
   }
 });
 
-// Hàm hiển thị bảng báo cáo kết quả nuôi tài khoản
-async function renderReportTable() {
-  const tbody = $('warmupReportTableBody');
-  if (!tbody) return;
-
-  const { warmupReports = [] } = await chrome.storage.local.get('warmupReports');
-  if (!Array.isArray(warmupReports) || warmupReports.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" style="text-align:center;padding:28px;color:var(--text-muted)">
-          Chưa có kết quả nuôi nào. Hãy chọn tài khoản và bấm <b>"Bắt đầu nuôi tự động"</b>.
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  let html = '';
-  warmupReports.forEach((item, idx) => {
-    const stt = idx + 1;
-    const isSuccess = item.status === 'success';
-    const badgeClass = isSuccess ? 'badge-done' : 'badge-danger';
-    const badgeText = isSuccess ? 'Thành công' : (item.statusText || 'Thất bại');
-    const timeDisplay = item.time || (item.timestamp ? new Date(item.timestamp).toLocaleTimeString('vi-VN') : '--');
-    const dateDisplay = item.date || (item.timestamp ? new Date(item.timestamp).toLocaleDateString('vi-VN') : '');
-    const timeFull = dateDisplay ? `${timeDisplay} ${dateDisplay}` : timeDisplay;
-
-    html += `
-      <tr>
-        <td style="text-align:center;font-weight:600;color:var(--text-muted)">${stt}</td>
-        <td>
-          <div style="font-weight:700;color:var(--text)">${escapeHtml(item.accName || 'Tài khoản')}</div>
-          <div style="font-size:11px;color:var(--text-muted);font-family:monospace">${escapeHtml(item.accUid || '')}</div>
-        </td>
-        <td style="font-size:12px;color:var(--text);line-height:1.5">
-          <div class="report-actions-detail">${item.actions || 'Tương tác chung'}</div>
-        </td>
-        <td style="text-align:center;font-weight:600;color:var(--text)">${escapeHtml(item.duration || '--')}</td>
-        <td style="text-align:center">
-          <span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>
-        </td>
-        <td style="text-align:center;font-size:11.5px;color:var(--text-muted);white-space:nowrap">${escapeHtml(timeFull)}</td>
-      </tr>
-    `;
-  });
-
-  tbody.innerHTML = html;
-}
-
-// ── Định dạng báo cáo chi tiết các hành động đã thực hiện ──────────────────
-function formatDetailedActions(stats) {
-  if (!stats) return 'Tương tác chung';
-  const items = [];
-  if (stats.feedPosts > 0 || stats.feedSec > 0) {
-    items.push(`📰 Lướt <b>${stats.feedPosts || 1} bài</b> Bảng tin (${stats.feedSec || 0}s)`);
-  }
-  if (stats.likesGiven > 0) {
-    items.push(`❤️ Đã thả <b>${stats.likesGiven} Like/Tim</b> bài viết`);
-  } else if (stats.likesEnabled) {
-    items.push(`❤️ Đã kiểm tra Like bài viết`);
-  }
-  if (stats.reelsWatched > 0 || stats.reelsSec > 0) {
-    const likeStr = stats.reelsLiked > 0 ? `, thả tim ${stats.reelsLiked}` : '';
-    items.push(`🎬 Xem <b>${stats.reelsWatched} Video Reels</b> (${stats.reelsSec || 0}s${likeStr})`);
-  }
-  if (stats.notifsChecked > 0 || stats.notifSec > 0) {
-    items.push(`🔔 Kiểm tra <b>Thông báo</b> (${stats.notifSec || 12}s)`);
-  }
-  if (items.length === 0) {
-    return 'Tương tác mô phỏng người thật';
-  }
-  return items.map(t => `<div class="report-action-line">• ${t}</div>`).join('');
-}
-
-// ── Lưu bản ghi báo cáo chi tiết vào Storage và cập nhật bảng ──────────────
-async function saveDetailedReport(stats) {
-  if (!stats) return;
-  const { warmupReports = [] } = await chrome.storage.local.get('warmupReports');
-  const acc = personalAccounts.find(a => a.id === currentWarmupAccountId || (a.name && a.name.trim().toLowerCase() === String(currentWarmupAccountName).trim().toLowerCase())) || {};
-  const durationSec = (stats.feedSec || 0) + (stats.reelsSec || 0) + (stats.notifSec || 0);
-  const durationStr = durationSec > 60 ? `${Math.round(durationSec / 60)} phút` : `${durationSec}s`;
-
-  // Kiểm tra xem đã có bản ghi vừa tạo trong vòng 5 giây trước không để cập nhật thay vì tạo trùng
-  const existingIdx = warmupReports.findIndex(r => r.accName === (acc.name || currentWarmupAccountName) && (Date.now() - r.timestamp < 30000));
-  const detailedActions = formatDetailedActions(stats);
-
-  if (existingIdx !== -1) {
-    warmupReports[existingIdx].actions = detailedActions;
-    warmupReports[existingIdx].duration = durationStr;
-  } else {
-    warmupReports.unshift({
-      id: 'wm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      accId: acc.id || '',
-      accName: acc.name || currentWarmupAccountName || 'Tài khoản',
-      accUid: acc.fbId || acc.username || acc.id || '',
-      actions: detailedActions,
-      duration: durationStr,
-      status: 'success',
-      statusText: 'Thành công',
-      time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      date: new Date().toLocaleDateString('vi-VN'),
-      timestamp: Date.now()
-    });
-  }
-
-  if (warmupReports.length > 200) warmupReports.length = 200;
-  await chrome.storage.local.set({ warmupReports });
-  await renderReportTable();
-}
-
-// ── Đồng bộ giao diện Bảng tài khoản theo thời gian thực ─────────────────────
-function updateUIForCurrentAccount(currentIdx, total, accName) {
-  isRunning = true;
-  isPaused = false;
-  currentWarmupAccountName = accName;
-
-  $('btnStartWarmup').disabled = true;
-  $('btnStopWarmup').disabled = false;
-  $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
-  $('btnCancelWarmup').disabled = false;
-  if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
-  $('progressSection').style.display = 'block';
-
-  const percent = Math.round(((currentIdx - 1) / total) * 100);
-  $('progressFill').style.width = `${percent}%`;
-  $('progressText').textContent = `Tiến trình: Tài khoản ${currentIdx}/${total} (${percent}%)`;
-  $('statWarmupStatus').textContent = `Nuôi: ${accName}`;
-  $('statWarmupStatus').style.color = '#f59e0b';
-
-  let foundTarget = false;
-  personalAccounts.forEach((acc, idx) => {
-    const isTarget = acc.name && (acc.name.trim().toLowerCase() === accName.trim().toLowerCase());
-    const rowIdx = idx + 1;
-    if (isTarget || (!foundTarget && rowIdx === currentIdx)) {
-      foundTarget = true;
-      currentWarmupAccountId = acc.id;
-      updateAccountBadge(acc.id, 'running', 'Đang nuôi...');
-    } else if (rowIdx < currentIdx) {
-      updateAccountBadge(acc.id, 'done', 'Hoàn thành');
-    } else {
-      updateAccountBadge(acc.id, 'waiting', 'Đang chờ...');
-    }
-  });
-}
-
-function markAccountDoneByName(accName) {
-  const acc = personalAccounts.find(a => a.name && a.name.trim().toLowerCase() === accName.trim().toLowerCase());
-  if (acc) {
-    updateAccountBadge(acc.id, 'done', 'Hoàn thành');
-    updateAccountLastWarmup(acc.id, Date.now());
-    const row = $(`rowAcc_${acc.id}`);
-    if (row && row.children[3]) {
-      row.children[3].textContent = new Date().toLocaleString('vi-VN');
-    }
-  }
-}
-
-function startBreakCountdownUI(sec) {
-  let remaining = sec;
-  $('statWarmupStatus').textContent = 'Nghỉ an toàn';
-  $('statWarmupStatus').style.color = '#3b82f6';
-  $('countdownText').textContent = `☕ Nghỉ đổi nick: ${remaining}s`;
-  stopLiveCountdown();
-  countdownInterval = setInterval(() => {
-    remaining--;
-    if (remaining <= 0) {
-      stopLiveCountdown();
-      $('countdownText').textContent = 'Đang chuyển tài khoản tiếp theo...';
-    } else {
-      $('countdownText').textContent = `☕ Nghỉ đổi nick: ${remaining}s`;
-    }
-  }, 1000);
-}
-
-function finishWarmupCampaign() {
-  isRunning = false;
-  isPaused = false;
-  stopLiveCountdown();
-
-  $('btnStartWarmup').disabled = false;
-  $('btnStopWarmup').disabled = true;
-  $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
-  $('btnCancelWarmup').disabled = true;
-  if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
-
-  $('progressFill').style.width = '100%';
-  $('statWarmupStatus').textContent = 'Hoàn tất';
-  $('statWarmupStatus').style.color = '#10b981';
-  $('countdownText').textContent = 'Hoàn tất toàn bộ!';
-
-  personalAccounts.forEach(acc => {
-    const badge = $(`statusBadge_${acc.id}`);
-    if (badge && (badge.innerText.includes('Đang nuôi') || badge.innerText.includes('Đang chờ'))) {
-      updateAccountBadge(acc.id, 'done', 'Hoàn thành');
-    }
-  });
-
-  appendLog('🏆 Đã hoàn tất đợt nuôi cho toàn bộ danh sách tài khoản đã chọn!', '🎉');
-}
-
-function applyWarmupStatus(s) {
-  if (!s) return;
-  if (s.running) {
-    isRunning = true;
-    isPaused = false;
-    $('btnStartWarmup').disabled = true;
-    $('btnStopWarmup').disabled = false;
-    $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
-    $('btnCancelWarmup').disabled = false;
-    if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
-    $('progressSection').style.display = 'block';
-
-    $('statWarmupStatus').textContent = s.currentAccountName ? `Nuôi: ${s.currentAccountName}` : 'Đang nuôi...';
-    $('statWarmupStatus').style.color = '#f59e0b';
-
-    if (s.progressPercent !== undefined) {
-      $('progressFill').style.width = `${s.progressPercent}%`;
-      $('progressText').textContent = `Tiến trình: Tài khoản ${s.currentIndex || 1}/${s.totalAccounts || 1} (${s.progressPercent}%)`;
-    }
-    if (s.currentAccountId) {
-      updateAccountBadge(s.currentAccountId, 'running', 'Đang nuôi...');
-    }
-    if (s.remainingSec !== undefined) {
-      const m = Math.floor(s.remainingSec / 60);
-      const sec = s.remainingSec % 60;
-      $('countdownText').textContent = s.statusText ? `${s.statusText} (${m}m ${sec.toString().padStart(2, '0')}s)` : `Còn lại: ${m}m ${sec.toString().padStart(2, '0')}s`;
-    } else if (s.statusText) {
-      $('countdownText').textContent = s.statusText;
-    }
-  } else {
-    if (isRunning) {
-      isRunning = false;
-      isPaused = false;
-      $('btnStartWarmup').disabled = false;
-      $('btnStopWarmup').disabled = true;
-      $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
-      $('btnCancelWarmup').disabled = true;
-      if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
-      $('statWarmupStatus').textContent = 'Sẵn sàng';
-      $('statWarmupStatus').style.color = '#10b981';
-      $('countdownText').textContent = 'Hoàn tất!';
-    }
-  }
-}
-
-$('btnStartWarmup')?.addEventListener('click', startWarmup);
-$('btnStopWarmup')?.addEventListener('click', togglePauseWarmup);
-$('btnCancelWarmup')?.addEventListener('click', cancelWarmup);
-
-// ── 9. Khởi động trang ──────────────────────────────────────────────────────
+// ── 10. Khởi động trang Web ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
   await loadAccounts();
   await renderReportTable();
 
-  // Kiểm tra trạng thái nuôi ngầm từ worker
-  const status = await chrome.runtime.sendMessage({ type: 'WARMUP_GET_STATUS' }).catch(() => null);
-  const { warmupStatus } = await chrome.storage.local.get('warmupStatus');
-
-  const isActuallyRunning = Boolean(status?.running);
-  const isStale = warmupStatus?.startedAt && (Date.now() - warmupStatus.startedAt > 60 * 60 * 1000);
-
-  if (!isActuallyRunning || isStale) {
-    if (warmupStatus?.running) {
-      await chrome.storage.local.set({ warmupStatus: { running: false, currentIndex: 0, progressPercent: 0 } });
-    }
-    isRunning = false;
-    isPaused = false;
-    $('btnStartWarmup').disabled = false;
-    $('btnStopWarmup').disabled = true;
-    $('btnStopWarmup').querySelector('span').textContent = '⏸️ Tạm dừng';
-    $('btnCancelWarmup').disabled = true;
-    if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'none';
-    $('statWarmupStatus').textContent = 'Sẵn sàng';
-    $('statWarmupStatus').style.color = '#10b981';
-    $('countdownText').textContent = 'Sẵn sàng';
-  } else {
-    applyWarmupStatus(warmupStatus);
-    appendLog('Tiến trình nuôi tài khoản đang chạy ngầm trong hệ thống.');
+  // Kiểm tra trạng thái đã lưu trong localStorage của Web trước
+  const savedStr = localStorage.getItem('ntd_web_warmup_state');
+  if (savedStr) {
+    try {
+      const saved = JSON.parse(savedStr);
+      const elapsedSec = Math.floor((Date.now() - (saved.savedAt || Date.now())) / 1000);
+      if (saved.running && elapsedSec < 2 * 60 * 60) {
+        resumeWarmupFromSaved(saved, elapsedSec);
+        return;
+      }
+    } catch (_) {}
   }
+
+  // Nếu không có tiến trình chạy trước đó, đặt lại giao diện sẵn sàng
+  resetWarmupUI();
 });
 
-// Lắng nghe cập nhật trạng thái nuôi từ Background Worker
+// Lắng nghe cập nhật từ chrome.storage (báo cáo, danh sách tài khoản)
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.warmupStatus) {
-    const s = changes.warmupStatus.newValue;
-    applyWarmupStatus(s);
-  }
   if (area === 'local' && changes.warmupReports) {
     renderReportTable();
   }
@@ -752,48 +829,29 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Lắng nghe log thời gian thực & trạng thái từ Background Worker & Content Script
+// Lắng nghe log thời gian thực & sự kiện từ Tiện ích mở rộng / Background Worker
 chrome.runtime.onMessage.addListener(m => {
-  if (m?.type === 'WARMUP_LOG_EVENT' && m.text) {
+  if (!m) return;
+
+  if (m.type === 'WARMUP_LOG_EVENT' && m.text) {
     appendLog(m.text);
 
-    // 1. Nhận diện bắt đầu tài khoản
+    // Đồng bộ chuyển nick nếu worker báo chuyển sang nick mới
     const matchStart = m.text.match(/👉\s*BẮT ĐẦU TÀI KHOẢN\s*\[(\d+)\/(\d+)\]:\s*(.+)/i);
-    if (matchStart) {
-      const currentIdx = parseInt(matchStart[1]);
-      const total = parseInt(matchStart[2]);
-      const accName = matchStart[3].trim();
-      updateUIForCurrentAccount(currentIdx, total, accName);
-    }
-
-    // 2. Nhận diện hoàn tất tài khoản
-    const matchDone = m.text.match(/Đã hoàn tất nuôi cho tài khoản\s*["'«“](.+?)["'»”]/i);
-    if (matchDone) {
-      markAccountDoneByName(matchDone[1].trim());
-    }
-
-    // 3. Nhận diện nghỉ an toàn
-    const matchBreak = m.text.match(/☕\s*Nghỉ an toàn\s*(\d+)\s*giây/i);
-    if (matchBreak) {
-      const sec = parseInt(matchBreak[1]);
-      startBreakCountdownUI(sec);
-    }
-
-    // 4. Nhận diện kết thúc chiến dịch
-    if (m.text.includes('🏆') || m.text.includes('HOÀN TẤT ĐỢT NUÔI')) {
-      finishWarmupCampaign();
+    if (matchStart && warmupState.running) {
+      const accIndex = parseInt(matchStart[1]) - 1;
+      if (accIndex >= 0 && accIndex < warmupState.targetAccounts.length && accIndex !== warmupState.currentIndex) {
+        startAccountWarmupUI(accIndex);
+      }
     }
   }
 
-  if (m?.type === 'WARMUP_EVENT' && m.event === 'log' && m.text) {
+  if (m.type === 'WARMUP_EVENT' && m.event === 'log' && m.text) {
     appendLog(m.text);
   }
 
-  if (m?.type === 'WARMUP_STATUS_EVENT' && m.status) {
-    applyWarmupStatus(m.status);
-  }
-
-  if (m?.type === 'WARMUP_SESSION_REPORT' && m.stats) {
-    saveDetailedReport(m.stats);
+  if (m.type === 'WARMUP_SESSION_REPORT') {
+    if (m.stats) saveDetailedReport(m.stats);
+    else if (m.report) saveDetailedReport(m.report);
   }
 });

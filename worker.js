@@ -2647,9 +2647,26 @@ async function stopFbGroupScan() {
 }
 
 // ── Facebook Account Warmup Background Loop ──────────────────────────────────
+function broadcastWarmupMessage(msg) {
+  try {
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch (_) {}
+  try {
+    if (chrome.tabs?.query) {
+      chrome.tabs.query({}, (tabs) => {
+        if (Array.isArray(tabs)) {
+          for (const t of tabs) {
+            if (t && t.id) chrome.tabs.sendMessage(t.id, msg).catch(() => {});
+          }
+        }
+      });
+    }
+  } catch (_) {}
+}
+
 function broadcastWarmupLog(text, icon = 'ℹ️') {
   const time = new Date().toLocaleTimeString('vi-VN');
-  chrome.runtime.sendMessage({ type: 'WARMUP_LOG_EVENT', text, icon, time }).catch(() => {});
+  broadcastWarmupMessage({ type: 'WARMUP_LOG_EVENT', text, icon, time });
 }
 
 async function runWarmupLoop(accountIds, config) {
@@ -2858,7 +2875,7 @@ async function runWarmupLoop(accountIds, config) {
               startedAt: waitStartTime
             };
             await chrome.storage.local.set({ warmupStatus: statusUpdate }).catch(() => {});
-            chrome.runtime.sendMessage({ type: 'WARMUP_STATUS_EVENT', status: statusUpdate }).catch(() => {});
+            broadcastWarmupMessage({ type: 'WARMUP_STATUS_EVENT', status: statusUpdate });
           }
 
           // Phiên tương tác đã hoàn thành đủ thời lượng: Gửi lệnh dừng tương tác
@@ -2915,12 +2932,10 @@ async function runWarmupLoop(accountIds, config) {
         } catch (_) {}
 
         // Phát sóng báo cáo chi tiết cho Web UI
-        try {
-          chrome.runtime.sendMessage({
-            type: 'WARMUP_SESSION_REPORT',
-            report: reportItem
-          }).catch(() => {});
-        } catch (_) {}
+        broadcastWarmupMessage({
+          type: 'WARMUP_SESSION_REPORT',
+          report: reportItem
+        });
 
         if (isSuccess) {
           broadcastWarmupLog(`Đã hoàn tất nuôi cho tài khoản "${acc.name}".`, '✅');
@@ -3315,10 +3330,10 @@ function handleRuntimeMessage(m, sender, reply) {
       if (!mapsScanRunning) chrome.power?.releaseKeepAwake?.();
     } catch (_) {}
     broadcastWarmupLog('🛑 Đã tắt hẳn chiến dịch nuôi tài khoản và đóng tab Facebook.', '🛑');
-    chrome.runtime.sendMessage({
+    broadcastWarmupMessage({
       type: 'WARMUP_STATUS_EVENT',
       status: { running: false, currentIndex: 0, progressPercent: 0 }
-    }).catch(() => {});
+    });
     reply({ ok: true, cancelled: true });
     return true;
   }
