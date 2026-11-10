@@ -225,10 +225,12 @@
       const tryBridge = () => {
         if (typeof window !== 'undefined') {
           const requestId = 'req_' + Math.random().toString(36).slice(2);
+          const isFastProbe = Boolean(message?.probe) && document.documentElement.dataset.ntdExtensionConnected !== 'true';
+          const timeoutMs = isFastProbe ? 450 : 4000;
           const timer = setTimeout(() => {
             window.removeEventListener('message', handler);
             done({ ok: false, error: 'Extension Runner timeout' });
-          }, 4000);
+          }, timeoutMs);
 
           const handler = (e) => {
             if (e.data && e.data.source === 'ntd_extension_bridge' && e.data.requestId === requestId) {
@@ -296,7 +298,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261110_1130')
+    _workerLoadPromise = import('./worker.js?v=20261110_1200')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
@@ -411,6 +413,14 @@
         } catch (_) {}
       }
 
+      const GROUP_SEARCH_CMDS = new Set([
+        'GROUP_SEARCH_START',
+        'GROUP_SEARCH_STOP',
+        'GROUP_SEARCH_GET_STATUS',
+        'GROUP_SEARCH_SHOW_TAB'
+      ]);
+      const isGroupSearchCmd = Boolean(message?.type && GROUP_SEARCH_CMDS.has(message.type));
+
       if (message?.type && EXT_PRIVILEGED.has(message.type) && typeof window.chrome?.runtime?.sendToExtension === 'function') {
         try {
           const extResp = await window.chrome.runtime.sendToExtension(message);
@@ -419,6 +429,19 @@
             return;
           }
         } catch (_) {}
+      }
+
+      // Trên Web Platform: nếu Extension không cài đặt hoặc phiên bản Extension cũ chưa hỗ trợ GROUP_SEARCH_*,
+      // trả về webFallback ngay, tuyệt đối không rơi xuống worker.js chạy lặp 25 vòng vô ích trong tab Web.
+      if (isGroupSearchCmd) {
+        sendResponse({
+          ok: false,
+          webFallback: true,
+          extensionUnsupported: true,
+          running: false,
+          error: 'Web environment: Extension unavailable or does not support GROUP_SEARCH'
+        });
+        return;
       }
 
       // Xử lý các listeners nội bộ tab trước

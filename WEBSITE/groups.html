@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>Tổng hợp nhóm &amp; Danh mục – NTD Agency</title>
-  <script src="web_adapter.js?v=20261110_1130"></script>
+  <script src="web_adapter.js?v=20261110_1200"></script>
   <script>
     (function() {
       var t = localStorage.getItem('ntd_theme') || 'dark';
@@ -113,10 +113,167 @@
       border-color: #ed6b22 !important;
       color: #fb923c !important;
     }
+    html.ntd-dark-theme .scan-pill.total,
+    body.ntd-dark-theme .scan-pill.total {
+      background: rgba(148, 163, 184, 0.14) !important;
+      color: #e2e8f0 !important;
+      border: 1px solid rgba(148, 163, 184, 0.25) !important;
+    }
+    html.ntd-dark-theme .scan-pill.public,
+    body.ntd-dark-theme .scan-pill.public {
+      background: rgba(14, 165, 233, 0.15) !important;
+      color: #38bdf8 !important;
+      border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    }
+    html.ntd-dark-theme .scan-pill.free,
+    body.ntd-dark-theme .scan-pill.free {
+      background: rgba(16, 185, 129, 0.15) !important;
+      color: #34d399 !important;
+      border: 1px solid rgba(16, 185, 129, 0.35) !important;
+    }
+    html.ntd-dark-theme .scan-pill.approval,
+    body.ntd-dark-theme .scan-pill.approval {
+      background: rgba(245, 158, 11, 0.15) !important;
+      color: #fbbf24 !important;
+      border: 1px solid rgba(245, 158, 11, 0.35) !important;
+    }
+    html.ntd-dark-theme .scan-pill.private,
+    body.ntd-dark-theme .scan-pill.private {
+      background: rgba(168, 85, 247, 0.16) !important;
+      color: #d8b4fe !important;
+      border: 1px solid rgba(192, 132, 252, 0.35) !important;
+    }
     html.ntd-dark-theme .scan-pill.dupes {
       background: rgba(245, 158, 11, 0.15) !important;
       color: #fbbf24 !important;
       border: 1px solid rgba(245, 158, 11, 0.35) !important;
+    }
+    html.ntd-dark-theme .scan-pill.skipped,
+    body.ntd-dark-theme .scan-pill.skipped {
+      background: rgba(239, 68, 68, 0.14) !important;
+      color: #fca5a5 !important;
+      border: 1px solid rgba(239, 68, 68, 0.35) !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn,
+    body.ntd-dark-theme .filter-pill-btn {
+      background: rgba(255, 255, 255, 0.05) !important;
+      border-color: rgba(255, 255, 255, 0.12) !important;
+      color: #cbd5e1 !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn:hover,
+    body.ntd-dark-theme .filter-pill-btn:hover {
+      background: rgba(255, 255, 255, 0.11) !important;
+      color: #ffffff !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn.active,
+    body.ntd-dark-theme .filter-pill-btn.active {
+      background: #2563eb !important;
+      border-color: #3b82f6 !important;
+      color: #ffffff !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn.active.public,
+    body.ntd-dark-theme .filter-pill-btn.active.public {
+      background: #0284c7 !important;
+      border-color: #38bdf8 !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn.active.free,
+    body.ntd-dark-theme .filter-pill-btn.active.free {
+      background: #059669 !important;
+      border-color: #10b981 !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn.active.approval,
+    body.ntd-dark-theme .filter-pill-btn.active.approval {
+      background: #d97706 !important;
+      border-color: #f59e0b !important;
+    }
+    html.ntd-dark-theme .filter-pill-btn.active.private,
+    body.ntd-dark-theme .filter-pill-btn.active.private {
+      background: #7e22ce !important;
+      border-color: #a855f7 !important;
+    }
+    html.ntd-dark-theme .badge-status.uninspected,
+    body.ntd-dark-theme .badge-status.uninspected {
+      background: rgba(148, 163, 184, 0.16) !important;
+      color: #cbd5e1 !important;
+    }
+    html.ntd-dark-theme .badge-status.private,
+    body.ntd-dark-theme .badge-status.private {
+      background: rgba(168, 85, 247, 0.2) !important;
+      color: #d8b4fe !important;
+    }
+    html.ntd-dark-theme .privacy-badge.public,
+    body.ntd-dark-theme .privacy-badge.public {
+      background: rgba(16, 185, 129, 0.16) !important;
+      color: #34d399 !important;
+      border-color: rgba(16, 185, 129, 0.35) !important;
+    }
+    html.ntd-dark-theme .privacy-badge.private,
+    body.ntd-dark-theme .privacy-badge.private {
+      background: rgba(168, 85, 247, 0.16) !important;
+      color: #d8b4fe !important;
+      border-color: rgba(168, 85, 247, 0.35) !important;
+    }
+    html.ntd-dark-theme .privacy-badge.unknown,
+    body.ntd-dark-theme .privacy-badge.unknown {
+      background: rgba(148, 163, 184, 0.14) !important;
+      color: #94a3b8 !important;
+      border-color: rgba(148, 163, 184, 0.25) !important;
+    }
+    html.ntd-dark-theme .web-scan-notice,
+    body.ntd-dark-theme .web-scan-notice {
+      background: rgba(14, 165, 233, 0.12) !important;
+      border-color: rgba(56, 189, 248, 0.3) !important;
+      color: #bae6fd !important;
+    }
+    html.ntd-dark-theme .web-scan-assist-box,
+    body.ntd-dark-theme .web-scan-assist-box {
+      background: rgba(15, 23, 42, 0.85) !important;
+      border-color: rgba(237, 107, 34, 0.45) !important;
+      color: #e2e8f0 !important;
+    }
+    html.ntd-dark-theme .web-assist-sub,
+    body.ntd-dark-theme .web-assist-sub {
+      color: #cbd5e1 !important;
+    }
+    html.ntd-dark-theme .web-assist-sub code,
+    body.ntd-dark-theme .web-assist-sub code {
+      background: rgba(255, 255, 255, 0.12) !important;
+      color: #fde68a !important;
+      border-color: rgba(255, 255, 255, 0.18) !important;
+    }
+    html.ntd-dark-theme .web-kw-pill,
+    body.ntd-dark-theme .web-kw-pill {
+      background: rgba(255, 255, 255, 0.06) !important;
+      border-color: rgba(255, 255, 255, 0.14) !important;
+      color: #cbd5e1 !important;
+    }
+    html.ntd-dark-theme .web-kw-pill.active,
+    body.ntd-dark-theme .web-kw-pill.active {
+      background: rgba(237, 107, 34, 0.24) !important;
+      border-color: #fb923c !important;
+      color: #fed7aa !important;
+    }
+    html.ntd-dark-theme .web-paste-dropzone,
+    body.ntd-dark-theme .web-paste-dropzone {
+      background: #070b14 !important;
+      border-color: rgba(56, 189, 248, 0.45) !important;
+      color: #e2e8f0 !important;
+    }
+    html.ntd-dark-theme .web-paste-dropzone:empty::before,
+    body.ntd-dark-theme .web-paste-dropzone:empty::before {
+      color: #94a3b8 !important;
+    }
+    html.ntd-dark-theme .web-capture-feedback.ok,
+    body.ntd-dark-theme .web-capture-feedback.ok {
+      background: rgba(16, 185, 129, 0.14) !important;
+      border-color: rgba(16, 185, 129, 0.35) !important;
+      color: #6ee7b7 !important;
+    }
+    html.ntd-dark-theme .web-capture-feedback.warn,
+    body.ntd-dark-theme .web-capture-feedback.warn {
+      background: rgba(245, 158, 11, 0.14) !important;
+      border-color: rgba(245, 158, 11, 0.35) !important;
+      color: #fcd34d !important;
     }
     html.ntd-dark-theme .modal-box,
     body.ntd-dark-theme .modal-box {
@@ -772,10 +929,171 @@
     }
 
     .scan-pill.total { background: #f1f5f9; color: #334155; }
+    .scan-pill.public { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
     .scan-pill.free { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
     .scan-pill.approval { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
     .scan-pill.private { background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }
     .scan-pill.dupes { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .scan-pill.skipped { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+    .privacy-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .privacy-badge.public { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .privacy-badge.private { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
+    .privacy-badge.unknown { background: #f1f5f9; color: #64748b; border-color: #cbd5e1; }
+
+    /* Web Assisted Scanner UI */
+    .web-scan-notice {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      color: #0369a1;
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+
+    .web-scan-assist-box {
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 12px;
+      background: #fffaf5;
+      border: 1.5px dashed #fb923c;
+      color: #1e293b;
+    }
+
+    .web-assist-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .web-assist-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .web-assist-sub {
+      font-size: 12.5px;
+      line-height: 1.6;
+      color: #475569;
+    }
+
+    .web-assist-sub code {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .web-kw-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .web-kw-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .web-kw-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .web-kw-pill {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 16px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .web-kw-pill.active {
+      background: #fff7ed;
+      border-color: #ed6b22;
+      color: #c2410c;
+      font-weight: 700;
+    }
+
+    .web-assist-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: stretch;
+      margin-top: 14px;
+    }
+
+    .web-paste-dropzone {
+      flex: 1.3;
+      min-width: 240px;
+      min-height: 42px;
+      max-height: 76px;
+      overflow: hidden;
+      padding: 10px 14px;
+      border-radius: 9px;
+      border: 1.5px dashed #38bdf8;
+      background: #fff;
+      color: #0f172a;
+      font-size: 12.5px;
+      line-height: 1.45;
+      cursor: text;
+      outline: none;
+      display: flex;
+      align-items: center;
+      box-sizing: border-box;
+    }
+
+    .web-paste-dropzone:focus {
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.16);
+    }
+
+    .web-paste-dropzone:empty::before {
+      content: attr(data-placeholder);
+      color: #64748b;
+      pointer-events: none;
+    }
+
+    .web-capture-feedback {
+      margin-top: 12px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      line-height: 1.45;
+      border: 1px solid transparent;
+    }
+    .web-capture-feedback.ok { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+    .web-capture-feedback.warn { background: #fffbeb; border-color: #fde68a; color: #b45309; }
 
     /* Filter bar & Batch actions */
     .filter-bar {
@@ -821,6 +1139,11 @@
       border-color: #0f172a;
     }
 
+    .filter-pill-btn.active.public {
+      background: #0284c7;
+      border-color: #0284c7;
+    }
+
     .filter-pill-btn.active.free {
       background: #059669;
       border-color: #059669;
@@ -829,6 +1152,11 @@
     .filter-pill-btn.active.approval {
       background: #d97706;
       border-color: #d97706;
+    }
+
+    .filter-pill-btn.active.private {
+      background: #7e22ce;
+      border-color: #7e22ce;
     }
 
     .batch-actions-group {
@@ -1024,6 +1352,10 @@
         </div>
       </div>
 
+      <div id="webScanNotice" class="web-scan-notice" style="display:none">
+        🌐 <strong>Chế độ Web trực tiếp:</strong> Lọc ngay nhóm <strong>Công khai / Riêng tư</strong>, <strong>Số thành viên tối thiểu</strong> &amp; <strong>Chống trùng</strong> khi bạn copy kết quả từ tab tìm kiếm Facebook (mục <em>Kiểm định duyệt bài từng nhóm</em> chỉ tự động kiểm tra sâu từng nhóm nếu dùng trang nội bộ Extension).
+      </div>
+
       <!-- Tùy chọn chống quét trùng nhóm -->
       <div style="margin-top:14px;padding:12px 14px;background:var(--bg-input, #f8fafc);border:1px solid var(--border);border-radius:10px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1085,11 +1417,42 @@
       <!-- Real-time Stat Pills -->
       <div class="scan-stat-pills">
         <div class="scan-pill total">Tổng tìm thấy: <span id="cntTotal">0</span></div>
+        <div class="scan-pill public">Công khai: <span id="cntPublic">0</span></div>
         <div class="scan-pill free">Đăng tự do: <span id="cntFree">0</span></div>
         <div class="scan-pill approval">Cần kiểm duyệt: <span id="cntApproval">0</span></div>
         <div class="scan-pill private">Riêng tư: <span id="cntPrivate">0</span></div>
         <div class="scan-pill dupes">Đã lọc trùng: <span id="cntDupes">0</span></div>
-        <div class="scan-pill" id="pillLowMembers" style="display:none;background:#fef2f2;color:#b91c1c;border-color:#fecaca">Bỏ qua &lt;10k TV: <span id="cntLowMembers">0</span></div>
+        <div class="scan-pill skipped" id="pillFilteredPrivacy" style="display:none">Bỏ qua khác chế độ: <span id="cntFilteredPrivacy">0</span></div>
+        <div class="scan-pill skipped" id="pillLowMembers" style="display:none">Bỏ qua &lt;10k TV: <span id="cntLowMembers">0</span></div>
+      </div>
+
+      <!-- Web Assisted Scanner Box -->
+      <div id="webScanAssistBox" class="web-scan-assist-box" style="display:none">
+        <div class="web-assist-header">
+          <div>
+            <div class="web-assist-title">⚡ Thu thập &amp; lọc Công khai/Riêng tư trực tiếp trên Web</div>
+            <div class="web-assist-sub">
+              <strong>Bước 1:</strong> Ở tab Facebook vừa mở, cuộn xuống tải danh sách nhóm (có thể bật nút <strong>Nhóm công khai</strong> ở cột trái FB), sau đó bấm <code>Ctrl + A</code> → <code>Ctrl + C</code>.<br>
+              <strong>Bước 2:</strong> Quay lại đây bấm nút <strong>📥 Lấy danh sách nhóm vừa copy</strong> bên dưới (hoặc bấm trực tiếp <code>Ctrl + V</code>).
+            </div>
+          </div>
+          <a id="webScanOpenLink" href="https://www.facebook.com/search/groups/" target="_blank" rel="noopener noreferrer" class="act-btn" style="text-decoration:none;white-space:nowrap">🔗 Mở lại tab FB</a>
+        </div>
+
+        <div class="web-kw-bar" id="webScanKwBar" style="display:none">
+          <span class="web-kw-label">Từ khóa đang gom:</span>
+          <div id="webScanKeywordChips" class="web-kw-chips"></div>
+          <button type="button" class="chip-btn" id="webScanNextKwBtn" style="margin-left:auto">Từ khóa tiếp ➡</button>
+        </div>
+
+        <div class="web-assist-actions">
+          <button type="button" class="btn-submit" id="readClipboardGroupsBtn" style="flex:1;min-width:240px;margin-top:0">
+            📥 Lấy danh sách nhóm vừa copy (1 chạm)
+          </button>
+          <div id="webManualPasteZone" class="web-paste-dropzone" contenteditable="true" tabindex="0" data-placeholder="Hoặc click vào đây rồi bấm Ctrl + V để dán kết quả từ tab Facebook..."></div>
+        </div>
+
+        <div id="webCaptureFeedback" class="web-capture-feedback" style="display:none"></div>
       </div>
     </div>
 
@@ -1099,9 +1462,10 @@
         <!-- Filter Pills Group -->
         <div class="filter-pills-group" id="resultsFilterGroup">
           <button type="button" class="filter-pill-btn active" data-filter="all">Tất cả (<span id="pillCountAll">0</span>)</button>
+          <button type="button" class="filter-pill-btn public" data-filter="public">Công khai (<span id="pillCountPublic">0</span>)</button>
           <button type="button" class="filter-pill-btn free" data-filter="free">Đăng tự do (<span id="pillCountFree">0</span>)</button>
           <button type="button" class="filter-pill-btn approval" data-filter="approval">Cần kiểm duyệt (<span id="pillCountApproval">0</span>)</button>
-          <button type="button" class="filter-pill-btn" data-filter="private">Riêng tư (<span id="pillCountPrivate">0</span>)</button>
+          <button type="button" class="filter-pill-btn private" data-filter="private">Riêng tư (<span id="pillCountPrivate">0</span>)</button>
         </div>
 
         <!-- Batch Actions Group -->
@@ -1238,7 +1602,7 @@
 
 <div id="toast"></div>
 
-<script type="module" src="groups.js?v=20261110_1130"></script>
+<script type="module" src="groups.js?v=20261110_1200"></script>
 <script type="module" src="sidebar.js"></script>
 </body>
 </html>

@@ -1,6 +1,13 @@
 // groups.js – Quản lý kho nhóm và phân loại danh mục nhóm
 import { enforceLicenseGate } from './license.js';
 import { getGroupKey, getAllPostedGroupKeys } from './core.js';
+import {
+  extractCanonicalGroupKey,
+  normalizeGroupName,
+  parseMemberCount,
+  extractGroupsFromClipboardPayload,
+  filterAndPrepareImportedGroups
+} from './group_parser.js?v=20261110_1200';
 await enforceLicenseGate();
 
 const $ = id => document.getElementById(id);
@@ -647,13 +654,55 @@ $('clearKeywordBtn')?.addEventListener('click', () => {
 });
 
 // ── Scanner Engine State ──────────────────────────────────────────────────────
+const isNativeExtensionPage = (
+  window.location.protocol === 'chrome-extension:' ||
+  (Boolean(window.chrome?.runtime?.id) && window.chrome.runtime.id !== 'ntd-agency-webapp')
+);
+let extensionSupportsGroupSearch = isNativeExtensionPage;
+
 let isScanning = false;
 window.__ntdGroupScanning = false;
 let scanTabId = null;
 let currentScannedGroups = []; // Array of group items
-let currentActiveFilter = 'all'; // 'all' | 'free' | 'approval' | 'private'
+let currentActiveFilter = 'all'; // 'all' | 'public' | 'free' | 'approval' | 'private'
 let duplicateSkippedTotal = 0; // Đếm số nhóm trùng đã được lọc bỏ
 let lowMembersSkippedTotal = 0; // Đếm số nhóm không đủ số lượng thành viên tối thiểu
+let privacySkippedTotal = 0; // Đếm số nhóm bị lọc do khác chế độ Công khai / Riêng tư
+
+let webScanTabWin = null;
+const webScanState = {
+  active: false,
+  keywords: [],
+  activeKwIdx: 0,
+  perKwCounts: {}
+};
+
+function updateWebModeNoticeVisibility() {
+  const noticeEl = $('webScanNotice');
+  if (!noticeEl) return;
+  noticeEl.style.display = (!isNativeExtensionPage && !extensionSupportsGroupSearch) ? 'block' : 'none';
+}
+
+async function probeGroupSearchCapability() {
+  if (isNativeExtensionPage) {
+    extensionSupportsGroupSearch = true;
+    updateWebModeNoticeVisibility();
+    return true;
+  }
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_GET_STATUS', probe: true });
+    extensionSupportsGroupSearch = !!(resp && resp.ok && !resp.webFallback && !resp.extensionUnsupported);
+  } catch (_) {
+    extensionSupportsGroupSearch = false;
+  }
+  updateWebModeNoticeVisibility();
+  return extensionSupportsGroupSearch;
+}
+
+window.addEventListener('NTD_EXTENSION_READY', () => {
+  probeGroupSearchCapability();
+});
+probeGroupSearchCapability();
 
 let _saveScannedTimeout = null;
 async function saveScannedGroupsToStorage(immediate = false) {
@@ -711,73 +760,7 @@ async function restoreScannedGroupsFromStorage() {
 // Khôi phục nhóm đã quét từ storage ngay khi nạp trang
 await restoreScannedGroupsFromStorage();
 
-/**
- * Chuyển đổi chuỗi thành viên của Facebook sang số nguyên để lọc
- * Hỗ trợ: "87,4K", "239,6K", "1.2M", "1,2 triệu", "1.2 tr", "15.000", "15,000", v.v.
- */
-function parseMemberCount(str) {
-  if (!str || typeof str !== 'string') return 0;
-  const clean = str.trim().toLowerCase();
-  
-  // Khớp số và đơn vị phụ trợ (k, m, tr, triệu, tỷ, nghìn, ngàn)
-  const m = clean.match(/([\d.,]+)\s*(triệu|nghìn|ngàn|tỷ|tr|[km])?(?![a-z\u00C0-\u024F\u1EA0-\u1EF9])/i);
-  if (!m) return 0;
-
-  let numPart = m[1].trim();
-  const unit = (m[2] || '').toLowerCase();
-
-  if (unit) {
-    numPart = numPart.replace(',', '.');
-    const val = parseFloat(numPart);
-    if (isNaN(val)) return 0;
-    if (unit === 'k' || unit === 'nghìn' || unit === 'ngàn') {
-      return Math.round(val * 1000);
-    } else if (unit === 'm' || unit === 'triệu' || unit === 'tr') {
-      return Math.round(val * 1000000);
-    } else if (unit === 'tỷ') {
-      return Math.round(val * 1000000000);
-    }
-    return Math.round(val);
-  }
-
-  // Không có đơn vị: ví dụ "15.000", "15,000", "1.250.000"
-  if (/^\d{1,3}([.,]\d{3})+$/.test(numPart)) {
-    return parseInt(numPart.replace(/[.,]/g, ''), 10) || 0;
-  }
-
-  numPart = numPart.replace(',', '.');
-  const val = parseFloat(numPart);
-  return isNaN(val) ? 0 : Math.round(val);
-}
-
-// ── Canonical Key & Deduplication Helpers ─────────────────────────────────────
-function extractCanonicalGroupKey(url) {
-  if (!url || typeof url !== 'string') return null;
-  const clean = url.trim();
-  const match = clean.match(/\/groups\/([a-zA-Z0-9._-]+)/i);
-  if (match) {
-    const slug = match[1].toLowerCase();
-    if (!['feed', 'discover', 'joins', 'create', 'search', 'category'].includes(slug)) {
-      return slug;
-    }
-  }
-  if (/^\d{8,25}$/.test(clean)) {
-    return clean;
-  }
-  return null;
-}
-
-function normalizeGroupName(name) {
-  if (!name || typeof name !== 'string') return '';
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// (parseMemberCount, extractCanonicalGroupKey, normalizeGroupName được nạp từ group_parser.js)
 
 async function getScannedGroupHistory() {
   try {
@@ -856,26 +839,33 @@ chrome.storage?.local?.set?.({ isGroupScanning: false, groupScanTabId: null }).c
 
 function updateScanStats() {
   const total = currentScannedGroups.length;
+  const pub = currentScannedGroups.filter(g => g.privacy === 'Công khai').length;
   const free = currentScannedGroups.filter(g => g.approvalStatus === 'free').length;
   const approval = currentScannedGroups.filter(g => g.approvalStatus === 'approval').length;
   const priv = currentScannedGroups.filter(g => g.privacy === 'Riêng tư' || g.approvalStatus === 'private').length;
 
   if ($('cntTotal')) $('cntTotal').textContent = total;
+  if ($('cntPublic')) $('cntPublic').textContent = pub;
   if ($('cntFree')) $('cntFree').textContent = free;
   if ($('cntApproval')) $('cntApproval').textContent = approval;
   if ($('cntPrivate')) $('cntPrivate').textContent = priv;
   if ($('cntDupes')) $('cntDupes').textContent = duplicateSkippedTotal;
   if ($('cntLowMembers')) $('cntLowMembers').textContent = lowMembersSkippedTotal;
+  if ($('cntFilteredPrivacy')) $('cntFilteredPrivacy').textContent = privacySkippedTotal;
+
+  if ($('pillFilteredPrivacy')) {
+    $('pillFilteredPrivacy').style.display = privacySkippedTotal > 0 ? 'inline-flex' : 'none';
+  }
 
   if ($('pillLowMembers')) {
     const minMembers = parseInt($('scanMinMembers')?.value || '10000', 10);
     const labelText = minMembers >= 1000 ? `${Math.round(minMembers / 1000)}k` : `${minMembers}`;
-    const span = $('cntLowMembers');
     $('pillLowMembers').innerHTML = `Bỏ qua &lt;${labelText} TV: <span id="cntLowMembers">${lowMembersSkippedTotal}</span>`;
     $('pillLowMembers').style.display = lowMembersSkippedTotal > 0 ? 'inline-flex' : 'none';
   }
 
   if ($('pillCountAll')) $('pillCountAll').textContent = total;
+  if ($('pillCountPublic')) $('pillCountPublic').textContent = pub;
   if ($('pillCountFree')) $('pillCountFree').textContent = free;
   if ($('pillCountApproval')) $('pillCountApproval').textContent = approval;
   if ($('pillCountPrivate')) $('pillCountPrivate').textContent = priv;
@@ -1288,6 +1278,312 @@ async function waitForTab(tabId, timeoutMs = 12000) {
   return true;
 }
 
+// ── Web Assisted Group Scanner (Hoạt động trực tiếp trên Web, không cần nạp lại Extension) ──
+function buildFbGroupSearchUrl(keyword) {
+  return `https://www.facebook.com/search/groups/?q=${encodeURIComponent(keyword || '')}`;
+}
+
+function openOrNavigateWebScanTab(url, focusTab = true) {
+  if ($('webScanOpenLink')) $('webScanOpenLink').href = url;
+  try {
+    webScanTabWin = window.open(url, 'ntd_fb_search_tab');
+    if (focusTab && webScanTabWin && !webScanTabWin.closed) {
+      try { webScanTabWin.focus(); } catch (_) {}
+    }
+    return Boolean(webScanTabWin);
+  } catch (_) {
+    return false;
+  }
+}
+
+function focusExistingWebScanTab(fallbackUrl) {
+  try {
+    if (webScanTabWin && !webScanTabWin.closed) {
+      webScanTabWin.focus();
+      return true;
+    }
+  } catch (_) {}
+  return openOrNavigateWebScanTab(fallbackUrl, true);
+}
+
+function updateWebFeedback(type, message) {
+  const el = $('webCaptureFeedback');
+  if (!el) return;
+  if (!message) {
+    el.style.display = 'none';
+    el.textContent = '';
+    el.className = 'web-capture-feedback';
+    return;
+  }
+  el.className = `web-capture-feedback ${type === 'warn' ? 'warn' : 'ok'}`;
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+function renderWebScanKeywordChips() {
+  const bar = $('webScanKwBar');
+  const chipsEl = $('webScanKeywordChips');
+  const nextBtn = $('webScanNextKwBtn');
+  if (!bar || !chipsEl) return;
+
+  if (!webScanState.active || webScanState.keywords.length === 0) {
+    bar.style.display = 'none';
+    chipsEl.innerHTML = '';
+    return;
+  }
+
+  bar.style.display = 'flex';
+  chipsEl.replaceChildren();
+  webScanState.keywords.forEach((kw, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `web-kw-pill${idx === webScanState.activeKwIdx ? ' active' : ''}`;
+    const cnt = webScanState.perKwCounts[idx] || 0;
+    btn.textContent = cnt > 0 ? `${kw} (${cnt})` : kw;
+    btn.title = `Mở tìm kiếm nhóm Facebook cho "${kw}"`;
+    btn.addEventListener('click', () => switchWebScanKeyword(idx));
+    chipsEl.appendChild(btn);
+  });
+
+  if (nextBtn) {
+    nextBtn.style.display = webScanState.keywords.length > 1 ? 'inline-flex' : 'none';
+  }
+}
+
+function switchWebScanKeyword(idx) {
+  if (!webScanState.keywords.length) return;
+  const safeIdx = Math.max(0, Math.min(webScanState.keywords.length - 1, idx));
+  webScanState.activeKwIdx = safeIdx;
+  const activeKw = webScanState.keywords[safeIdx];
+  const url = buildFbGroupSearchUrl(activeKw);
+
+  openOrNavigateWebScanTab(url, true);
+  renderWebScanKeywordChips();
+
+  const totalKw = webScanState.keywords.length;
+  updateProgressBar(
+    Math.max(15, Math.round(((safeIdx) / totalKw) * 80)),
+    `[Từ khóa ${safeIdx + 1}/${totalKw}: "${activeKw}"] Đã mở tab tìm kiếm Facebook`,
+    `Trên tab Facebook: cuộn tải kết quả -> bấm Ctrl + A → Ctrl + C -> quay lại đây bấm "Lấy danh sách nhóm" hoặc Ctrl + V.`
+  );
+  updateWebFeedback('ok', `🔎 Đã mở từ khóa "${activeKw}" trên tab Facebook. Hãy cuộn kết quả -> Ctrl + A → Ctrl + C rồi quay lại đây dán/lấy nhóm.`);
+}
+
+async function handleWebClipboardCapture({ html = '', text = '' } = {}) {
+  const payload = extractGroupsFromClipboardPayload({ html, text });
+
+  if (payload.textWithoutUrls) {
+    updateWebFeedback(
+      'warn',
+      '⚠️ Nội dung vừa dán chỉ có chữ thuần, chưa chứa liên kết /groups/... Do copy dạng text không kèm link, hãy sang tab Facebook bấm Ctrl + A rồi Ctrl + C trực tiếp trên trang web và bấm Ctrl + V lại tại đây!'
+    );
+    showToast('⚠️ Chưa thấy link /groups/ trong clipboard. Hãy bấm Ctrl + A → Ctrl + C trực tiếp trên tab Facebook!', 4200);
+    return;
+  }
+
+  if (!payload.items.length) {
+    updateWebFeedback(
+      'warn',
+      '⚠️ Không tìm thấy đường dẫn nhóm Facebook (/groups/...) nào trong dữ liệu vừa copy. Hãy kiểm tra lại tab tìm kiếm nhóm Facebook.'
+    );
+    showToast('Chưa thấy nhóm Facebook nào trong dữ liệu vừa copy.');
+    return;
+  }
+
+  const maxCountPerKeyword = parseInt($('scanMaxCount')?.value || '30', 10);
+  const minMembers = parseInt($('scanMinMembers')?.value || '10000', 10);
+  const privacyMode = $('scanPrivacyMode')?.value || 'public_only';
+  const dedupeHistory = $('chkDedupeHistory') ? $('chkDedupeHistory').checked : true;
+  const dedupeCategories = $('chkDedupeCategories') ? $('chkDedupeCategories').checked : true;
+  const dedupeName = $('chkDedupeName') ? $('chkDedupeName').checked : true;
+
+  const fallbackKws = parseKeywords($('scanKeyword')?.value);
+  const activeKw = webScanState.active
+    ? (webScanState.keywords[webScanState.activeKwIdx] || '')
+    : (fallbackKws[0] || '');
+
+  const [historyList, categoryKeySet] = await Promise.all([
+    dedupeHistory ? getScannedGroupHistory() : Promise.resolve([]),
+    dedupeCategories ? getCategoryGroupKeys() : Promise.resolve(new Set())
+  ]);
+  const historyKeySet = new Set(historyList);
+
+  const sessionUrls = new Set();
+  const sessionKeys = new Set();
+  const sessionNames = new Set();
+  let existingForKeyword = 0;
+
+  if (!Array.isArray(currentScannedGroups)) {
+    currentScannedGroups = [];
+  }
+  for (const g of currentScannedGroups) {
+    if (g.url) sessionUrls.add(g.url);
+    const k = extractCanonicalGroupKey(g.url);
+    if (k) sessionKeys.add(k);
+    const norm = normalizeGroupName(g.name);
+    if (norm) sessionNames.add(norm);
+    if (activeKw) {
+      const kws = String(g.keyword || '').split(',').map(s => s.trim().toLowerCase());
+      if (kws.includes(activeKw.toLowerCase())) existingForKeyword++;
+    }
+  }
+
+  const { accepted, stats, newKeysToSave } = filterAndPrepareImportedGroups(payload.items, {
+    keyword: activeKw,
+    privacyMode,
+    minMembers,
+    maxCountPerKeyword,
+    existingCountForKeyword: existingForKeyword,
+    historyKeySet,
+    categoryKeySet,
+    sessionUrls,
+    sessionKeys,
+    sessionNames,
+    dedupeHistory,
+    dedupeCategories,
+    dedupeName,
+    existingGroupList: currentScannedGroups
+  });
+
+  if (accepted.length > 0) {
+    currentScannedGroups.push(...accepted);
+    if (webScanState.active) {
+      webScanState.perKwCounts[webScanState.activeKwIdx] = (webScanState.perKwCounts[webScanState.activeKwIdx] || 0) + accepted.length;
+    }
+  }
+
+  duplicateSkippedTotal += stats.skippedDuplicate;
+  lowMembersSkippedTotal += stats.skippedLowMembers;
+  privacySkippedTotal += stats.skippedPrivacy + stats.skippedUnknownPrivacy;
+
+  if (newKeysToSave.length > 0) {
+    await saveScannedGroupHistory(newKeysToSave);
+  }
+  await saveScannedGroupsToStorage(true);
+
+  if ($('scanResultsCard')) $('scanResultsCard').style.display = 'block';
+  if ($('scanProgressCard')) $('scanProgressCard').style.display = 'block';
+
+  // Tự động chọn tab lọc khớp với Chế độ Công khai / Riêng tư đang dùng
+  if (accepted.length > 0) {
+    if (privacyMode === 'public_only') {
+      applyFilter('public');
+    } else if (privacyMode === 'private_only') {
+      applyFilter('private');
+    } else if (currentActiveFilter === 'free' || currentActiveFilter === 'approval') {
+      applyFilter('all');
+    } else {
+      renderResultsTable();
+    }
+  } else {
+    renderResultsTable();
+  }
+
+  updateScanStats();
+  renderWebScanKeywordChips();
+
+  const totalTarget = Math.max(1, (webScanState.keywords.length || 1) * maxCountPerKeyword);
+  const collectedTotal = currentScannedGroups.length;
+  const pct = Math.min(100, Math.max(15, Math.round((collectedTotal / totalTarget) * 100)));
+  if ($('scanProgressCount')) $('scanProgressCount').textContent = `${collectedTotal} nhóm`;
+
+  const minMembersLabel = minMembers >= 1000 ? `${Math.round(minMembers / 1000)}k` : `${minMembers}`;
+  const skipParts = [];
+  if (stats.skippedPrivacy > 0) skipParts.push(`${stats.skippedPrivacy} khác chế độ (${privacyMode === 'public_only' ? 'Riêng tư' : 'Công khai'})`);
+  if (stats.skippedUnknownPrivacy > 0) skipParts.push(`${stats.skippedUnknownPrivacy} chưa rõ chế độ`);
+  if (stats.skippedLowMembers > 0) skipParts.push(`${stats.skippedLowMembers} <${minMembersLabel} TV`);
+  if (stats.skippedDuplicate > 0) skipParts.push(`${stats.skippedDuplicate} trùng`);
+  if (stats.skippedLimit > 0) skipParts.push(`${stats.skippedLimit} vượt giới hạn ${maxCountPerKeyword}/từ khóa`);
+
+  const skipSuffix = skipParts.length ? ` (Đã lọc bỏ: ${skipParts.join(', ')})` : '';
+  const kwLabel = activeKw ? ` cho từ khóa "${activeKw}"` : '';
+
+  if (stats.added > 0) {
+    const hasNextKw = webScanState.active && webScanState.activeKwIdx < webScanState.keywords.length - 1;
+    const hitLimit = stats.skippedLimit > 0 || (existingForKeyword + stats.added >= maxCountPerKeyword);
+    const nextHint = (hasNextKw && hitLimit) ? ' — Đã đủ chỉ tiêu từ khóa này, hãy bấm "Từ khóa tiếp ➡"!' : '';
+
+    updateProgressBar(
+      pct,
+      `✅ Đã thu +${stats.added} nhóm hợp lệ${kwLabel} (Tổng: ${collectedTotal})`,
+      `Đọc ${stats.totalParsed} nhóm từ trang Facebook${skipSuffix}.${nextHint}`
+    );
+    updateWebFeedback('ok', `✅ Đã thêm +${stats.added} nhóm mới${kwLabel}${skipSuffix}.${nextHint}`);
+    showToast(`✅ Đã lấy +${stats.added} nhóm mới${skipSuffix}!`, 3500);
+  } else {
+    updateProgressBar(
+      pct,
+      `⚠️ Chưa thêm được nhóm mới${kwLabel} (Tổng hiện có: ${collectedTotal})`,
+      `Tìm thấy ${stats.totalParsed} nhóm nhưng bị lọc hết${skipSuffix}.`
+    );
+    updateWebFeedback('warn', `⚠️ Đọc được ${stats.totalParsed} nhóm nhưng không có nhóm nào phù hợp để thêm mới${skipSuffix}. Hãy kiểm tra bộ lọc thành viên/chống trùng hoặc cuộn thêm nhóm trên tab Facebook.`);
+    showToast(`⚠️ 0 nhóm mới được thêm${skipSuffix}.`, 3800);
+  }
+}
+
+function startWebAssistedScanner(keywords, { maxCountPerKeyword, privacyMode }) {
+  const firstKw = keywords[0];
+  const firstUrl = buildFbGroupSearchUrl(firstKw);
+
+  // Mở tab tìm kiếm Facebook ĐỒNG BỘ ngay trong click handler để trình duyệt không bao giờ chặn popup
+  const opened = openOrNavigateWebScanTab(firstUrl, true);
+
+  webScanState.active = true;
+  webScanState.keywords = [...keywords];
+  webScanState.activeKwIdx = 0;
+  webScanState.perKwCounts = {};
+
+  isScanning = false;
+  window.__ntdGroupScanning = false;
+  duplicateSkippedTotal = 0;
+  lowMembersSkippedTotal = 0;
+  privacySkippedTotal = 0;
+
+  if (!Array.isArray(currentScannedGroups)) {
+    currentScannedGroups = [];
+  }
+
+  $('startScanBtn').style.display = 'none';
+  if ($('stopScanBtn')) {
+    $('stopScanBtn').style.display = 'inline-flex';
+    $('stopScanBtn').textContent = '⏹ Đóng khung quét';
+  }
+  if ($('focusScanTabBtn')) $('focusScanTabBtn').style.display = 'inline-flex';
+  if ($('scanProgressCard')) $('scanProgressCard').style.display = 'block';
+  if ($('scanResultsCard')) $('scanResultsCard').style.display = 'block';
+  if ($('webScanAssistBox')) $('webScanAssistBox').style.display = 'block';
+  $('scanProgressBar')?.classList.remove('scanning');
+  if ($('scanStatusQuick')) $('scanStatusQuick').textContent = 'Chế độ Web đang mở tab Facebook...';
+  updateWebModeNoticeVisibility();
+
+  if (privacyMode === 'public_only') {
+    currentActiveFilter = 'public';
+  } else if (privacyMode === 'private_only') {
+    currentActiveFilter = 'private';
+  } else {
+    currentActiveFilter = 'all';
+  }
+
+  renderWebScanKeywordChips();
+  updateScanStats();
+  applyFilter(currentActiveFilter);
+
+  const totalKw = keywords.length;
+  updateProgressBar(
+    12,
+    `[Từ khóa 1/${totalKw}: "${firstKw}"] Đã mở trang tìm kiếm nhóm Facebook`,
+    opened
+      ? `Trên tab Facebook: cuộn tải kết quả -> bấm Ctrl + A → Ctrl + C -> quay lại đây bấm "Lấy danh sách nhóm" hoặc Ctrl + V.`
+      : `Trình duyệt vừa chặn mở tab tự động — hãy bấm nút "🔗 Mở lại tab FB" ngay bên dưới để mở trang tìm kiếm!`
+  );
+
+  if (!opened) {
+    updateWebFeedback('warn', '⚠️ Popup bị trình duyệt chặn — hãy bấm nút "🔗 Mở lại tab FB" góc phải khung bên dưới để mở trang tìm kiếm Facebook!');
+  } else {
+    updateWebFeedback('ok', `🔎 Đã mở tab Facebook cho "${firstKw}" (chỉ tiêu ${maxCountPerKeyword} nhóm). Lướt tải danh sách nhóm xong bấm Ctrl + A → Ctrl + C rồi quay lại đây Ctrl + V!`);
+  }
+}
+
 // ── Scanner Controller ────────────────────────────────────────────────────────
 async function startScanningProcess() {
   const rawKeywords = $('scanKeyword')?.value.trim();
@@ -1304,7 +1600,14 @@ async function startScanningProcess() {
   const checkApproval = $('checkApprovalToggle') ? $('checkApprovalToggle').checked : (filterMode !== 'all');
   const privacyMode = $('scanPrivacyMode')?.value || 'public_only';
 
-  // Khởi tạo trạng thái giao diện
+  // Trên Web Platform không có Extension đời mới hỗ trợ quét chéo domain:
+  // Chuyển sang Web Assisted Mode ĐỒNG BỘ ngay trong click để giữ nguyên user activation mở tab FB mượt mà!
+  if (!isNativeExtensionPage && !extensionSupportsGroupSearch) {
+    startWebAssistedScanner(keywords, { maxCountPerKeyword, filterMode, minMembers, privacyMode });
+    return;
+  }
+
+  // Khởi tạo trạng thái giao diện (Chế độ Extension native)
   isScanning = true;
   window.__ntdGroupScanning = true;
   chrome.storage?.local?.set?.({ isGroupScanning: true }).catch(() => {});
@@ -1321,6 +1624,7 @@ async function startScanningProcess() {
 
   duplicateSkippedTotal = 0;
   lowMembersSkippedTotal = 0;
+  privacySkippedTotal = 0;
 
   // Lấy danh sách nhóm đã từng quét và nhóm đã lưu trong danh mục để chống trùng
   const historyList = dedupeHistory ? await getScannedGroupHistory() : [];
@@ -1339,8 +1643,12 @@ async function startScanningProcess() {
   } catch (_) {}
 
   $('startScanBtn').style.display = 'none';
-  $('stopScanBtn').style.display = 'inline-flex';
+  if ($('stopScanBtn')) {
+    $('stopScanBtn').style.display = 'inline-flex';
+    $('stopScanBtn').textContent = '⏹ Dừng quét';
+  }
   if ($('focusScanTabBtn')) $('focusScanTabBtn').style.display = 'inline-flex';
+  if ($('webScanAssistBox')) $('webScanAssistBox').style.display = 'none';
   $('scanProgressCard').style.display = 'block';
   $('scanResultsCard').style.display = 'block';
   $('scanProgressBar')?.classList.add('scanning');
@@ -1376,8 +1684,24 @@ async function startScanningProcess() {
       if ($('scanStatusQuick')) $('scanStatusQuick').textContent = 'Đang tiến hành quét nhóm Facebook...';
       return;
     }
+    if (!isNativeExtensionPage && (!res || !res.ok || res.webFallback || res.extensionUnsupported)) {
+      extensionSupportsGroupSearch = false;
+      isScanning = false;
+      window.__ntdGroupScanning = false;
+      chrome.storage?.local?.set?.({ isGroupScanning: false }).catch(() => {});
+      startWebAssistedScanner(keywords, { maxCountPerKeyword, filterMode, minMembers, privacyMode });
+      return;
+    }
   } catch (err) {
-    console.warn('[GroupSearch] Runner error, fallback to direct scan:', err);
+    console.warn('[GroupSearch] Runner error, fallback:', err);
+    if (!isNativeExtensionPage) {
+      extensionSupportsGroupSearch = false;
+      isScanning = false;
+      window.__ntdGroupScanning = false;
+      chrome.storage?.local?.set?.({ isGroupScanning: false }).catch(() => {});
+      startWebAssistedScanner(keywords, { maxCountPerKeyword, filterMode, minMembers, privacyMode });
+      return;
+    }
   }
 
   try {
@@ -1744,11 +2068,15 @@ async function startScanningProcess() {
     );
     showToast(`🎉 Quét xong ${currentScannedGroups.length} nhóm duy nhất${duplicateSkippedTotal > 0 ? ` (Đã lọc ${duplicateSkippedTotal} trùng)` : ''}${lowMembersSkippedTotal > 0 ? ` (${lowMembersSkippedTotal} nhóm <${minMembersLabel} TV)` : ''}!`);
 
-    // Tự động kích hoạt bộ lọc ưu tiên đã chọn
-    if (filterMode === 'free_only') {
+    // Tự động kích hoạt bộ lọc ưu tiên đã chọn (chỉ kích hoạt filter duyệt bài nếu có nhóm thuộc trạng thái đó)
+    if (filterMode === 'free_only' && currentScannedGroups.some(g => g.approvalStatus === 'free')) {
       applyFilter('free');
-    } else if (filterMode === 'approval_only') {
+    } else if (filterMode === 'approval_only' && currentScannedGroups.some(g => g.approvalStatus === 'approval')) {
       applyFilter('approval');
+    } else if (privacyMode === 'public_only' && currentScannedGroups.some(g => g.privacy === 'Công khai')) {
+      applyFilter('public');
+    } else if (privacyMode === 'private_only' && currentScannedGroups.some(g => g.privacy === 'Riêng tư' || g.approvalStatus === 'private')) {
+      applyFilter('private');
     } else {
       applyFilter('all');
     }
@@ -1763,16 +2091,28 @@ async function startScanningProcess() {
 }
 
 async function stopScanningProcess(userCancelled = true) {
+  const wasWebMode = webScanState.active;
   isScanning = false;
   window.__ntdGroupScanning = false;
-  try {
-    await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_STOP' }).catch(() => {});
-  } catch (_) {}
+  webScanState.active = false;
+
+  if (!wasWebMode) {
+    try {
+      await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_STOP' }).catch(() => {});
+    } catch (_) {}
+  }
+
   if ($('startScanBtn')) $('startScanBtn').style.display = 'inline-flex';
-  if ($('stopScanBtn')) $('stopScanBtn').style.display = 'none';
+  if ($('stopScanBtn')) {
+    $('stopScanBtn').style.display = 'none';
+    $('stopScanBtn').textContent = '⏹ Dừng quét';
+  }
   if ($('focusScanTabBtn')) $('focusScanTabBtn').style.display = 'none';
+  if ($('webScanAssistBox')) $('webScanAssistBox').style.display = 'none';
   $('scanProgressBar')?.classList.remove('scanning');
-  if ($('scanStatusQuick')) $('scanStatusQuick').textContent = userCancelled ? 'Đã dừng quét.' : 'Sẵn sàng.';
+  if ($('scanStatusQuick')) {
+    $('scanStatusQuick').textContent = (userCancelled && !wasWebMode) ? 'Đã dừng quét.' : 'Sẵn sàng.';
+  }
 
   // Giải phóng trạng thái quét nhóm trong storage
   await chrome.storage.local.set({ groupScanTabId: null, isGroupScanning: false }).catch(() => {});
@@ -1790,8 +2130,13 @@ async function stopScanningProcess(userCancelled = true) {
   }
 
   if (userCancelled) {
-    updateProgressBar(100, '⏹ Đã dừng quét', 'Người dùng đã bấm dừng.');
-    showToast('Đã dừng tiến trình quét nhóm.');
+    if (wasWebMode) {
+      updateProgressBar(100, '✅ Đã đóng khung thu thập Web', `Hiện có ${currentScannedGroups.length} nhóm trong bảng kết quả bên dưới.`);
+      showToast('Đã đóng khung thu thập Web.');
+    } else {
+      updateProgressBar(100, '⏹ Đã dừng quét', 'Người dùng đã bấm dừng.');
+      showToast('Đã dừng tiến trình quét nhóm.');
+    }
   }
 }
 
@@ -1805,6 +2150,29 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 // ── Results Table Rendering & Filtering ───────────────────────────────────────
+const FILTER_LABELS = {
+  all: 'Tất cả',
+  public: 'Công khai',
+  free: 'Đăng tự do',
+  approval: 'Cần kiểm duyệt',
+  private: 'Riêng tư'
+};
+
+function matchesActiveFilter(grp, filterKey = currentActiveFilter) {
+  if (!grp) return false;
+  if (filterKey === 'public') return grp.privacy === 'Công khai';
+  if (filterKey === 'free') return grp.approvalStatus === 'free';
+  if (filterKey === 'approval') return grp.approvalStatus === 'approval';
+  if (filterKey === 'private') return grp.privacy === 'Riêng tư' || grp.approvalStatus === 'private';
+  return true;
+}
+
+function getPrivacyBadgeInfo(privacy) {
+  if (privacy === 'Công khai') return { cls: 'public', text: 'Công khai' };
+  if (privacy === 'Riêng tư') return { cls: 'private', text: 'Riêng tư' };
+  return { cls: 'unknown', text: 'Chưa rõ' };
+}
+
 function createGroupRow(grp, idx) {
   const tr = document.createElement('tr');
   tr.id = `scanRow_${grp.id}`;
@@ -1812,6 +2180,7 @@ function createGroupRow(grp, idx) {
   const badgeClass = ['free', 'approval', 'private', 'admin_only', 'loading'].includes(grp.approvalStatus)
     ? grp.approvalStatus
     : 'uninspected';
+  const privInfo = getPrivacyBadgeInfo(grp.privacy);
 
   tr.innerHTML = `
     <td style="text-align:center">
@@ -1833,11 +2202,11 @@ function createGroupRow(grp, idx) {
       </span>
     </td>
     <td>
-      <span style="font-size:12px;font-weight:600;color:${grp.privacy === 'Công khai' ? '#047857' : '#6b21a8'}">
-        ${grp.privacy === 'Công khai' ? 'Công khai' : 'Riêng tư'}
+      <span class="privacy-badge ${privInfo.cls}">
+        ${privInfo.text}
       </span>
     </td>
-    <td style="font-size:12px;color:#475569">
+    <td style="font-size:12px;color:#94a3b8">
       ${escapeHtml(grp.members || '—')}
     </td>
     <td style="text-align:center">
@@ -1853,17 +2222,19 @@ function createGroupRow(grp, idx) {
 function appendNewScannedGroups(newGroups) {
   const tbody = $('scanResultsBody');
   if (!tbody || !newGroups || !newGroups.length) return;
-  if ($('emptyScanState')) $('emptyScanState').style.display = 'none';
 
   const frag = document.createDocumentFragment();
+  let addedRowCount = 0;
   const currentCount = tbody.children.length;
-  newGroups.forEach((grp, i) => {
-    if (currentActiveFilter === 'free' && grp.approvalStatus !== 'free') return;
-    if (currentActiveFilter === 'approval' && grp.approvalStatus !== 'approval') return;
-    if (currentActiveFilter === 'private' && (grp.privacy !== 'Riêng tư' && grp.approvalStatus !== 'private')) return;
-    frag.appendChild(createGroupRow(grp, currentCount + i));
+  newGroups.forEach((grp) => {
+    if (!matchesActiveFilter(grp)) return;
+    frag.appendChild(createGroupRow(grp, currentCount + addedRowCount));
+    addedRowCount++;
   });
-  tbody.appendChild(frag);
+  if (addedRowCount > 0) {
+    if ($('emptyScanState')) $('emptyScanState').style.display = 'none';
+    tbody.appendChild(frag);
+  }
   syncHeaderCheckbox();
 }
 
@@ -1889,12 +2260,7 @@ function renderResultsTable() {
   const tbody = $('scanResultsBody');
   if (!tbody) return;
 
-  const filtered = currentScannedGroups.filter(g => {
-    if (currentActiveFilter === 'free') return g.approvalStatus === 'free';
-    if (currentActiveFilter === 'approval') return g.approvalStatus === 'approval';
-    if (currentActiveFilter === 'private') return g.privacy === 'Riêng tư' || g.approvalStatus === 'private';
-    return true;
-  });
+  const filtered = currentScannedGroups.filter(g => matchesActiveFilter(g));
 
   if (filtered.length === 0) {
     tbody.innerHTML = '';
@@ -1915,12 +2281,7 @@ function renderResultsTable() {
 }
 
 function syncHeaderCheckbox() {
-  const filtered = currentScannedGroups.filter(g => {
-    if (currentActiveFilter === 'free') return g.approvalStatus === 'free';
-    if (currentActiveFilter === 'approval') return g.approvalStatus === 'approval';
-    if (currentActiveFilter === 'private') return g.privacy === 'Riêng tư' || g.approvalStatus === 'private';
-    return true;
-  });
+  const filtered = currentScannedGroups.filter(g => matchesActiveFilter(g));
 
   const headerCb = $('headerCheckbox');
   if (!headerCb) return;
@@ -1952,9 +2313,7 @@ document.querySelectorAll('#resultsFilterGroup .filter-pill-btn').forEach(btn =>
 
 $('selectAllResultsBtn')?.addEventListener('click', () => {
   currentScannedGroups.forEach(g => {
-    if (currentActiveFilter === 'free' && g.approvalStatus !== 'free') return;
-    if (currentActiveFilter === 'approval' && g.approvalStatus !== 'approval') return;
-    if (currentActiveFilter === 'private' && (g.privacy !== 'Riêng tư' && g.approvalStatus !== 'private')) return;
+    if (!matchesActiveFilter(g)) return;
     g.selected = true;
   });
   const tbody = $('scanResultsBody');
@@ -1967,9 +2326,7 @@ $('selectAllResultsBtn')?.addEventListener('click', () => {
 
 $('deselectAllResultsBtn')?.addEventListener('click', () => {
   currentScannedGroups.forEach(g => {
-    if (currentActiveFilter === 'free' && g.approvalStatus !== 'free') return;
-    if (currentActiveFilter === 'approval' && g.approvalStatus !== 'approval') return;
-    if (currentActiveFilter === 'private' && (g.privacy !== 'Riêng tư' && g.approvalStatus !== 'private')) return;
+    if (!matchesActiveFilter(g)) return;
     g.selected = false;
   });
   const tbody = $('scanResultsBody');
@@ -1983,9 +2340,7 @@ $('deselectAllResultsBtn')?.addEventListener('click', () => {
 $('headerCheckbox')?.addEventListener('change', e => {
   const isChecked = e.target.checked;
   currentScannedGroups.forEach(g => {
-    if (currentActiveFilter === 'free' && g.approvalStatus !== 'free') return;
-    if (currentActiveFilter === 'approval' && g.approvalStatus !== 'approval') return;
-    if (currentActiveFilter === 'private' && (g.privacy !== 'Riêng tư' && g.approvalStatus !== 'private')) return;
+    if (!matchesActiveFilter(g)) return;
     g.selected = isChecked;
   });
   const tbody = $('scanResultsBody');
@@ -2018,10 +2373,13 @@ $('clearScannedResultsBtn')?.addEventListener('click', async () => {
   if (!confirm(`Bạn có chắc muốn xóa toàn bộ ${currentScannedGroups.length} nhóm đã quét trong danh sách?\n(Dữ liệu trong các danh mục nhóm đã lưu sẽ KHÔNG bị ảnh hưởng)`)) {
     return;
   }
-  if (isScanning) {
+  if (isScanning || webScanState.active) {
     await stopScanningProcess(true);
   }
   currentScannedGroups = [];
+  duplicateSkippedTotal = 0;
+  lowMembersSkippedTotal = 0;
+  privacySkippedTotal = 0;
   await chrome.storage.local.remove('lastScannedGroups');
   renderResultsTable();
   updateScanStats();
@@ -2031,20 +2389,25 @@ $('clearScannedResultsBtn')?.addEventListener('click', async () => {
 });
 
 // Chuyển nhanh đến tab Facebook đang quét
-$('focusScanTabBtn')?.addEventListener('click', async () => {
-  try {
-    await chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_SHOW_TAB' }).catch(() => {});
-  } catch (_) {}
+$('focusScanTabBtn')?.addEventListener('click', () => {
+  if (webScanState.active) {
+    const activeKw = webScanState.keywords[webScanState.activeKwIdx] || parseKeywords($('scanKeyword')?.value)[0] || '';
+    focusExistingWebScanTab(buildFbGroupSearchUrl(activeKw));
+    return;
+  }
+  chrome.runtime.sendMessage({ type: 'GROUP_SEARCH_SHOW_TAB' }).catch(() => {});
   if (scanTabId) {
-    try {
-      await chrome.tabs.update(scanTabId, { active: true });
-      const tab = await chrome.tabs.get(scanTabId);
-      if (tab?.windowId) {
-        await chrome.windows.update(tab.windowId, { focused: true });
+    (async () => {
+      try {
+        await chrome.tabs.update(scanTabId, { active: true });
+        const tab = await chrome.tabs.get(scanTabId);
+        if (tab?.windowId) {
+          await chrome.windows.update(tab.windowId, { focused: true });
+        }
+      } catch (_) {
+        showToast('Tab quét không còn tồn tại.');
       }
-    } catch (_) {
-      showToast('Tab quét không còn tồn tại.');
-    }
+    })();
   }
 });
 
@@ -2150,12 +2513,7 @@ if (chrome.runtime?.onMessage?.addListener) {
 
 // ── Helper: lấy danh sách nhóm theo filter đang active ───────────────────────
 function getGroupsByActiveFilter() {
-  return currentScannedGroups.filter(g => {
-    if (currentActiveFilter === 'free') return g.approvalStatus === 'free';
-    if (currentActiveFilter === 'approval') return g.approvalStatus === 'approval';
-    if (currentActiveFilter === 'private') return g.privacy === 'Riêng tư' || g.approvalStatus === 'private';
-    return true; // 'all'
-  });
+  return currentScannedGroups.filter(g => matchesActiveFilter(g));
 }
 
 // Copy link – chỉ xuất link theo ô filter đang chọn
@@ -2163,25 +2521,14 @@ $('copySelectedResultsBtn')?.addEventListener('click', async () => {
   // Lấy các nhóm đang hiển thị theo filter, sau đó lọc thêm những cái đã checked
   const visible = getGroupsByActiveFilter();
   const selected = visible.filter(g => g.selected);
+  const filterLabel = FILTER_LABELS[currentActiveFilter] || 'hiện tại';
   if (!selected.length) {
-    const filterLabel = {
-      all: 'Tất cả',
-      free: 'Đăng tự do',
-      approval: 'Cần kiểm duyệt',
-      private: 'Riêng tư'
-    }[currentActiveFilter] || 'hiện tại';
     alert(`Vui lòng chọn ít nhất 1 nhóm trong tab "${filterLabel}" để sao chép.`);
     return;
   }
   const text = selected.map(g => g.url).join('\n');
   try {
     await navigator.clipboard.writeText(text);
-    const filterLabel = {
-      all: 'Tất cả',
-      free: 'Đăng tự do',
-      approval: 'Cần kiểm duyệt',
-      private: 'Riêng tư'
-    }[currentActiveFilter] || '';
     showToast(`📋 Đã sao chép ${selected.length} link nhóm (${filterLabel}) vào clipboard!`);
   } catch (_) {
     alert('Không thể sao chép tự động: quyền clipboard bị từ chối.');
@@ -2192,13 +2539,8 @@ $('copySelectedResultsBtn')?.addEventListener('click', async () => {
 $('saveSelectedToNewCatBtn')?.addEventListener('click', async () => {
   const visible = getGroupsByActiveFilter();
   const selected = visible.filter(g => g.selected);
+  const filterLabel = FILTER_LABELS[currentActiveFilter] || 'hiện tại';
   if (!selected.length) {
-    const filterLabel = {
-      all: 'Tất cả',
-      free: 'Đăng tự do',
-      approval: 'Cần kiểm duyệt',
-      private: 'Riêng tư'
-    }[currentActiveFilter] || 'hiện tại';
     alert(`Vui lòng chọn ít nhất một nhóm trong tab "${filterLabel}" để lưu danh mục mới.`);
     return;
   }
@@ -2206,7 +2548,9 @@ $('saveSelectedToNewCatBtn')?.addEventListener('click', async () => {
   const kws = parseKeywords($('scanKeyword')?.value);
   const kw = kws.slice(0, 2).join(' - ') + (kws.length > 2 ? ` (+${kws.length - 2})` : (kws[0] || 'Facebook'));
   let defaultName = `Nhóm - ${kw}`;
-  if (currentActiveFilter === 'free') {
+  if (currentActiveFilter === 'public') {
+    defaultName = `Nhóm công khai - ${kw}`;
+  } else if (currentActiveFilter === 'free') {
     defaultName = `Nhóm không duyệt - ${kw}`;
   } else if (currentActiveFilter === 'approval') {
     defaultName = `Nhóm kiểm duyệt - ${kw}`;
@@ -2239,13 +2583,8 @@ $('saveSelectedToNewCatBtn')?.addEventListener('click', async () => {
 $('appendSelectedToCatBtn')?.addEventListener('click', async () => {
   const visible = getGroupsByActiveFilter();
   const selected = visible.filter(g => g.selected);
+  const filterLabel = FILTER_LABELS[currentActiveFilter] || 'hiện tại';
   if (!selected.length) {
-    const filterLabel = {
-      all: 'Tất cả',
-      free: 'Đăng tự do',
-      approval: 'Cần kiểm duyệt',
-      private: 'Riêng tư'
-    }[currentActiveFilter] || 'hiện tại';
     alert(`Vui lòng chọn ít nhất một nhóm trong tab "${filterLabel}" để thêm vào danh mục.`);
     return;
   }
@@ -2280,7 +2619,7 @@ $('confirmAppendModalBtn')?.addEventListener('click', async () => {
   const targetId = $('targetCategorySelect')?.value;
   if (!targetId) return;
 
-  const selected = currentScannedGroups.filter(g => g.selected);
+  const selected = getGroupsByActiveFilter().filter(g => g.selected);
   const all = await loadCategories();
   const cat = all.find(c => c.id === targetId);
   if (!cat) return;
@@ -2302,13 +2641,8 @@ $('confirmAppendModalBtn')?.addEventListener('click', async () => {
 $('useSelectedInPanelBtn')?.addEventListener('click', async () => {
   const visible = getGroupsByActiveFilter();
   const selected = visible.filter(g => g.selected);
+  const filterLabel = FILTER_LABELS[currentActiveFilter] || 'hiện tại';
   if (!selected.length) {
-    const filterLabel = {
-      all: 'Tất cả',
-      free: 'Đăng tự do',
-      approval: 'Cần kiểm duyệt',
-      private: 'Riêng tư'
-    }[currentActiveFilter] || 'hiện tại';
     alert(`Vui lòng chọn ít nhất 1 nhóm trong tab "${filterLabel}".`);
     return;
   }
@@ -2317,12 +2651,6 @@ $('useSelectedInPanelBtn')?.addEventListener('click', async () => {
   const updatedDraft = { ...(draft || {}), links: selected.map(g => g.url).join('\n') };
   await chrome.storage.local.set({ draft: updatedDraft });
 
-  const filterLabel = {
-    all: 'Tất cả',
-    free: 'Đăng tự do',
-    approval: 'Cần kiểm duyệt',
-    private: 'Riêng tư'
-  }[currentActiveFilter] || '';
   showToast(`🚀 Đã nạp ${selected.length} nhóm (${filterLabel}). Đang chuyển đến Bảng đăng bài...`);
   setTimeout(() => {
     if (isScanning) {
@@ -2331,6 +2659,87 @@ $('useSelectedInPanelBtn')?.addEventListener('click', async () => {
       window.location.href = chrome.runtime.getURL('panel.html');
     }
   }, 600);
+});
+
+// Sự kiện điều khiển Web Assisted Scanner (Lấy clipboard 1 chạm, Ctrl+V, Chuyển từ khóa)
+$('readClipboardGroupsBtn')?.addEventListener('click', async () => {
+  let html = '';
+  let text = '';
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        if (!html && item.types.includes('text/html')) {
+          const blob = await item.getType('text/html');
+          html = await blob.text();
+        }
+        if (!text && item.types.includes('text/plain')) {
+          const blob = await item.getType('text/plain');
+          text = await blob.text();
+        }
+      }
+    } else if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+      text = await navigator.clipboard.readText();
+    }
+  } catch (_) {
+    try {
+      if (!text && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+        text = await navigator.clipboard.readText();
+      }
+    } catch (_) {}
+
+    if (!html && !text) {
+      $('webManualPasteZone')?.focus();
+      updateWebFeedback('warn', '⚠️ Trình duyệt chặn đọc clipboard tự động. Hãy click vào khung bên cạnh và bấm Ctrl + V để lấy nhóm ngay!');
+      showToast('⚠️ Hãy bấm Ctrl + V trực tiếp vào khung dán bên cạnh!', 4200);
+      return;
+    }
+  }
+
+  if (!html && !text) {
+    updateWebFeedback('warn', 'Clipboard hiện đang trống. Hãy quay lại tab Facebook vừa mở và bấm Ctrl + A → Ctrl + C trước.');
+    showToast('Clipboard đang trống. Hãy Ctrl + A → Ctrl + C trên tab Facebook trước nhé!');
+    return;
+  }
+
+  await handleWebClipboardCapture({ html, text });
+});
+
+$('webManualPasteZone')?.addEventListener('paste', async (e) => {
+  e.preventDefault();
+  const html = e.clipboardData?.getData('text/html') || '';
+  const text = e.clipboardData?.getData('text/plain') || '';
+  if ($('webManualPasteZone')) $('webManualPasteZone').textContent = '';
+  await handleWebClipboardCapture({ html, text });
+});
+
+$('webManualPasteZone')?.addEventListener('input', () => {
+  const el = $('webManualPasteZone');
+  if (el && el.textContent.trim()) {
+    el.textContent = '';
+  }
+});
+
+$('webScanNextKwBtn')?.addEventListener('click', () => {
+  if (!webScanState.keywords.length) return;
+  const nextIdx = (webScanState.activeKwIdx + 1) % webScanState.keywords.length;
+  switchWebScanKeyword(nextIdx);
+});
+
+document.addEventListener('paste', async (e) => {
+  if (!webScanState.active) return;
+  const activeEl = document.activeElement;
+  if (activeEl === $('webManualPasteZone')) return;
+  if (activeEl) {
+    const tag = activeEl.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || activeEl.isContentEditable) {
+      return;
+    }
+  }
+  e.preventDefault();
+  const html = e.clipboardData?.getData('text/html') || '';
+  const text = e.clipboardData?.getData('text/plain') || '';
+  await handleWebClipboardCapture({ html, text });
 });
 
 // Nút Bắt đầu / Dừng quét

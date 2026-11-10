@@ -4318,6 +4318,19 @@ function handleRuntimeMessage(m, sender, reply) {
   }
 
   // ── GROUP_SEARCH Runner Messages ───────────────────────────────────────────
+  if (m.type === 'GROUP_SEARCH_START' || m.type === 'GROUP_SEARCH_STOP' || m.type === 'GROUP_SEARCH_GET_STATUS' || m.type === 'GROUP_SEARCH_SHOW_TAB') {
+    const isWebRuntime = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
+    if (isWebRuntime) {
+      reply({
+        ok: false,
+        webFallback: true,
+        extensionUnsupported: true,
+        running: false,
+        error: 'Web runtime cannot script cross-origin Facebook tabs directly.'
+      });
+      return true;
+    }
+  }
   if (m.type === 'GROUP_SEARCH_START') {
     runGroupSearchLoop(m.params || {}).catch(err => {
       console.error('[GroupSearch] Lỗi bắt đầu quét:', err);
