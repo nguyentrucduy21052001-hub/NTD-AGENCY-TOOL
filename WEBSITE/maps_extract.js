@@ -27,15 +27,23 @@ export async function mapsExtract(mode, limit = 50) {
     while (Date.now() < end) {
       blocked();
       if (mode === 'list' && noResults()) return [];
-      if (mode === 'detail' && document.querySelector('h1')) break;
-      if (mode === 'list' && (document.querySelector('[role="feed"]') || (location.pathname.includes('/maps/place/') && document.querySelector('h1')))) break;
+      if (mode === 'detail' && (document.querySelector('div[role="main"] h1') || document.querySelector('h1'))) break;
+      if (mode === 'list') {
+        const hasFeedLinks = Boolean(
+          (document.querySelector('[role="feed"]') || document.querySelector('div[aria-label*="Kết quả" i]') || document.querySelector('div[aria-label*="Results" i]'))
+            ?.querySelector('a[href*="/maps/place/"]')
+        );
+        if (hasFeedLinks || (location.pathname.includes('/maps/place/') && document.querySelector('h1'))) break;
+      }
       await sleep(500);
     }
     blocked();
 
     if (mode === 'list') {
       if (noResults()) return [];
-      const feed = document.querySelector('[role="feed"]');
+      const feed = document.querySelector('[role="feed"]')
+        || document.querySelector('div[aria-label*="Kết quả" i]')
+        || document.querySelector('div[aria-label*="Results" i]');
       if (!feed) {
         if (location.href.includes('/maps/place/') && document.querySelector('h1')) return [location.href];
         if (location.pathname.includes('/maps/search/')) return [];
@@ -56,54 +64,101 @@ export async function mapsExtract(mode, limit = 50) {
             if (found.size >= limit) return [...found].slice(0, limit);
           } catch (_) {}
         }
+        const feedTxt = (feed.innerText || '').normalize('NFC');
+        const reachedEnd = /bạn đã xem hết danh sách|you['’]ve reached the end of the list/i.test(feedTxt);
         stable = found.size === prev ? stable + 1 : 0;
-        if (stable >= 6) break;
+        if (stable >= 6 || (reachedEnd && stable >= 2)) break;
         feed.scrollTop = feed.scrollHeight;
-        await sleep(1100);
+        await sleep(1000);
       }
       return [...found];
     }
 
     // Detail mode
-    for (let i = 0; i < 8; i++) {
-      if (document.querySelector('[data-item-id^="phone:tel:"]') || document.querySelector('[data-item-id*="phone"]') || document.querySelector('[data-item-id="address"]')) break;
+    for (let i = 0; i < 13; i++) {
+      if (
+        document.querySelector('[data-item-id^="phone:tel:"]')
+        || document.querySelector('a[href^="tel:"]')
+        || document.querySelector('[data-item-id*="phone"]')
+        || document.querySelector('button[aria-label*="điện thoại" i]')
+        || document.querySelector('button[aria-label*="phone" i]')
+      ) {
+        break;
+      }
       await sleep(400);
     }
 
-    const title = document.querySelector('h1')?.innerText?.trim();
+    const title = (
+      document.querySelector('div[role="main"] h1.DUwDvf')
+      || document.querySelector('div[role="main"] h1')
+      || document.querySelector('h1')
+    )?.innerText?.trim();
     if (!title) throw Error('Không đọc được tên cơ sở.');
 
-    let phone = '';
-    const phoneEl = document.querySelector('[data-item-id^="phone:tel:"]')
-      || document.querySelector('a[href^="tel:"]')
-      || document.querySelector('button[data-tooltip*="điện thoại" i]')
-      || document.querySelector('button[data-tooltip*="phone" i]')
-      || document.querySelector('button[aria-label*="điện thoại" i]')
-      || document.querySelector('button[aria-label*="phone" i]')
-      || document.querySelector('[data-item-id*="phone"]');
+    const cleanPhoneCandidate = (raw) => {
+      if (!raw) return '';
+      let digits = String(raw).replace(/\D+/g, '');
+      if (!digits) return '';
+      if (digits.startsWith('0084')) digits = digits.slice(4);
+      else if (digits.startsWith('84') && digits.length >= 10) digits = digits.slice(2);
+      if (/^(1800|1900)\d{4,6}$/.test(digits)) return digits;
+      if (!digits.startsWith('0') && (digits.length === 9 || digits.length === 10)) digits = '0' + digits;
+      if (!/^0[1-9]\d{8,9}$/.test(digits)) return '';
+      return digits;
+    };
 
-    if (phoneEl) {
-      phone = (phoneEl.getAttribute('data-item-id')?.replace(/^phone:tel:/, '')
-        || phoneEl.getAttribute('href')?.replace(/^tel:/, '')
-        || phoneEl.getAttribute('aria-label')
-        || phoneEl.innerText || '').trim();
+    const phones = [];
+    const seenPhones = new Set();
+    const pushPhone = (raw) => {
+      const cleaned = cleanPhoneCandidate(raw);
+      if (cleaned && !seenPhones.has(cleaned)) {
+        seenPhones.add(cleaned);
+        phones.push(cleaned);
+      }
+    };
+
+    const phoneNodes = document.querySelectorAll([
+      '[data-item-id^="phone:tel:"]',
+      'a[href^="tel:"]',
+      '[data-item-id*="phone"]',
+      'button[data-tooltip*="điện thoại" i]',
+      'button[data-tooltip*="phone" i]',
+      'button[aria-label*="điện thoại" i]',
+      'button[aria-label*="phone" i]',
+      'button[aria-label*="Sao chép số" i]',
+      'button[aria-label*="Copy phone" i]'
+    ].join(', '));
+
+    for (const el of phoneNodes) {
+      pushPhone(el.getAttribute('data-item-id')?.replace(/^phone:tel:/, ''));
+      pushPhone(el.getAttribute('href')?.replace(/^tel:/, ''));
+      pushPhone(el.querySelector('.Io6YTe')?.innerText);
+      pushPhone(el.getAttribute('aria-label'));
+      pushPhone(el.innerText);
     }
 
-    if (!phone) {
-      const panel = document.querySelector('div[role="main"]') || document.body;
-      const panelText = panel ? panel.innerText : '';
-      const phoneMatch = panelText.match(/(?:(?:\+?84|0)[1-9]\d{1,3}[\s.-]?\d{3}[\s.-]?\d{3,4})|1[89]00[\s.-]?\d{4,6}/);
-      if (phoneMatch) phone = phoneMatch[0];
+    const panel = document.querySelector('div[role="main"]') || document.body;
+    const panelText = panel ? (panel.innerText || '') : '';
+    const phoneRegex = /(?:\+?84|0)[1-9](?:[\s.\-()]?\d){7,9}\b|\b(?:1800|1900)(?:[\s.\-]?\d){4,6}\b|\(\s*0\d{1,3}\s*\)[\s.\-]?(?:\d[\s.\-]?){6,8}\d\b/g;
+    for (const m of panelText.matchAll(phoneRegex)) {
+      pushPhone(m[0]);
     }
 
+    const phone = phones[0] || '';
     const addressEl = document.querySelector('[data-item-id="address"]');
-    const address = (addressEl?.getAttribute('aria-label') || addressEl?.innerText || '').replace(/^(Địa chỉ|Address):\s*/i, '').trim();
+    const address = (
+      addressEl?.querySelector('.Io6YTe')?.innerText
+      || addressEl?.getAttribute('aria-label')
+      || addressEl?.innerText
+      || ''
+    ).replace(/^(Địa chỉ|Address):\s*/i, '').trim();
 
     const web = document.querySelector('a[data-item-id="authority"]')?.href || '';
 
     return {
       name: title,
       phone,
+      phones,
       address,
       website: web,
       url: location.href,

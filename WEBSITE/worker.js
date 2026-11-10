@@ -1872,7 +1872,7 @@ const HOTLINE_PHONE_PREFIXES = [
   '1900', '1800',
   '024', '028',
   '0203', '0204', '0205', '0206', '0207', '0208', '0209',
-  '0210', '0211', '0212', '0213', '0214', '0215', '0216',
+  '0210', '0211', '0212', '0213', '0214', '0215', '0216', '0218', '0219',
   '0220', '0221', '0222', '0225', '0226', '0227', '0228', '0229',
   '0232', '0233', '0234', '0235', '0236', '0237', '0238', '0239',
   '0251', '0252', '0254', '0255', '0256', '0257', '0258', '0259',
@@ -1892,7 +1892,9 @@ const OLD_PHONE_PREFIXES = [
 function normPhoneWorker(p) {
   if (!p) return '';
   let s = String(p).replace(/\D+/g, '');
-  if (s.startsWith('84') && s.length >= 11) s = '0' + s.slice(2);
+  if (s.startsWith('0084')) s = s.slice(4);
+  else if (s.startsWith('84') && s.length >= 10) s = s.slice(2);
+  if (/^(1800|1900|111|112|113|114|115|156|5656)/.test(s)) return s;
   if (!s.startsWith('0') && (s.length === 9 || s.length === 10)) s = '0' + s;
   return s;
 }
@@ -1910,9 +1912,37 @@ function classifyPhoneWorker(phone) {
   for (const pre of OLD_PHONE_PREFIXES) {
     if (p.startsWith(pre) && p.length === 11) return 'old';
   }
+  if (/^(1800|1900)\d{4,6}$/.test(p) || /^02\d{8,9}$/.test(p)) return 'hotline';
   if (p.length === 10 && p.startsWith('0')) return 'current';
   if (p.length === 11 && p.startsWith('0')) return 'old';
-  return 'hotline';
+  return 'other';
+}
+
+function parsePrefixListWorker(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map(x => String(x || '').replace(/\D+/g, '')).filter(x => x.length >= 2 && x.length <= 6);
+  }
+  return String(raw || '')
+    .split(/[\s,;|/]+/)
+    .map(token => {
+      let d = token.replace(/\D+/g, '');
+      if (d.startsWith('84') && d.length >= 3) d = '0' + d.slice(2);
+      return d;
+    })
+    .filter(d => d.length >= 2 && d.length <= 6);
+}
+
+function isPhoneAllowedWorker(phone, allowedTypes = null) {
+  const clean = normPhoneWorker(phone);
+  if (!clean) return false;
+  const types = allowedTypes || { current: true, hotline: false, old: false };
+  const category = classifyPhoneWorker(clean);
+  if (!category || !types[category]) return false;
+  const customPrefixes = parsePrefixListWorker(types.customPrefixes);
+  if (customPrefixes.length > 0) {
+    return customPrefixes.some(pre => clean.startsWith(pre));
+  }
+  return true;
 }
 
 const PROVINCE_AREA_CODES_WORKER = {
@@ -2066,15 +2096,45 @@ chrome.tabs.onRemoved.addListener(id => {
   }
 });
 
+function broadcastMapsMessage(msg) {
+  try {
+    chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch (_) {}
+  try {
+    if (chrome.tabs?.query) {
+      chrome.tabs.query({}, (tabs) => {
+        if (Array.isArray(tabs)) {
+          for (const t of tabs) {
+            if (t && t.id) chrome.tabs.sendMessage(t.id, msg).catch(() => {});
+          }
+        }
+      });
+    }
+  } catch (_) {}
+}
+
 function broadcastMapsLog(msg) {
   const time = new Date().toLocaleTimeString('vi-VN');
-  chrome.runtime.sendMessage({ type: 'MAPS_LOG_EVENT', msg, time }).catch(() => {});
+  broadcastMapsMessage({ type: 'MAPS_LOG_EVENT', msg, time });
+}
+
+function broadcastMapsStateSync(state) {
+  broadcastMapsMessage({
+    type: 'MAPS_STATE_SYNC',
+    job: state.job || null,
+    isScanning: Boolean(state.isScanning),
+    tabId: state.tabId || mapsCurrentTabId || null,
+    lastScraped: state.lastScraped || null,
+    totalRows: Array.isArray(state.rows) ? state.rows.length : 0
+  });
 }
 
 async function openMapsScraperTab(url) {
+  let prevTabUrl = '';
   if (mapsCurrentTabId) {
     try {
-      await chrome.tabs.get(mapsCurrentTabId);
+      const existingTab = await chrome.tabs.get(mapsCurrentTabId);
+      prevTabUrl = existingTab?.url || '';
     } catch {
       mapsCurrentTabId = null;
     }
@@ -2088,8 +2148,15 @@ async function openMapsScraperTab(url) {
     await chrome.tabs.update(mapsCurrentTabId, { url, autoDiscardable: false }).catch(() => {});
   }
 
-  const deadline = Date.now() + 60000;
-  await sleepMs(1500);
+  const startMs = Date.now();
+  const deadline = startMs + 60000;
+  await sleepMs(1000);
+
+  const expected = new URL(url);
+  let prevPathname = '';
+  try { prevPathname = prevTabUrl ? new URL(prevTabUrl).pathname : ''; } catch (_) {}
+  const placeSlugMatch = expected.pathname.match(/\/maps\/place\/([^/]+)/);
+  const expectedPlaceSlug = placeSlugMatch ? placeSlugMatch[1] : '';
 
   while (Date.now() < deadline) {
     if (mapsScanStop) throw Error('Đã bấm dừng; toàn bộ tiến trình đã được lưu lại.');
@@ -2104,20 +2171,28 @@ async function openMapsScraperTab(url) {
         });
       } catch (_) {}
       const page = rs[0]?.result;
-
-      const expected = new URL(url);
-      const actual = page && new URL(page.url);
-      const matching =
-        actual &&
-        (expected.pathname.includes('/maps/search/')
-          ? actual.pathname === expected.pathname
-          : actual.pathname.includes('/maps/place/'));
-
-      if (page?.ready === 'complete' && matching) return;
+      const actual = page?.url ? (() => { try { return new URL(page.url); } catch { return null; } })() : null;
 
       if (actual && (/sorry/.test(actual.pathname) || actual.hostname.startsWith('consent.'))) {
         throw Error('Google Maps yêu cầu xác minh CAPTCHA hoặc đồng ý điều khoản. Mở tab Maps xử lý rồi bấm Tiếp tục.');
       }
+
+      let matching = false;
+      if (actual && expected.pathname.includes('/maps/search/')) {
+        // Google Maps thường tự thêm /@lat,lng,14z/data=... hoặc chuyển thẳng sang /maps/place/...
+        const onMapsPage = actual.pathname.includes('/maps/search/') || actual.pathname.includes('/maps/place/');
+        const navigatedAwayFromPrev = !prevPathname || actual.pathname !== prevPathname || (Date.now() - startMs > 3000);
+        matching = onMapsPage && navigatedAwayFromPrev;
+      } else if (actual && expected.pathname.includes('/maps/place/')) {
+        const onPlace = actual.pathname.includes('/maps/place/');
+        const matchesSlug = !expectedPlaceSlug || actual.pathname.includes(expectedPlaceSlug);
+        const changedPlace = !prevPathname || actual.pathname !== prevPathname || (Date.now() - startMs > 3500);
+        matching = onPlace && (matchesSlug || changedPlace);
+      } else if (actual) {
+        matching = actual.pathname.includes('/maps/');
+      }
+
+      if (page?.ready === 'complete' && matching) return;
     }
     await sleepMs(500);
   }
@@ -2143,7 +2218,7 @@ async function extractFromMapsWorker(mode, limit = 50) {
   throw Error('Tab Maps không trả dữ liệu sau 3 lần thử.');
 }
 
-async function runMapsScraperLoop(jobParam, phoneTypesParam) {
+async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = null) {
   if (mapsScanRunning) return;
   mapsScanRunning = true;
   mapsScanStop = false;
@@ -2151,8 +2226,15 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
   let { rinMaps } = await chrome.storage.local.get('rinMaps');
   let state = rinMaps || { rows: [], job: null, settings: null };
   if (!Array.isArray(state.rows)) state.rows = [];
+  if (!state.seenKeys || typeof state.seenKeys !== 'object') state.seenKeys = {};
 
-  if (jobParam) state.job = jobParam;
+  if (jobParam) {
+    state.job = jobParam;
+    if (!state.rows) state.rows = [];
+  }
+  if (seenKeysParam && typeof seenKeysParam === 'object') {
+    state.seenKeys = { ...state.seenKeys, ...seenKeysParam };
+  }
   if (phoneTypesParam) {
     if (!state.job) state.job = {};
     state.job.phoneTypes = phoneTypesParam;
@@ -2160,6 +2242,7 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
   state.isScanning = true;
   state.tabId = mapsCurrentTabId;
   await chrome.storage.local.set({ rinMaps: state });
+  broadcastMapsStateSync(state);
 
   try {
     chrome.power?.requestKeepAwake?.('system');
@@ -2176,17 +2259,18 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
 
       // Bước 1: Quét danh sách liên kết
       if (j.links === null || !Array.isArray(j.links)) {
-        broadcastMapsLog('Đang tìm kiếm: ' + query);
+        broadcastMapsLog(`[${j.index + 1}/${j.queries.length}] Đang mở Google Maps tìm: "${query}"...`);
         await openMapsScraperTab('https://www.google.com/maps/search/' + encodeURIComponent(query) + '?hl=vi');
         j.links = await extractFromMapsWorker('list', j.limit || 50);
         j.cursor = 0;
         state.tabId = mapsCurrentTabId;
         await chrome.storage.local.set({ rinMaps: state });
+        broadcastMapsStateSync(state);
 
         if (j.links.length) {
-          broadcastMapsLog(`Tìm thấy ${j.links.length} cơ sở cho: "${query}"`);
+          broadcastMapsLog(`Tìm thấy ${j.links.length} cơ sở cho: "${query}". Bắt đầu lấy SĐT từng cơ sở...`);
         } else {
-          broadcastMapsLog(`Không có kết quả nào cho: "${query}" (tự động chuyển sang lượt tiếp theo)`);
+          broadcastMapsLog(`Không có kết quả nào cho: "${query}" (tự động chuyển sang từ khóa tiếp theo)`);
         }
       }
 
@@ -2197,32 +2281,44 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
         const row = await extractFromMapsWorker('detail');
         if (mapsScanStop) break;
 
-        const allowedTypes = j.phoneTypes || { current: true, hotline: true, old: false };
-        const rawP = row.phone || '';
-        let cleanP = rawP ? normPhoneWorker(rawP) : '';
-        if (!cleanP) {
-          cleanP = resolveBusinessPhoneWorker(row.name, row.address, query, allowedTypes);
-        }
-        const category = cleanP ? classifyPhoneWorker(cleanP) : null;
+        const allowedTypes = j.phoneTypes || { current: true, hotline: false, old: false, customPrefixes: [] };
+        const rawCandidates = [
+          ...(Array.isArray(row.phones) ? row.phones : []),
+          ...(row.phone ? [row.phone] : [])
+        ];
+        const cleanedCandidates = [...new Set(rawCandidates.map(normPhoneWorker).filter(Boolean))];
+        const matchedPhone = cleanedCandidates.find(p => isPhoneAllowedWorker(p, allowedTypes)) || '';
 
-        if (cleanP && !allowedTypes[category]) {
-          const typeName = category === 'hotline' ? 'tổng đài' : category === 'old' ? 'cũ' : 'hiện hành';
-          broadcastMapsLog(`[Bỏ qua] Cơ sở "${row.name}" có SĐT ${typeName} (${cleanP}) do không được chọn.`);
+        if (cleanedCandidates.length > 0 && !matchedPhone) {
+          const sample = cleanedCandidates[0];
+          const category = classifyPhoneWorker(sample);
+          const typeName = category === 'hotline' ? 'tổng đài/cố định' : category === 'old' ? '11 số cũ' : 'ngoài đầu số lọc';
+          broadcastMapsLog(`[Bỏ qua] "${row.name}" có SĐT ${typeName} (${sample}) không khớp bộ lọc đầu số.`);
           j.cursor++;
           await chrome.storage.local.set({ rinMaps: state });
+          broadcastMapsStateSync(state);
           continue;
         }
 
-        addMapsRowWorker(state.rows, { ...row, phone: cleanP, query });
+        const finalRow = { ...row, phone: matchedPhone, query };
+        const uKey = uniqueMapsKeyWorker(finalRow);
+        if (!state.seenKeys[uKey]) {
+          state.seenKeys[uKey] = true;
+          const added = addMapsRowWorker(state.rows, finalRow);
+          if (added) {
+            broadcastMapsMessage({ type: 'MAPS_ROW_ADDED', row: finalRow });
+          }
+        }
         j.cursor++;
         state.tabId = mapsCurrentTabId;
-        state.lastScraped = { name: row.name, phone: cleanP, time: Date.now() };
+        state.lastScraped = { name: row.name, phone: matchedPhone, time: Date.now() };
         await chrome.storage.local.set({ rinMaps: state });
+        broadcastMapsStateSync(state);
 
-        const placeLog = cleanP ? `✅ ${row.name} - SĐT: ${cleanP}` : `📍 ${row.name} (không có SĐT)`;
+        const placeLog = matchedPhone ? `✅ ${row.name} - SĐT: ${matchedPhone}` : `📍 ${row.name} (Google Maps không niêm yết SĐT)`;
         broadcastMapsLog(placeLog);
 
-        const delaySec = j.delay || 5;
+        const delaySec = Math.max(2, Number(j.delay) || 5);
         for (let t = 0; t < delaySec * 2 && !mapsScanStop; t++) {
           await sleepMs(500);
         }
@@ -2233,6 +2329,7 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
         j.links = null;
         j.cursor = 0;
         await chrome.storage.local.set({ rinMaps: state });
+        broadcastMapsStateSync(state);
       }
     }
 
@@ -2240,23 +2337,27 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam) {
       state.job = null;
       state.isScanning = false;
       await chrome.storage.local.set({ rinMaps: state });
-      broadcastMapsLog('Hoàn tất quét toàn bộ từ khóa. Bạn có thể xuất file Excel ngay.');
+      broadcastMapsStateSync(state);
+      broadcastMapsLog('🎉 Hoàn tất quét toàn bộ từ khóa Google Maps. Bạn có thể xuất file Excel ngay.');
       await sendMapsZaloNotify('done', 'Quét hoàn tất toàn bộ từ khóa', j, state.rows.length);
     } else {
       state.isScanning = false;
       await chrome.storage.local.set({ rinMaps: state });
+      broadcastMapsStateSync(state);
       broadcastMapsLog('Đã dừng quét. Tiến trình đã được lưu lại, bạn có thể bấm Tiếp tục bất cứ lúc nào.');
       await sendMapsZaloNotify('stop', 'Người dùng đã bấm dừng', j, state.rows.length);
     }
   } catch (e) {
     state.isScanning = false;
     await chrome.storage.local.set({ rinMaps: state });
+    broadcastMapsStateSync(state);
     broadcastMapsLog('Tạm dừng do sự cố: ' + e.message);
     await sendMapsZaloNotify(mapsScanStop ? 'stop' : 'error', mapsScanStop ? 'Người dùng đã bấm dừng' : e.message, state.job, state.rows.length);
   } finally {
     mapsScanRunning = false;
     state.isScanning = false;
     await chrome.storage.local.set({ rinMaps: state });
+    broadcastMapsStateSync(state);
     try {
       if (!warmupRunning) chrome.power?.releaseKeepAwake?.();
     } catch (_) {}
@@ -2295,12 +2396,12 @@ async function sendMapsZaloNotify(kind, reason, job, count) {
   }
 }
 
-async function startMapsScan(jobParam, phoneTypesParam) {
-  if (mapsScanRunning) return { ok: true, running: true, message: 'Tiến trình quét đang chạy.' };
-  runMapsScraperLoop(jobParam, phoneTypesParam).catch(err => {
+async function startMapsScan(jobParam, phoneTypesParam, seenKeysParam = null) {
+  if (mapsScanRunning) return { ok: true, running: true, syncVersion: 2, message: 'Tiến trình quét đang chạy.' };
+  runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam).catch(err => {
     console.error('[MapsScraper] Lỗi chạy loop nền:', err);
   });
-  return { ok: true, running: true };
+  return { ok: true, running: true, syncVersion: 2 };
 }
 
 async function stopMapsScan() {
@@ -2309,6 +2410,7 @@ async function stopMapsScan() {
     if (rinMaps && rinMaps.isScanning) {
       rinMaps.isScanning = false;
       await chrome.storage.local.set({ rinMaps });
+      broadcastMapsStateSync(rinMaps);
     }
     return { ok: true, stopped: true };
   }
@@ -2319,7 +2421,7 @@ async function stopMapsScan() {
 // ── Facebook Group Phone Scraper Background Loop ─────────────────────────────
 function broadcastFbGroupLog(msg) {
   const time = new Date().toLocaleTimeString('vi-VN');
-  chrome.runtime.sendMessage({ type: 'FB_GROUP_LOG_EVENT', msg, time }).catch(() => {});
+  broadcastMapsMessage({ type: 'FB_GROUP_LOG_EVENT', msg, time });
 }
 
 async function waitForFbGroupTab(tabId, timeoutMs = 25000) {
@@ -2515,16 +2617,16 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
           if (!phone) continue;
 
           const category = item.category || classifyPhoneWorker(phone);
-          if (!allowedTypes[category]) continue;
+          if (!isPhoneAllowedWorker(phone, allowedTypes)) continue;
 
           // Bỏ trùng lặp SĐT
-          const key = phone;
+          const key = normPhoneWorker(phone) || phone;
           if (state.seenKeys[key]) continue;
           state.seenKeys[key] = true;
 
-          state.rows.push({
+          const fbRow = {
             id: 'fg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-            phone: phone,
+            phone: key,
             rawPhone: item.rawPhone || phone,
             name: item.name || 'Thành viên nhóm',
             source: item.source || 'Bài viết',
@@ -2534,16 +2636,25 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
             groupUrl: rawUrl,
             category: category,
             at: new Date().toLocaleString('vi-VN')
-          });
+          };
+          state.rows.push(fbRow);
+          broadcastMapsMessage({ type: 'FB_GROUP_ROW_ADDED', row: fbRow });
           newPhonesAddedInRound++;
 
-          broadcastFbGroupLog(`✅ Tìm thấy SĐT: ${phone} (${item.name} – Nguồn: ${item.source})`);
+          broadcastFbGroupLog(`✅ Tìm thấy SĐT: ${key} (${item.name} – Nguồn: ${item.source})`);
         }
 
         state.tabId = fbGroupCurrentTabId;
         state.postsCount = (state.totalPostsOffset || 0) + totalPostsScannedInGroup;
         state.commentsCount = (state.commentsCount || 0) + (data.commentsCount || 0);
         await chrome.storage.local.set({ rinFbGroup: state });
+        broadcastMapsMessage({
+          type: 'FB_GROUP_STATE_SYNC',
+          postsCount: state.postsCount,
+          commentsCount: state.commentsCount,
+          isScanning: state.isScanning,
+          job: state.job
+        });
 
         if (totalPostsScannedInGroup > previousPostCount || newPhonesAddedInRound > 0) {
           stagnantCount = 0;
@@ -2602,23 +2713,27 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
       state.job = null;
       state.isScanning = false;
       await chrome.storage.local.set({ rinFbGroup: state });
+      broadcastMapsMessage({ type: 'FB_GROUP_STATE_SYNC', postsCount: state.postsCount, commentsCount: state.commentsCount, isScanning: false, job: null });
       broadcastFbGroupLog(`🎉 Hoàn tất quét toàn bộ nhóm! Đã thu thập ${state.rows.length} số điện thoại.`);
       await sendFbGroupZaloNotify('done', 'Quét hoàn tất nhóm Facebook', j, state.rows.length);
     } else {
       state.isScanning = false;
       await chrome.storage.local.set({ rinFbGroup: state });
+      broadcastMapsMessage({ type: 'FB_GROUP_STATE_SYNC', postsCount: state.postsCount, commentsCount: state.commentsCount, isScanning: false, job: state.job });
       broadcastFbGroupLog('Đã dừng quét nhóm. Tiến trình đã được lưu lại, bạn có thể bấm Tiếp tục bất cứ lúc nào.');
       await sendFbGroupZaloNotify('stop', 'Người dùng đã bấm dừng', j, state.rows.length);
     }
   } catch (err) {
     state.isScanning = false;
     await chrome.storage.local.set({ rinFbGroup: state });
+    broadcastMapsMessage({ type: 'FB_GROUP_STATE_SYNC', postsCount: state.postsCount, commentsCount: state.commentsCount, isScanning: false, job: state.job });
     broadcastFbGroupLog('⚠️ Tạm dừng do sự cố: ' + err.message);
     await sendFbGroupZaloNotify(fbGroupScanStop ? 'stop' : 'error', fbGroupScanStop ? 'Người dùng đã bấm dừng' : err.message, state.job, state.rows.length);
   } finally {
     fbGroupScanRunning = false;
     state.isScanning = false;
     await chrome.storage.local.set({ rinFbGroup: state });
+    broadcastMapsMessage({ type: 'FB_GROUP_STATE_SYNC', postsCount: state.postsCount, commentsCount: state.commentsCount, isScanning: false, job: state.job });
     try {
       if (!warmupRunning && !mapsScanRunning) chrome.power?.releaseKeepAwake?.();
     } catch (_) {}
@@ -3924,9 +4039,34 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
 
-  // MAPS background runner messages
+  // PING handler for web_bridge internal messaging
+  if (m.type === 'PING') {
+    reply({
+      ok: true,
+      version: '0.4.4',
+      syncVersion: 2,
+      capabilities: ['GROUP_SEARCH', 'MAPS_SYNC_V2', 'FB_GROUP_SYNC_V2'],
+      extensionId: chrome.runtime?.id || 'affaocloanjmkpcinmkcbmekgipnddnm'
+    });
+    return false;
+  }
+
+  // MAPS background runner messages (chỉ chạy trong Chrome Extension worker thật)
+  if (m.type === 'MAPS_START_SCAN' || m.type === 'MAPS_RESUME_SCAN' || m.type === 'MAPS_STOP_SCAN' || m.type === 'MAPS_GET_STATUS' || m.type === 'MAPS_SHOW_TAB') {
+    const isWebRuntime = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
+    if (isWebRuntime) {
+      reply({
+        ok: false,
+        webFallback: true,
+        extensionUnsupported: true,
+        running: false,
+        error: 'Web runtime cannot script cross-origin Google Maps tabs directly.'
+      });
+      return true;
+    }
+  }
   if (m.type === 'MAPS_START_SCAN') {
-    startMapsScan(m.job, m.phoneTypes).then(reply).catch(e => reply({ ok: false, error: e.message }));
+    startMapsScan(m.job, m.phoneTypes, m.seenKeys).then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'MAPS_RESUME_SCAN') {
@@ -3938,7 +4078,25 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
   if (m.type === 'MAPS_GET_STATUS') {
-    reply({ ok: true, running: mapsScanRunning, tabId: mapsCurrentTabId });
+    (async () => {
+      try {
+        const { rinMaps } = await chrome.storage.local.get('rinMaps');
+        reply({
+          ok: true,
+          running: mapsScanRunning,
+          tabId: mapsCurrentTabId,
+          syncVersion: 2,
+          state: rinMaps ? {
+            job: rinMaps.job || null,
+            isScanning: Boolean(rinMaps.isScanning),
+            lastScraped: rinMaps.lastScraped || null,
+            recentRows: Array.isArray(rinMaps.rows) ? rinMaps.rows.slice(-200) : []
+          } : null
+        });
+      } catch (_) {
+        reply({ ok: true, running: mapsScanRunning, tabId: mapsCurrentTabId, syncVersion: 2 });
+      }
+    })();
     return true;
   }
   if (m.type === 'MAPS_SHOW_TAB') {
@@ -3963,7 +4121,20 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
 
-  // FB GROUP PHONE SCANNER background runner messages
+  // FB GROUP PHONE SCANNER background runner messages (chỉ chạy trong Chrome Extension worker thật)
+  if (m.type === 'FB_GROUP_START_SCAN' || m.type === 'FB_GROUP_RESUME_SCAN' || m.type === 'FB_GROUP_STOP_SCAN' || m.type === 'FB_GROUP_GET_STATUS' || m.type === 'FB_GROUP_SHOW_TAB') {
+    const isWebRuntime = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
+    if (isWebRuntime) {
+      reply({
+        ok: false,
+        webFallback: true,
+        extensionUnsupported: true,
+        running: false,
+        error: 'Web runtime cannot script cross-origin Facebook tabs directly.'
+      });
+      return true;
+    }
+  }
   if (m.type === 'FB_GROUP_START_SCAN') {
     startFbGroupScan(m.job, m.phoneTypes).then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
@@ -3977,7 +4148,7 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
   if (m.type === 'FB_GROUP_GET_STATUS') {
-    reply({ ok: true, running: fbGroupScanRunning, tabId: fbGroupCurrentTabId });
+    reply({ ok: true, running: fbGroupScanRunning, tabId: fbGroupCurrentTabId, syncVersion: 2 });
     return true;
   }
   if (m.type === 'FB_GROUP_SHOW_TAB') {
@@ -5884,7 +6055,13 @@ chrome.runtime.onMessage.addListener(handleRuntimeMessage);
 chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) => {
   // 1. PING kiểm tra trạng thái Extension Runner từ Web Platform
   if (request?.type === 'PING') {
-    sendResponse({ ok: true, version: '0.4.4', extensionId: chrome.runtime?.id || 'affaocloanjmkpcinmkcbmekgipnddnm' });
+    sendResponse({
+      ok: true,
+      version: '0.4.4',
+      syncVersion: 2,
+      capabilities: ['GROUP_SEARCH', 'MAPS_SYNC_V2', 'FB_GROUP_SYNC_V2'],
+      extensionId: chrome.runtime?.id || 'affaocloanjmkpcinmkcbmekgipnddnm'
+    });
     return false;
   }
 

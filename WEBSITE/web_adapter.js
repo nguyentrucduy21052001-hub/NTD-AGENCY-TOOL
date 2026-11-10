@@ -298,7 +298,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261110_1505')
+    _workerLoadPromise = import('./worker.js?v=20261110_1545')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
@@ -395,6 +395,16 @@
         'GROUP_SEARCH_STOP',
         'GROUP_SEARCH_GET_STATUS',
         'GROUP_SEARCH_SHOW_TAB',
+        'MAPS_START_SCAN',
+        'MAPS_RESUME_SCAN',
+        'MAPS_STOP_SCAN',
+        'MAPS_GET_STATUS',
+        'MAPS_SHOW_TAB',
+        'FB_GROUP_START_SCAN',
+        'FB_GROUP_RESUME_SCAN',
+        'FB_GROUP_STOP_SCAN',
+        'FB_GROUP_GET_STATUS',
+        'FB_GROUP_SHOW_TAB',
         'UNIVERSAL_TABS_CREATE',
         'UNIVERSAL_TABS_UPDATE',
         'UNIVERSAL_TABS_GET',
@@ -419,7 +429,74 @@
         'GROUP_SEARCH_GET_STATUS',
         'GROUP_SEARCH_SHOW_TAB'
       ]);
+      const MAPS_OR_FB_PHONE_CMDS = new Set([
+        'MAPS_START_SCAN',
+        'MAPS_RESUME_SCAN',
+        'MAPS_STOP_SCAN',
+        'MAPS_GET_STATUS',
+        'MAPS_SHOW_TAB',
+        'FB_GROUP_START_SCAN',
+        'FB_GROUP_RESUME_SCAN',
+        'FB_GROUP_STOP_SCAN',
+        'FB_GROUP_GET_STATUS',
+        'FB_GROUP_SHOW_TAB'
+      ]);
       const isGroupSearchCmd = Boolean(message?.type && GROUP_SEARCH_CMDS.has(message.type));
+      const isMapsOrFbPhoneCmd = Boolean(message?.type && MAPS_OR_FB_PHONE_CMDS.has(message.type));
+
+      if (isMapsOrFbPhoneCmd) {
+        const isStartOrResume = message.type === 'MAPS_START_SCAN'
+          || message.type === 'MAPS_RESUME_SCAN'
+          || message.type === 'FB_GROUP_START_SCAN'
+          || message.type === 'FB_GROUP_RESUME_SCAN';
+        let extConnected = document.documentElement.dataset.ntdExtensionConnected === 'true';
+        if (typeof window.chrome?.runtime?.sendToExtension === 'function') {
+          try {
+            if (isStartOrResume) {
+              const pingResp = await window.chrome.runtime.sendToExtension({ type: 'PING', probe: !extConnected });
+              if (pingResp && pingResp.ok) extConnected = true;
+              const supportsSyncV2 = Number(pingResp?.syncVersion) >= 2
+                || (Array.isArray(pingResp?.capabilities) && pingResp.capabilities.includes('MAPS_SYNC_V2'));
+              if (!supportsSyncV2) {
+                sendResponse({
+                  ok: false,
+                  webFallback: true,
+                  extensionUnsupported: true,
+                  extensionOutdated: extConnected,
+                  running: false,
+                  error: extConnected
+                    ? 'Extension is running an older worker without MAPS_SYNC_V2.'
+                    : 'Web environment: Extension unavailable'
+                });
+                return;
+              }
+            }
+
+            const extResp = await window.chrome.runtime.sendToExtension({
+              ...message,
+              probe: (message.type === 'MAPS_GET_STATUS' || message.type === 'FB_GROUP_GET_STATUS') && !extConnected
+            });
+            if (extResp && (extResp.ok || extResp.success)) {
+              const hasV2 = Number(extResp.syncVersion) >= 2;
+              sendResponse({
+                ...extResp,
+                extensionOutdated: (message.type === 'MAPS_GET_STATUS' || message.type === 'FB_GROUP_GET_STATUS') ? !hasV2 : false
+              });
+              return;
+            }
+          } catch (_) {}
+        }
+
+        sendResponse({
+          ok: false,
+          webFallback: true,
+          extensionUnsupported: true,
+          extensionOutdated: extConnected,
+          running: false,
+          error: 'Web environment: Extension unavailable or does not support MAPS_SYNC_V2'
+        });
+        return;
+      }
 
       if (message?.type && EXT_PRIVILEGED.has(message.type) && typeof window.chrome?.runtime?.sendToExtension === 'function') {
         try {

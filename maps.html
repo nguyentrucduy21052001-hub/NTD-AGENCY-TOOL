@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>Quét data – NTD Agency</title>
-  <script src="web_adapter.js"></script>
+  <script src="web_adapter.js?v=20261110_1545"></script>
   <script>
     (function() {
       var t = localStorage.getItem('ntd_theme') || 'dark';
@@ -931,6 +931,97 @@
       color: #c2410c;
       box-shadow: 0 2px 6px rgba(237, 107, 34, 0.12);
     }
+    .phone-prefix-details {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ntd-dark-theme .phone-prefix-details {
+      border-top-color: rgba(255, 255, 255, 0.12);
+    }
+    .prefix-summary-text {
+      font-size: 11.5px;
+      color: #475569;
+      line-height: 1.55;
+    }
+    .ntd-dark-theme .prefix-summary-text {
+      color: #94a3b8;
+    }
+    .prefix-summary-text code {
+      background: rgba(237, 107, 34, 0.1);
+      color: #ea580c;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .ntd-dark-theme .prefix-summary-text code {
+      background: rgba(251, 146, 60, 0.14);
+      color: #fb923c;
+    }
+    .prefix-preset-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .prefix-preset-btn {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .prefix-preset-btn:hover {
+      border-color: var(--accent);
+      color: #ea580c;
+    }
+    .prefix-preset-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+    .ntd-dark-theme .prefix-preset-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+    }
+    .ntd-dark-theme .prefix-preset-btn.active {
+      background: #ea580c;
+      border-color: #ea580c;
+      color: #ffffff;
+    }
+    .prefix-custom-input {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      font-size: 12.5px;
+      background: #ffffff;
+      color: #0f172a;
+    }
+    .ntd-dark-theme .prefix-custom-input {
+      background: rgba(15, 23, 42, 0.75);
+      border-color: rgba(255, 255, 255, 0.14);
+      color: #f8fafc;
+    }
+    .maps-web-notice {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      background: rgba(59, 130, 246, 0.08);
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--text);
+    }
 
     /* ── Mode Selector Tabs (Google Maps vs Quét số nhóm) ── */
     .scan-mode-tabs {
@@ -1365,16 +1456,45 @@
       <div class="phone-type-options">
         <label class="phone-type-chip checked" id="labelPhoneCurrent">
           <input type="checkbox" id="phoneTypeCurrent" checked>
-          <span>Số điện thoại hiện hành</span>
+          <span>Số điện thoại hiện hành (36 đầu số)</span>
         </label>
         <label class="phone-type-chip" id="labelPhoneHotline">
           <input type="checkbox" id="phoneTypeHotline">
-          <span>Số điện thoại tổng đài</span>
+          <span>Số điện thoại tổng đài &amp; cố định (63 tỉnh)</span>
         </label>
         <label class="phone-type-chip" id="labelPhoneOld">
           <input type="checkbox" id="phoneTypeOld">
-          <span>Số điện thoại cũ</span>
+          <span>Số điện thoại cũ (11 số)</span>
         </label>
+      </div>
+      <div class="phone-prefix-details">
+        <div class="prefix-summary-text">
+          <strong>Đầu số hỗ trợ:</strong>
+          Viettel <code>032–039, 086, 096–098</code> ·
+          VinaPhone <code>081–085, 088, 091, 094</code> ·
+          MobiFone <code>070, 076–079, 089, 090, 093</code> ·
+          Vietnamobile/Gmobile/iTelecom/Wintel <code>052, 055, 056, 058, 059, 087, 092, 099</code> ·
+          Tổng đài &amp; bàn 63 tỉnh <code>1900, 1800, 024, 028, 0203–0299</code> ·
+          11 số cũ <code>0162–0169, 0120–0129, 0186, 0188, 0199</code>
+        </div>
+        <div class="prefix-preset-row" id="mapsCarrierPresetRow">
+          <span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">Lọc nhanh đầu số:</span>
+          <button type="button" class="prefix-preset-btn active" data-target="maps" data-carrier="all">Tất cả đầu số đã chọn</button>
+          <button type="button" class="prefix-preset-btn" data-target="maps" data-carrier="viettel">Viettel</button>
+          <button type="button" class="prefix-preset-btn" data-target="maps" data-carrier="vinaphone">VinaPhone</button>
+          <button type="button" class="prefix-preset-btn" data-target="maps" data-carrier="mobifone">MobiFone</button>
+          <button type="button" class="prefix-preset-btn" data-target="maps" data-carrier="other">05x / 087 / 092 / 099</button>
+          <button type="button" class="prefix-preset-btn" data-target="maps" data-carrier="hotline">1900 / 1800 / Bàn 02x</button>
+        </div>
+        <input type="text" id="customPhonePrefixes" class="prefix-custom-input" placeholder="Lọc thêm / ưu tiên đầu số riêng (để trống = lấy hết các đầu số trên; VD: 090, 093, 098, 086, 028, 1900)">
+      </div>
+    </div>
+
+    <div class="maps-web-notice" id="mapsWebNoticeBox" hidden>
+      <div id="mapsWebNoticeText"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" id="mapsPasteImportBtn" class="btn btn-secondary" style="padding:6px 12px;font-size:12px">📋 Dán &amp; trích SĐT từ tab Google Maps (Clipboard)</button>
+        <button type="button" id="mapsRecheckExtBtn" class="btn btn-secondary" style="padding:6px 12px;font-size:12px">🔄 Kiểm tra lại kết nối Extension</button>
       </div>
     </div>
 
@@ -1496,16 +1616,28 @@
       <div class="phone-type-options">
         <label class="phone-type-chip checked" id="labelGroupPhoneCurrent">
           <input type="checkbox" id="groupPhoneTypeCurrent" checked>
-          <span>Số điện thoại hiện hành</span>
+          <span>Số điện thoại hiện hành (36 đầu số)</span>
         </label>
         <label class="phone-type-chip" id="labelGroupPhoneHotline">
           <input type="checkbox" id="groupPhoneTypeHotline">
-          <span>Số điện thoại tổng đài</span>
+          <span>Số điện thoại tổng đài &amp; cố định (63 tỉnh)</span>
         </label>
         <label class="phone-type-chip" id="labelGroupPhoneOld">
           <input type="checkbox" id="groupPhoneTypeOld">
-          <span>Số điện thoại cũ</span>
+          <span>Số điện thoại cũ (11 số)</span>
         </label>
+      </div>
+      <div class="phone-prefix-details">
+        <div class="prefix-preset-row" id="groupCarrierPresetRow">
+          <span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">Lọc nhanh đầu số:</span>
+          <button type="button" class="prefix-preset-btn active" data-target="group" data-carrier="all">Tất cả đầu số đã chọn</button>
+          <button type="button" class="prefix-preset-btn" data-target="group" data-carrier="viettel">Viettel</button>
+          <button type="button" class="prefix-preset-btn" data-target="group" data-carrier="vinaphone">VinaPhone</button>
+          <button type="button" class="prefix-preset-btn" data-target="group" data-carrier="mobifone">MobiFone</button>
+          <button type="button" class="prefix-preset-btn" data-target="group" data-carrier="other">05x / 087 / 092 / 099</button>
+          <button type="button" class="prefix-preset-btn" data-target="group" data-carrier="hotline">1900 / 1800 / Bàn 02x</button>
+        </div>
+        <input type="text" id="groupCustomPhonePrefixes" class="prefix-custom-input" placeholder="Lọc thêm đầu số riêng cho nhóm (để trống = lấy hết các đầu số đã chọn; VD: 090, 098, 086...)">
       </div>
     </div>
 
@@ -1638,7 +1770,7 @@
   </div>
 </main>
 
-<script type="module" src="maps.js?v=20261108_1510"></script>
+<script type="module" src="maps.js?v=20261110_1545"></script>
 <script type="module" src="sidebar.js"></script>
 </body>
 </html>
