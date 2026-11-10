@@ -298,7 +298,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261110_1545')
+    _workerLoadPromise = import('./worker.js?v=20261110_1605')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;

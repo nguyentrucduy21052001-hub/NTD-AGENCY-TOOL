@@ -37,11 +37,31 @@ const OLD_PHONE_PREFIXES = [
 ];
 
 /**
+ * Chuẩn hóa chữ số Unicode in đậm / nghiêng / toàn chiều rộng (𝟎-𝟿, 𝟬-𝟵, ０-９...) về ASCII 0-9
+ */
+function normalizeUnicodeDigits(str) {
+  if (!str) return '';
+  let out = '';
+  for (const ch of String(str)) {
+    const cp = ch.codePointAt(0);
+    if (cp >= 0xff10 && cp <= 0xff19) {
+      out += String.fromCharCode(48 + (cp - 0xff10));
+    } else if (cp >= 0x1d7ce && cp <= 0x1d7ff) {
+      // 5 bộ chữ số toán học 10 ký tự liên tiếp: 0x1D7CE..0x1D7D7, 0x1D7D8..0x1D7E1, ...
+      out += String((cp - 0x1d7ce) % 10);
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
  * Chuẩn hóa số điện thoại thô thành chuỗi chữ số sạch (tương thích Google Maps)
  */
 function normalizePhone(raw) {
   if (!raw) return '';
-  let s = String(raw).replace(/\D+/g, '');
+  let s = normalizeUnicodeDigits(String(raw)).replace(/\D+/g, '');
   if (s.startsWith('0084')) s = s.slice(4);
   else if (s.startsWith('84') && s.length >= 10) s = s.slice(2);
 
@@ -90,20 +110,15 @@ function classifyPhoneNumber(phone) {
 function extractPhonesWithContext(text, maxLength = 85) {
   if (!text || typeof text !== 'string') return [];
 
-  // 1. Thay O/o bằng 0 khi đứng trước số hoặc trong dãy số
-  let processed = text
+  // 1. Chuyển chữ số Unicode (đậm/in/fullwidth) về ASCII & thay O/o bằng 0 khi kề số
+  let processed = normalizeUnicodeDigits(text)
     .replace(/\b[oO](?=[0-9])/gi, '0')
     .replace(/(?<=[0-9])[oO](?=[0-9])/gi, '0')
-    .replace(/(?<=\b(?:sđt|sdt|lh|zalo|call|phone|hotline|alo|đt|dt)[:\s]*)[oO]/gi, '0')
+    .replace(/(?<=\b(?:sđt|sdt|lh|zalo|call|phone|hotline|alo|đt|dt|tel)[:\s]*)[oO]/gi, '0')
     .replace(/([oO])(?=[0-9])/g, '0');
 
-  // Chuyển ký tự số fullwidth (０-９) sang halfwidth (0-9)
-  processed = processed.replace(/[\uff10-\uff19]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
-
-  // 2. Pattern tìm dãy số điện thoại:
-  // - Di động / Cố định: bắt đầu bằng (+84|84|0) kèm 8-10 chữ số
-  // - Tổng đài: bắt đầu bằng 1800/1900 kèm 4-6 chữ số
-  const phonePattern = /(?:(?:\+84|84|0)[.\s-]?)(?:\d[.\s-]?){8,10}\d\b|\b(?:1800|1900)[.\s-]?(?:\d[.\s-]?){3,6}\d\b/gi;
+  // 2. Pattern tìm dãy số điện thoại (hỗ trợ ngoặc đơn, dấu cách, chấm, gạch ngang, gạch dưới, chéo, chữ viết liền cuối số như 0901234567zalo)
+  const phonePattern = /(?:\(\s*(?:\+?84|0)\s*\)|(?:\+?84|84|0))[.\s\-/_()]*(?:\d[.\s\-/_()]*){8,10}\d(?!\d)|\b(?:1800|1900)[.\s\-/_]*(?:\d[.\s\-/_]*){3,6}\d(?!\d)/gi;
 
   const found = [];
   const matches = [...processed.matchAll(phonePattern)];
@@ -111,6 +126,10 @@ function extractPhonesWithContext(text, maxLength = 85) {
   for (const match of matches) {
     const rawCandidate = match[0];
     const matchIndex = match.index;
+
+    // Không cắt SĐT từ giữa một dãy số dài (như ID bài viết/UID 15 chữ số)
+    const beforeChar = matchIndex > 0 ? processed[matchIndex - 1] : '';
+    if (/\d/.test(beforeChar)) continue;
 
     // Loại trừ ngày tháng ví dụ: 20/11/2026, 05-11-2026
     if (/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(rawCandidate)) continue;
@@ -120,6 +139,7 @@ function extractPhonesWithContext(text, maxLength = 85) {
 
     // Chuẩn hóa và phân loại
     const cleanPhone = normalizePhone(rawCandidate);
+    if (!cleanPhone || cleanPhone.length < 8 || cleanPhone.length > 11) continue;
     const category = classifyPhoneNumber(cleanPhone);
     if (!category || category === 'other') continue;
 
@@ -148,8 +168,14 @@ function getActivePostDialog() {
   const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
   for (let i = dialogs.length - 1; i >= 0; i--) {
     const d = dialogs[i];
-    if (d.offsetWidth > 250 && d.offsetHeight > 250) {
-      return d;
+    const aria = (d.getAttribute('aria-label') || '').toLowerCase();
+    if (aria.includes('chat') || aria.includes('messenger') || aria.includes('tin nhắn') || aria.includes('thông báo') || aria.includes('notifications')) {
+      continue;
+    }
+    if (d.offsetWidth >= 380 && d.offsetHeight >= 300) {
+      const hasPostSignal = /\/(?:posts|permalink|photo|videos)\//i.test(location.href)
+        || Boolean(d.querySelector('[data-ad-preview="message"], [data-ad-rendering-role="story_message"], div[role="article"]'));
+      if (hasPostSignal) return d;
     }
   }
   return null;
@@ -410,15 +436,21 @@ function extractGroupPhonesFromDOM(options = {}) {
   let totalPostsFound = 0;
   let totalCommentsFound = 0;
 
-  // Tìm các phần tử bài viết trên trang
+  // Tìm các phần tử bài viết trên trang (hỗ trợ cả giao diện mới dùng aria-posinset / div[role="feed"] > div)
   const feed = document.querySelector('div[role="feed"]') || document.querySelector('div[role="main"]') || document.body;
-  let postEls = Array.from(feed.querySelectorAll('div[role="article"], div[data-pagelet^="FeedUnit"], div[data-virtualized="false"]'));
+  let postEls = Array.from(feed.querySelectorAll('div[aria-posinset], div[data-pagelet^="FeedUnit"], div[role="article"], div[data-virtualized="false"]'));
+  postEls = postEls.filter(el => {
+    // Bỏ qua comment role="article" nằm lồng bên trong bài viết cha đã được chọn
+    const parentArticle = el.parentElement?.closest('div[aria-posinset], div[data-pagelet^="FeedUnit"], div[role="article"]');
+    return !parentArticle || !postEls.includes(parentArticle);
+  });
 
-  // Fallback nếu Facebook không gán role="article" cho tất cả thẻ con
-  if (!postEls.length && feed) {
-    postEls = Array.from(feed.children).filter(el => {
-      return el.querySelector('div[dir="auto"]') && (el.scrollHeight > 100);
-    });
+  // Fallback nếu Facebook dùng các div con trực tiếp của div[role="feed"]
+  if (postEls.length <= 1 && feed) {
+    const directBlocks = Array.from(feed.children).filter(el => el.innerText && el.innerText.trim().length > 20);
+    if (directBlocks.length > postEls.length) {
+      postEls = directBlocks;
+    }
   }
 
   totalPostsFound = postEls.length;
@@ -473,12 +505,12 @@ function extractGroupPhonesFromDOM(options = {}) {
       }
       if (pKey) postIdentifiers.push(pKey);
 
-      // 3. Quét SĐT trong NỘI DUNG BÀI VIẾT
+      // 3. Quét SĐT trong NỘI DUNG BÀI VIẾT & liên kết tel:/zalo.me/wa.me
       if (scanPosts) {
         const msgContainer = postEl.querySelector('div[data-ad-preview="message"]') ||
                              postEl.querySelector('div[data-ad-rendering-role="story_message"]') ||
                              postEl;
-        const postText = (msgContainer?.innerText || '').trim();
+        const postText = (msgContainer?.innerText || postEl.innerText || '').trim();
 
         if (postText) {
           const phones = extractPhonesWithContext(postText);
@@ -490,6 +522,26 @@ function extractGroupPhonesFromDOM(options = {}) {
               name: authorName,
               source: 'Bài viết',
               context: p.snippet,
+              postUrl: postUrl,
+              groupName: groupTitle,
+              groupUrl: currentUrl,
+              at: new Date().toISOString()
+            });
+          }
+        }
+
+        const telAnchors = postEl.querySelectorAll('a[href^="tel:"], a[href*="zalo.me/"], a[href*="wa.me/"]');
+        for (const ta of telAnchors) {
+          const hrefRaw = decodeURIComponent(ta.getAttribute('href') || '');
+          const linkPhones = extractPhonesWithContext(hrefRaw);
+          for (const p of linkPhones) {
+            items.push({
+              phone: p.phone,
+              rawPhone: p.rawPhone,
+              category: p.category,
+              name: authorName,
+              source: 'Bài viết',
+              context: p.snippet || hrefRaw,
               postUrl: postUrl,
               groupName: groupTitle,
               groupUrl: currentUrl,
@@ -582,13 +634,18 @@ function extractGroupPhonesFromDOM(options = {}) {
     } catch (_) {}
   }
 
-  // 6. Lớp quét bổ sung toàn diện: Quét toàn bộ khối văn bản dir="auto" trong Feed
-  // Đảm bảo không bỏ sót bất kỳ bài viết nào dù giao diện Facebook có thay đổi cấu trúc thẻ
-  if (scanPosts) {
+  // 6. Lớp quét bổ sung toàn diện: Quét toàn bộ khối văn bản dir="auto" và liên kết tel/zalo trong vùng nội dung chính
+  // Đảm bảo không bỏ sót bất kỳ bài viết / bình luận nào dù giao diện Facebook thay đổi cấu trúc thẻ
+  if (scanPosts || scanComments) {
     try {
-      const allTextNodes = feed.querySelectorAll('div[dir="auto"], span[dir="auto"], p');
+      const scanRoot = document.querySelector('div[role="feed"]') || document.querySelector('div[role="main"]') || feed;
+      const allTextNodes = scanRoot.querySelectorAll('div[dir="auto"], span[dir="auto"], p, a[href^="tel:"], a[href*="zalo.me/"]');
       for (const node of allTextNodes) {
-        const t = (node.innerText || '').trim();
+        if (node.closest('[role="navigation"], [role="banner"]')) continue;
+        const t = (node.tagName === 'A'
+          ? (node.innerText || '') + ' ' + decodeURIComponent(node.getAttribute('href') || '')
+          : (node.innerText || '')
+        ).trim();
         if (t.length < 8) continue;
 
         const phones = extractPhonesWithContext(t);
@@ -599,7 +656,7 @@ function extractGroupPhonesFromDOM(options = {}) {
               rawPhone: p.rawPhone,
               category: p.category,
               name: 'Thành viên nhóm',
-              source: 'Bài viết',
+              source: node.closest('div[aria-label*="Bình luận" i], div[aria-label*="Comment" i], div[aria-label*="trả lời" i]') ? 'Bình luận' : 'Bài viết',
               context: p.snippet,
               postUrl: currentUrl,
               groupName: groupTitle,
@@ -707,7 +764,7 @@ function scrollPostDialogOrFeed(stagnantRound = 0) {
     }
 
     const scrollDelta = 3000 + (stagnantRound * 600);
-    window.scrollBy({ top: scrollDelta, behavior: 'smooth' });
+    window.scrollBy(0, scrollDelta);
 
     const feeds = document.querySelectorAll('div[role="feed"], div[role="main"]');
     for (const f of feeds) {

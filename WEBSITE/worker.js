@@ -2472,7 +2472,7 @@ async function sendFbGroupZaloNotify(kind, reason, job, count) {
   }
 }
 
-async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
+async function runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam = null) {
   if (fbGroupScanRunning) return;
   fbGroupScanRunning = true;
   fbGroupScanStop = false;
@@ -2482,7 +2482,14 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
   if (!Array.isArray(state.rows)) state.rows = [];
   if (!state.seenKeys) state.seenKeys = {};
 
-  if (jobParam) state.job = jobParam;
+  if (jobParam) {
+    state.job = jobParam;
+    state.postsCount = 0;
+    state.commentsCount = 0;
+    if (seenKeysParam && typeof seenKeysParam === 'object') {
+      state.seenKeys = { ...seenKeysParam };
+    }
+  }
   if (phoneTypesParam) {
     if (!state.job) state.job = {};
     state.job.phoneTypes = phoneTypesParam;
@@ -2490,6 +2497,13 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
   state.isScanning = true;
   state.tabId = fbGroupCurrentTabId;
   await chrome.storage.local.set({ rinFbGroup: state });
+  broadcastMapsMessage({
+    type: 'FB_GROUP_STATE_SYNC',
+    postsCount: state.postsCount || 0,
+    commentsCount: state.commentsCount || 0,
+    isScanning: true,
+    job: state.job
+  });
 
   try {
     chrome.power?.requestKeepAwake?.('system');
@@ -2740,12 +2754,12 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam) {
   }
 }
 
-async function startFbGroupScan(jobParam, phoneTypesParam) {
-  if (fbGroupScanRunning) return { ok: true, running: true, message: 'Tiến trình quét nhóm đang chạy.' };
-  runFbGroupScraperLoop(jobParam, phoneTypesParam).catch(err => {
+async function startFbGroupScan(jobParam, phoneTypesParam, seenKeysParam = null) {
+  if (fbGroupScanRunning) return { ok: true, running: true, syncVersion: 2, message: 'Tiến trình quét nhóm đang chạy.' };
+  runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam).catch(err => {
     console.error('[FbGroupScraper] Lỗi chạy loop nền:', err);
   });
-  return { ok: true, running: true };
+  return { ok: true, running: true, syncVersion: 2 };
 }
 
 async function stopFbGroupScan() {
@@ -4136,7 +4150,7 @@ function handleRuntimeMessage(m, sender, reply) {
     }
   }
   if (m.type === 'FB_GROUP_START_SCAN') {
-    startFbGroupScan(m.job, m.phoneTypes).then(reply).catch(e => reply({ ok: false, error: e.message }));
+    startFbGroupScan(m.job, m.phoneTypes, m.seenKeys).then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'FB_GROUP_RESUME_SCAN') {
@@ -4148,7 +4162,26 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
   if (m.type === 'FB_GROUP_GET_STATUS') {
-    reply({ ok: true, running: fbGroupScanRunning, tabId: fbGroupCurrentTabId, syncVersion: 2 });
+    (async () => {
+      try {
+        const { rinFbGroup } = await chrome.storage.local.get('rinFbGroup');
+        reply({
+          ok: true,
+          running: fbGroupScanRunning,
+          tabId: fbGroupCurrentTabId,
+          syncVersion: 2,
+          state: rinFbGroup ? {
+            job: rinFbGroup.job || null,
+            isScanning: Boolean(rinFbGroup.isScanning),
+            postsCount: rinFbGroup.postsCount || 0,
+            commentsCount: rinFbGroup.commentsCount || 0,
+            recentRows: Array.isArray(rinFbGroup.rows) ? rinFbGroup.rows.slice(-200) : []
+          } : null
+        });
+      } catch (_) {
+        reply({ ok: true, running: fbGroupScanRunning, tabId: fbGroupCurrentTabId, syncVersion: 2 });
+      }
+    })();
     return true;
   }
   if (m.type === 'FB_GROUP_SHOW_TAB') {

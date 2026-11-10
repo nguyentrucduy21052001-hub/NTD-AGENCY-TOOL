@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>Quét data – NTD Agency</title>
-  <script src="web_adapter.js?v=20261110_1545"></script>
+  <script src="web_adapter.js?v=20261110_1605"></script>
   <script>
     (function() {
       var t = localStorage.getItem('ntd_theme') || 'dark';
@@ -1628,6 +1628,15 @@
         </label>
       </div>
       <div class="phone-prefix-details">
+        <div class="prefix-summary-text">
+          <strong>Đầu số hỗ trợ:</strong>
+          Viettel <code>032–039, 086, 096–098</code> ·
+          VinaPhone <code>081–085, 088, 091, 094</code> ·
+          MobiFone <code>070, 076–079, 089, 090, 093</code> ·
+          Vietnamobile/Gmobile/iTelecom/Wintel <code>052, 055, 056, 058, 059, 087, 092, 099</code> ·
+          Tổng đài &amp; bàn 63 tỉnh <code>1900, 1800, 024, 028, 0203–0299</code> ·
+          11 số cũ <code>0162–0169, 0120–0129, 0186, 0188, 0199</code>
+        </div>
         <div class="prefix-preset-row" id="groupCarrierPresetRow">
           <span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">Lọc nhanh đầu số:</span>
           <button type="button" class="prefix-preset-btn active" data-target="group" data-carrier="all">Tất cả đầu số đã chọn</button>
@@ -1638,6 +1647,14 @@
           <button type="button" class="prefix-preset-btn" data-target="group" data-carrier="hotline">1900 / 1800 / Bàn 02x</button>
         </div>
         <input type="text" id="groupCustomPhonePrefixes" class="prefix-custom-input" placeholder="Lọc thêm đầu số riêng cho nhóm (để trống = lấy hết các đầu số đã chọn; VD: 090, 098, 086...)">
+      </div>
+    </div>
+
+    <div class="maps-web-notice" id="groupWebNoticeBox" hidden>
+      <div id="groupWebNoticeText"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" id="groupPasteImportBtn" class="btn btn-secondary" style="padding:6px 12px;font-size:12px">📋 Dán &amp; trích SĐT từ tab Nhóm Facebook (Clipboard)</button>
+        <button type="button" id="groupRecheckExtBtn" class="btn btn-secondary" style="padding:6px 12px;font-size:12px">🔄 Kiểm tra lại kết nối Extension</button>
       </div>
     </div>
 
@@ -1770,7 +1787,7 @@
   </div>
 </main>
 
-<script type="module" src="maps.js?v=20261110_1545"></script>
+<script type="module" src="maps.js?v=20261110_1605"></script>
 <script type="module" src="sidebar.js"></script>
 </body>
 </html>

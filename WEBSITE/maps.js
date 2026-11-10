@@ -102,9 +102,25 @@ function parsePrefixList(raw) {
   )];
 }
 
+function normalizeUnicodeDigits(str) {
+  if (!str) return '';
+  let out = '';
+  for (const ch of String(str)) {
+    const cp = ch.codePointAt(0);
+    if (cp >= 0xff10 && cp <= 0xff19) {
+      out += String.fromCharCode(48 + (cp - 0xff10));
+    } else if (cp >= 0x1d7ce && cp <= 0x1d7ff) {
+      out += String((cp - 0x1d7ce) % 10);
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
 function normPhone(p) {
   if (!p) return '';
-  let s = String(p).replace(/\D+/g, '');
+  let s = normalizeUnicodeDigits(String(p)).replace(/\D+/g, '');
   if (s.startsWith('0084')) s = s.slice(4);
   else if (s.startsWith('84') && s.length >= 10) s = s.slice(2);
   if (/^(1800|1900|111|112|113|114|115|156|5656)/.test(s)) return s;
@@ -1351,93 +1367,110 @@ async function runLoop({ tabAlreadyOpened = false } = {}) {
 let isDirectGroupScrapingRunning = false;
 let fbGroupTabWindow = null;
 
-function generateGroupPhoneItems(groupUrl = '', groupTitle = '', allowedTypes = null, options = null, round = 1) {
-  const activeTypes = allowedTypes || getActiveGroupPhoneTypes();
-  const scanOpts = options || { scanPosts: true, scanComments: true, scanImages: true };
+function showGroupWebNotice(outdatedExt = false) {
+  const box = $('groupWebNoticeBox');
+  const txt = $('groupWebNoticeText');
+  if (!box || !txt) return;
+  box.hidden = false;
+  if (outdatedExt) {
+    txt.innerHTML = '<strong>⚠️ Extension NTD Agency cần Tải lại (↻) 1 lần:</strong> Bản Extension đang cài trong Chrome chưa cập nhật trình đồng bộ quét số nhóm mới (<code>FB_GROUP_SYNC_V2</code>). Hãy mở <code>chrome://extensions</code> → bấm nút <strong>↻ Reload</strong> trên <strong>NTD Agency</strong> 1 lần rồi bấm <strong>🔄 Kiểm tra lại</strong> để tự động cào SĐT bài viết &amp; bình luận trên Facebook. Hoặc mở tab Nhóm Facebook → bấm <code>Ctrl+A → Ctrl+C</code> rồi bấm nút Dán bên dưới.';
+  } else {
+    txt.innerHTML = '<strong>🌐 Đang chạy ở chế độ Web trực tiếp:</strong> Do trình duyệt chặn đọc DOM cross-origin bên trong tab <code>facebook.com</code> khi thiếu Extension, bạn hãy bật Extension <strong>NTD Agency</strong> (quét tự động) hoặc copy nội dung tab Nhóm Facebook (<code>Ctrl+A → Ctrl+C</code>) rồi bấm <strong>📋 Dán &amp; trích SĐT</strong> bên dưới.';
+  }
+}
 
-  const availableSources = [];
-  if (scanOpts.scanPosts) availableSources.push('Bài viết');
-  if (scanOpts.scanComments) availableSources.push('Bình luận');
-  if (scanOpts.scanImages) availableSources.push('Hình ảnh (OCR)');
-  if (!availableSources.length) availableSources.push('Bài viết');
+function hideGroupWebNotice() {
+  const box = $('groupWebNoticeBox');
+  if (box) box.hidden = true;
+}
 
-  const VIETNAMESE_NAMES = [
-    'Nguyễn Văn Tuấn', 'Trần Thị Mai', 'Lê Hoàng Nam', 'Phạm Quỳnh Anh',
-    'Hoàng Minh Đức', 'Vũ Thị Lan Hương', 'Đặng Quốc Bảo', 'Bùi Thu Trang',
-    'Đỗ Văn Hùng', 'Ngô Thanh Hải', 'Dương Thúy Nga', 'Lý Hải Đăng',
-    'Trịnh Mai Linh', 'Phan Văn Hậu', 'Võ Thị Bích Ngọc', 'Lương Thế Vinh',
-    'Đinh Trọng Nghĩa', 'Chu Ngọc Anh', 'Hồ Diệu Huyền', 'Mai Văn Khoa'
-  ];
-
-  const CONTEXT_TEMPLATES = [
-    'Khách hàng cần tư vấn liên hệ trực tiếp qua số: {PHONE} (Zalo 24/7)',
-    'Em xả kho thanh lý giá rẻ, các bác quan tâm alo em nhé: {PHONE}',
-    'Bên em nhận hỗ trợ dịch vụ trọn gói uy tín, hotline tư vấn: {PHONE}',
-    'Anh chị cần hợp tác nguồn sỉ vui lòng gọi hoặc kết bạn Zalo: {PHONE}',
-    'Chính chủ cần nhượng lại mặt bằng/cửa hàng gấp, sđt liên hệ: {PHONE}',
-    'Ai cần nhắn riêng hoặc call trực tiếp giúp em số này ạ: {PHONE}',
-    'Cần tuyển đối tác phân phối khu vực, sđt phụ trách: {PHONE}',
-    'Hàng sẵn giao ngay, liên hệ hotline tư vấn đặt đơn: {PHONE}'
-  ];
-
-  let cleanGroupTitle = groupTitle;
-  if (!cleanGroupTitle) {
-    const matchGid = groupUrl.match(/groups\/([^/?]+)/);
-    const gid = matchGid ? matchGid[1] : '';
-    cleanGroupTitle = gid ? `Nhóm Facebook (${gid})` : 'Cộng Đồng Trao Đổi & Kinh Doanh';
+async function importGroupPhonesFromClipboardText(rawText) {
+  const text = String(rawText || '').trim();
+  if (!text) {
+    log('⚠️ Clipboard trống. Hãy mở tab Nhóm Facebook, cuộn qua các bài viết rồi bấm Ctrl+A, Ctrl+C trước.');
+    return 0;
   }
 
-  const items = [];
-  const countInRound = 2 + (Math.floor(Math.random() * 3));
+  const allowedTypes = getActiveGroupPhoneTypes();
+  const rawGroupUrl = String($('groupUrl')?.value || groupState.job?.groupUrl || '').split(/[\r\n,]+/)[0]?.trim() || 'https://www.facebook.com/groups/';
+  const gidMatch = rawGroupUrl.match(/groups\/([^/?]+)/);
+  const defaultGroupName = gidMatch ? `Nhóm Facebook (${gidMatch[1]})` : 'Nhóm Facebook';
 
-  let seed = 0;
-  const rawKey = `${groupUrl}|${round}|${Date.now()}`;
-  for (let i = 0; i < rawKey.length; i++) {
-    seed = ((seed << 5) - seed) + rawKey.charCodeAt(i);
-    seed |= 0;
-  }
-  seed = Math.abs(seed);
+  const normalizedText = normalizeUnicodeDigits(text)
+    .replace(/\b[oO](?=[0-9])/gi, '0')
+    .replace(/(?<=[0-9])[oO](?=[0-9])/gi, '0')
+    .replace(/(?<=\b(?:sđt|sdt|lh|zalo|call|phone|hotline|alo|đt|dt|tel)[:\s]*)[oO]/gi, '0')
+    .replace(/([oO])(?=[0-9])/g, '0');
 
-  for (let i = 0; i < countInRound; i++) {
-    const itemSeed = Math.abs(seed + (i * 257) + Math.floor(Math.random() * 8888));
-    const name = VIETNAMESE_NAMES[itemSeed % VIETNAMESE_NAMES.length];
-    const source = availableSources[itemSeed % availableSources.length];
+  const lines = normalizedText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const phoneRegex = /(?:\(\s*(?:\+?84|0)\s*\)|(?:\+?84|84|0))[.\s\-/_()]*(?:\d[.\s\-/_()]*){8,10}\d(?!\d)|\b(?:1800|1900)[.\s\-/_]*(?:\d[.\s\-/_]*){3,6}\d(?!\d)/gi;
 
-    const phone = resolveBusinessPhone(name, cleanGroupTitle, groupUrl, activeTypes);
-    if (!phone) continue;
+  if (!groupState.seenKeys) groupState.seenKeys = {};
+  if (!Array.isArray(groupState.rows)) groupState.rows = [];
 
-    const category = classifyPhone(phone);
-    if (!activeTypes[category]) continue;
+  let added = 0;
+  let skipped = 0;
 
-    const ctxTemplate = CONTEXT_TEMPLATES[itemSeed % CONTEXT_TEMPLATES.length];
-    const context = ctxTemplate.replace('{PHONE}', phone);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const matches = [...line.matchAll(phoneRegex)];
+    if (!matches.length) continue;
 
-    const postId = (100000000000000 + (itemSeed % 900000000000000)).toString();
-    let postUrl = groupUrl;
-    if (postUrl.includes('/groups/')) {
-      postUrl = postUrl.replace(/\/$/, '') + '/posts/' + postId + '/';
+    for (const m of matches) {
+      const idx = m.index || 0;
+      if (idx > 0 && /\d/.test(line[idx - 1])) continue;
+      if (/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(m[0])) continue;
+
+      const cleanP = normPhone(m[0]);
+      if (!cleanP || cleanP.length < 8 || cleanP.length > 11) continue;
+      const category = classifyPhone(cleanP);
+      if (!category || category === 'other') continue;
+
+      if (!isPhoneAllowed(cleanP, allowedTypes)) {
+        skipped++;
+        continue;
+      }
+      if (groupState.seenKeys[cleanP]) continue;
+      groupState.seenKeys[cleanP] = true;
+
+      let authorName = 'Thành viên nhóm';
+      for (let back = i - 1; back >= Math.max(0, i - 6); back--) {
+        const prev = lines[back];
+        if (!prev || prev.length < 2 || prev.length > 60) continue;
+        if (/^(Thích|Bình luận|Chia sẻ|Trả lời|Xem thêm|Quản trị viên|Người đóng góp|\d+\s*(giờ|phút|ngày|tuần))/i.test(prev)) continue;
+        if (!phoneRegex.test(prev) && !/https?:\/\//i.test(prev)) {
+          authorName = prev;
+          break;
+        }
+      }
+
+      groupState.rows.push({
+        id: 'fg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        phone: cleanP,
+        rawPhone: m[0].trim(),
+        name: authorName,
+        source: 'Bài viết / Bình luận (Clipboard)',
+        context: line.slice(0, 140),
+        postUrl: rawGroupUrl,
+        groupName: defaultGroupName,
+        groupUrl: rawGroupUrl,
+        category,
+        at: new Date().toLocaleString('vi-VN')
+      });
+      added++;
+      log(`✅ [Clipboard Nhóm] ${cleanP} (${authorName})`);
     }
-
-    items.push({
-      phone,
-      rawPhone: phone,
-      name,
-      source,
-      context,
-      postUrl,
-      groupName: cleanGroupTitle,
-      groupUrl,
-      category,
-      at: new Date().toLocaleString('vi-VN')
-    });
   }
 
-  return {
-    items,
-    postsCount: 4 + (seed % 6),
-    commentsCount: 8 + (seed % 12),
-    groupTitle: cleanGroupTitle
-  };
+  groupState.postsCount = Math.max(groupState.postsCount || 0, Math.min(lines.length, 50));
+  await chrome.storage.local.set({ rinFbGroup: groupState });
+  renderUI();
+  if (added > 0) {
+    log(`🎉 Đã trích & lọc được ${added} SĐT thật từ nội dung Nhóm Facebook (bỏ qua ${skipped} số ngoài đầu số lọc).`);
+  } else {
+    log(`ℹ️ Chưa tìm thấy thêm SĐT mới khớp bộ lọc đầu số (bỏ qua ${skipped} số ngoài bộ lọc).`);
+  }
+  return added;
 }
 
 async function waitForFbTab(tabId, timeoutMs = 25000) {
@@ -1458,7 +1491,7 @@ async function waitForFbTab(tabId, timeoutMs = 25000) {
   return true;
 }
 
-async function runGroupScraperDirectly() {
+async function runGroupScraperDirectly({ skipInitialTabOpen = false, extensionOutdated = false } = {}) {
   if (isDirectGroupScrapingRunning) return;
   isDirectGroupScrapingRunning = true;
   groupRunning = true;
@@ -1495,9 +1528,8 @@ async function runGroupScraperDirectly() {
       typeof window.chrome?.scripting?.executeScript === 'function' &&
       typeof window.chrome?.tabs?.create === 'function';
 
-    log(`🚀 Bắt đầu quét số nhóm Facebook (Quy tắc: tối đa ${maxPostsPerGroup} bài viết / mỗi link nhóm, tổng ${groupUrls.length} nhóm)...`);
-
     if (isRealExtension) {
+      log(`🚀 Bắt đầu quét số nhóm Facebook (Quy tắc: tối đa ${maxPostsPerGroup} bài viết / mỗi link nhóm, tổng ${groupUrls.length} nhóm)...`);
       // ── CHẾ ĐỘ TIỆN ÍCH EXTENSION (Tự động mở tab Facebook qua Extension & cào DOM) ──
       while (j.groupIndex < groupUrls.length && !groupStop) {
         const rawUrl = groupUrls[j.groupIndex];
@@ -1600,7 +1632,7 @@ async function runGroupScraperDirectly() {
             if (!phone) continue;
 
             const category = item.category || classifyPhone(phone);
-            if (!allowedTypes[category]) continue;
+            if (!isPhoneAllowed(phone, allowedTypes)) continue;
 
             // Bỏ trùng lặp SĐT
             if (groupState.seenKeys[phone]) continue;
@@ -1683,102 +1715,34 @@ async function runGroupScraperDirectly() {
         }
       }
     } else {
-      // ── CHẾ ĐỘ NỀN TẢNG WEB (Tự động mở tab Facebook nhóm & quét số điện thoại chuẩn) ──
-      log(`⚡ Đang kích hoạt quét số nhóm Facebook trên nền tảng Web...`);
+      // ── CHẾ ĐỘ NỀN TẢNG WEB (Không thể đọc DOM cross-origin tab Facebook nếu chưa Reload Extension) ──
+      showGroupWebNotice(extensionOutdated);
+      if (extensionOutdated) {
+        log('⚠️ Extension NTD Agency đang ở bản cũ chưa cập nhật FB_GROUP_SYNC_V2 nên trình duyệt chặn đọc DOM tab Facebook.');
+        log('👉 Vào chrome://extensions bấm Tải lại (↻) NTD Agency 1 lần rồi bấm "🔄 Kiểm tra lại" & "Bắt đầu quét số nhóm" — hoặc copy nội dung tab Nhóm (Ctrl+A → Ctrl+C) rồi bấm nút Dán ở trên!');
+      } else {
+        log('🌐 Chế độ Web trực tiếp: Không thể đọc trực tiếp DOM bên trong tab Facebook khi chưa bật Extension. Hãy bật Extension hoặc dùng nút 📋 Dán & trích SĐT từ tab Nhóm Facebook.');
+      }
 
-      while (j.groupIndex < groupUrls.length && !groupStop) {
-        const rawUrl = groupUrls[j.groupIndex];
+      if (!skipInitialTabOpen) {
+        const rawUrl = groupUrls[j.groupIndex] || groupUrls[0];
         let targetUrl = rawUrl;
         if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
         if (!targetUrl.includes('sorting_setting=')) {
           targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'sorting_setting=CHRONOLOGICAL';
         }
-
-        log(`[Nhóm ${j.groupIndex + 1}/${groupUrls.length}] Đang mở tab nhóm Facebook: ${rawUrl}...`);
-
         try {
           if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
             fbGroupTabWindow = window.open(targetUrl, 'ntd_fb_group_tab');
           } else {
             fbGroupTabWindow.location.href = targetUrl;
           }
-        } catch (_) {
-          fbGroupTabWindow = window.open(targetUrl, 'ntd_fb_group_tab');
-        }
-
-        log(`[Nhóm ${j.groupIndex + 1}/${groupUrls.length}] Đang đọc bài viết, hình ảnh và bình luận trong nhóm Facebook...`);
-
-        let totalPostsScannedInGroup = 0;
-        let scanRound = 0;
-
-        while (!groupStop && totalPostsScannedInGroup < maxPostsPerGroup) {
-          scanRound++;
-
-          const generatedData = generateGroupPhoneItems(rawUrl, '', allowedTypes, scanOptions, scanRound + (j.groupIndex * 100));
-          const foundItems = generatedData.items || [];
-          totalPostsScannedInGroup += generatedData.postsCount || 5;
-          if (totalPostsScannedInGroup > maxPostsPerGroup) {
-            totalPostsScannedInGroup = maxPostsPerGroup;
-          }
-
-          if (!groupState.seenKeys) groupState.seenKeys = {};
-          if (!Array.isArray(groupState.rows)) groupState.rows = [];
-
-          for (const item of foundItems) {
-            const phone = item.phone;
-            if (!phone) continue;
-
-            const category = item.category || classifyPhone(phone);
-            if (!allowedTypes[category]) continue;
-
-            if (groupState.seenKeys[phone]) continue;
-            groupState.seenKeys[phone] = true;
-
-            groupState.rows.push({
-              id: 'fg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-              phone: phone,
-              rawPhone: item.rawPhone || phone,
-              name: item.name || 'Thành viên nhóm',
-              source: item.source || 'Bài viết',
-              context: item.context || '',
-              postUrl: item.postUrl || rawUrl,
-              groupName: generatedData.groupTitle || 'Nhóm Facebook',
-              groupUrl: rawUrl,
-              category: category,
-              at: new Date().toLocaleString('vi-VN')
-            });
-
-            log(`✅ Tìm thấy SĐT: ${phone} (${item.name} – Nguồn: ${item.source})`);
-          }
-
-          groupState.postsCount = (groupState.totalPostsOffset || 0) + totalPostsScannedInGroup;
-          groupState.commentsCount = (groupState.commentsCount || 0) + (generatedData.commentsCount || 10);
-          await chrome.storage.local.set({ rinFbGroup: groupState });
-          renderUI();
-
-          log(`[Nhóm ${j.groupIndex + 1}/${groupUrls.length}] Lượt ${scanRound}: Đã duyệt ${totalPostsScannedInGroup}/${maxPostsPerGroup} bài viết | Tìm thấy ${groupState.rows.length} SĐT`);
-
-          if (totalPostsScannedInGroup >= maxPostsPerGroup) {
-            log(`🎉 [Nhóm ${j.groupIndex + 1}/${groupUrls.length}] Đã quét đủ chỉ tiêu ${maxPostsPerGroup} bài viết cho link này!`);
-            break;
-          }
-
-          for (let t = 0; t < delaySec * 2 && !groupStop; t++) {
-            await sleep(500);
-          }
-        }
-
-        if (!groupStop) {
-          groupState.totalPostsOffset = (groupState.totalPostsOffset || 0) + totalPostsScannedInGroup;
-          j.groupIndex++;
-          await chrome.storage.local.set({ rinFbGroup: groupState });
-
-          if (j.groupIndex < groupUrls.length) {
-            log(`➡️ Tự động chuyển sang link nhóm tiếp theo [${j.groupIndex + 1}/${groupUrls.length}]: ${groupUrls[j.groupIndex]}`);
-            await sleep(2500);
-          }
-        }
+        } catch (_) {}
       }
+
+      groupState.isScanning = false;
+      await chrome.storage.local.set({ rinFbGroup: groupState });
+      return;
     }
 
     if (j.groupIndex >= groupUrls.length) {
@@ -2557,11 +2521,45 @@ function setupEventListeners() {
     });
   });
 
+  $('groupPasteImportBtn')?.addEventListener('click', async () => {
+    let text = '';
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (_) {}
+    if (!text) {
+      text = prompt('Dán toàn bộ nội dung vừa copy từ tab Nhóm Facebook (Ctrl+A -> Ctrl+C) vào đây:') || '';
+    }
+    if (text) {
+      await importGroupPhonesFromClipboardText(text);
+    }
+  });
+
+  $('groupRecheckExtBtn')?.addEventListener('click', async () => {
+    const st = await chrome.runtime.sendMessage({ type: 'FB_GROUP_GET_STATUS' }).catch(() => null);
+    mapsExtSupportsSyncV2 = Boolean(st?.ok && Number(st?.syncVersion) >= 2);
+    if (mapsExtSupportsSyncV2) {
+      hideMapsWebNotice();
+      hideGroupWebNotice();
+      log('✅ Đã kết nối Extension NTD Agency bản mới (FB_GROUP_SYNC_V2)! Bấm "Bắt đầu quét số nhóm" để tự động đọc bài viết & cào SĐT.');
+    } else {
+      const outdated = Boolean(st?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true');
+      showGroupWebNotice(outdated);
+      log(outdated
+        ? '⚠️ Extension vẫn chưa nạp bản mới. Hãy mở chrome://extensions và bấm ↻ Tải lại NTD Agency.'
+        : '⚠️ Chưa phát hiện Extension NTD Agency đang bật.');
+    }
+  });
+
   // Bắt đầu quét số nhóm Facebook
   $('startGroup')?.addEventListener('click', async () => {
     const rawUrl = ($('groupUrl')?.value || '').trim();
     if (!rawUrl) {
       return log('Vui lòng nhập ít nhất một đường link nhóm Facebook cần quét.');
+    }
+
+    const phoneTypes = getActiveGroupPhoneTypes();
+    if (!phoneTypes.current && !phoneTypes.hotline && !phoneTypes.old) {
+      return log('Vui lòng tích chọn ít nhất một loại số điện thoại cần quét.');
     }
 
     const firstRawUrl = rawUrl.split(/[\r\n,]+/)[0] || rawUrl;
@@ -2571,31 +2569,18 @@ function setupEventListeners() {
       initialFbUrl += (initialFbUrl.includes('?') ? '&' : '?') + 'sorting_setting=CHRONOLOGICAL';
     }
 
-    // Mở tab Facebook TRỰC TIẾP và NGAY LẬP TỨC ở đầu sự kiện click (Không bị chặn popup)
-    try {
-      if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
-        fbGroupTabWindow = window.open(initialFbUrl, '_blank');
-      } else {
-        fbGroupTabWindow.location.href = initialFbUrl;
-        fbGroupTabWindow.focus();
-      }
-    } catch (_) {
+    // Chỉ mở window.open ở click khi CHƯA có Extension Sync V2 (tránh mở 2 tab Facebook trùng nhau)
+    let openedHere = false;
+    if (!mapsExtSupportsSyncV2) {
       try {
-        const a = document.createElement('a');
-        a.href = initialFbUrl;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      } catch (e) {
-        console.warn('Cannot open Facebook tab', e);
-      }
-    }
-
-    const phoneTypes = getActiveGroupPhoneTypes();
-    if (!phoneTypes.current && !phoneTypes.hotline && !phoneTypes.old) {
-      return log('Vui lòng tích chọn ít nhất một loại số điện thoại cần quét.');
+        if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
+          fbGroupTabWindow = window.open(initialFbUrl, 'ntd_fb_group_tab');
+        } else {
+          fbGroupTabWindow.location.href = initialFbUrl;
+          fbGroupTabWindow.focus();
+        }
+        openedHere = true;
+      } catch (_) {}
     }
 
     const maxPosts = Math.max(5, Math.min(5000, Number($('groupMaxPosts')?.value) || 500));
@@ -2631,22 +2616,24 @@ function setupEventListeners() {
     groupRunning = true;
     groupStop = false;
     renderUI();
+    let extensionOutdated = false;
     try {
       const res = await chrome.runtime.sendMessage({
         type: 'FB_GROUP_START_SCAN',
         job: groupState.job,
-        phoneTypes
+        phoneTypes,
+        seenKeys: groupState.seenKeys || {}
       });
       if (res && res.ok && !res.webFallback) {
-        log('🚀 Tiến trình quét số nhóm Facebook đã được khởi động chạy ngầm...');
-      } else {
-        log('⚡ Kích hoạt quét trực tiếp trên giao diện...');
-        runGroupScraperDirectly();
+        mapsExtSupportsSyncV2 = true;
+        hideGroupWebNotice();
+        log('🚀 Tiến trình quét số nhóm Facebook đã được khởi động qua Extension (tự đọc DOM bài viết, ảnh & bình luận)...');
+        return;
       }
-    } catch (err) {
-      log('⚡ Kích hoạt quét trực tiếp trên giao diện...');
-      runGroupScraperDirectly();
-    }
+      extensionOutdated = Boolean(res?.extensionOutdated);
+    } catch (err) {}
+    log('⚡ Chuyển sang hướng dẫn Web / Clipboard trực tiếp...');
+    runGroupScraperDirectly({ skipInitialTabOpen: openedHere, extensionOutdated });
   });
 
   // Tiếp tục lượt quét nhóm đã lưu
@@ -2660,21 +2647,15 @@ function setupEventListeners() {
     let resumeFbUrl = currentRawUrl.trim();
     if (!resumeFbUrl.startsWith('http')) resumeFbUrl = 'https://' + resumeFbUrl;
 
-    try {
-      if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
-        fbGroupTabWindow = window.open(resumeFbUrl, '_blank');
-      } else {
-        fbGroupTabWindow.focus();
-      }
-    } catch (_) {
+    let openedHere = false;
+    if (!mapsExtSupportsSyncV2) {
       try {
-        const a = document.createElement('a');
-        a.href = resumeFbUrl;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
+          fbGroupTabWindow = window.open(resumeFbUrl, 'ntd_fb_group_tab');
+        } else {
+          fbGroupTabWindow.focus();
+        }
+        openedHere = true;
       } catch (_) {}
     }
 
@@ -2684,18 +2665,18 @@ function setupEventListeners() {
     groupRunning = true;
     groupStop = false;
     renderUI();
+    let extensionOutdated = false;
     try {
       const res = await chrome.runtime.sendMessage({ type: 'FB_GROUP_RESUME_SCAN' });
       if (res && res.ok && !res.webFallback) {
-        log('🚀 Tiến trình quét nhóm đang tiếp tục chạy ngầm...');
-      } else {
-        log('⚡ Tiếp tục quét trực tiếp trên giao diện...');
-        runGroupScraperDirectly();
+        mapsExtSupportsSyncV2 = true;
+        hideGroupWebNotice();
+        log('🚀 Tiến trình quét nhóm đang tiếp tục chạy ngầm qua Extension...');
+        return;
       }
-    } catch (err) {
-      log('⚡ Tiếp tục quét trực tiếp trên giao diện...');
-      runGroupScraperDirectly();
-    }
+      extensionOutdated = Boolean(res?.extensionOutdated);
+    } catch (err) {}
+    runGroupScraperDirectly({ skipInitialTabOpen: openedHere, extensionOutdated });
   });
 
   // Dừng quét nhóm
@@ -2713,13 +2694,18 @@ function setupEventListeners() {
 
   // Xem tab Facebook nhóm
   $('showGroupTab')?.addEventListener('click', async () => {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'FB_GROUP_SHOW_TAB' });
+      if (res && res.ok) return;
+    } catch (_) {}
+
     const rawUrl = ($('groupUrl')?.value || groupState.job?.groupUrl || 'https://www.facebook.com/groups/').trim();
     let firstUrl = rawUrl.split(/[\r\n,]+/)[0] || 'https://www.facebook.com';
     if (!firstUrl.startsWith('http')) firstUrl = 'https://' + firstUrl;
 
     try {
       if (!fbGroupTabWindow || fbGroupTabWindow.closed) {
-        fbGroupTabWindow = window.open(firstUrl, '_blank');
+        fbGroupTabWindow = window.open(firstUrl, 'ntd_fb_group_tab');
       } else {
         fbGroupTabWindow.focus();
       }
@@ -2925,10 +2911,34 @@ function setupEventListeners() {
 
     // Kiểm tra trạng thái đang chạy ngầm Group
     const groupStatus = await chrome.runtime.sendMessage({ type: 'FB_GROUP_GET_STATUS' }).catch(() => null);
+    if (Number(groupStatus?.syncVersion) >= 2) {
+      mapsExtSupportsSyncV2 = true;
+    }
+    if (Array.isArray(groupStatus?.state?.recentRows) && groupStatus.state.recentRows.length) {
+      if (!groupState.seenKeys) groupState.seenKeys = {};
+      if (!Array.isArray(groupState.rows)) groupState.rows = [];
+      for (const r of groupStatus.state.recentRows) {
+        const k = normPhone(r.phone) || r.phone;
+        if (k && !groupState.seenKeys[k]) {
+          groupState.seenKeys[k] = true;
+          groupState.rows.push(r);
+        }
+      }
+      if (typeof groupStatus.state.postsCount === 'number' && groupStatus.running) {
+        groupState.postsCount = groupStatus.state.postsCount;
+      }
+      if (typeof groupStatus.state.commentsCount === 'number' && groupStatus.running) {
+        groupState.commentsCount = groupStatus.state.commentsCount;
+      }
+      await chrome.storage.local.set({ rinFbGroup: groupState });
+    }
     groupRunning = Boolean(groupStatus?.running);
     if (!groupRunning && groupState.isScanning) {
       groupState.isScanning = false;
       await chrome.storage.local.set({ rinFbGroup: groupState });
+    }
+    if (!mapsExtSupportsSyncV2 && (groupStatus?.extensionOutdated || mapsStatus?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true')) {
+      showGroupWebNotice(true);
     }
 
     // Khôi phục chế độ đã chọn trước đó
@@ -2953,8 +2963,10 @@ window.addEventListener('NTD_EXTENSION_READY', async () => {
   mapsExtSupportsSyncV2 = Boolean(st?.ok && Number(st?.syncVersion) >= 2);
   if (mapsExtSupportsSyncV2) {
     hideMapsWebNotice();
+    hideGroupWebNotice();
   } else if (st?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true') {
     showMapsWebNotice(true);
+    showGroupWebNotice(true);
   }
 });
 
