@@ -475,7 +475,11 @@ function renderMapsUI() {
       banner.style.display = 'flex';
       banner.className = 'status-banner running';
       pulse.style.display = 'inline-block';
-      if (statusEl) statusEl.textContent = 'Đang quét dữ liệu Google Maps...';
+      if (statusEl) {
+        statusEl.textContent = (isDirectScrapingRunning && !mapsExtSupportsSyncV2)
+          ? '⚠️ Thiếu Extension trên profile Chrome này — đang dùng OpenStreetMap (ít SĐT); bật Extension NTD Agency hoặc copy tab Google Maps rồi bấm 📋 Dán'
+          : 'Đang quét dữ liệu Google Maps...';
+      }
     } else if (state.job) {
       banner.style.display = 'flex';
       banner.className = 'status-banner error';
@@ -915,9 +919,9 @@ function showMapsWebNotice(outdatedExt = false) {
   mapsLastExtOutdated = outdatedExt;
   box.hidden = false;
   if (outdatedExt) {
-    txt.innerHTML = '<strong>⚠️ Extension NTD Agency cần Tải lại (↻) 1 lần:</strong> Phiên bản Extension đang cài trong Chrome chưa có trình đồng bộ Google Maps mới (<code>MAPS_SYNC_V2</code>). Hãy mở <code>chrome://extensions</code> → bấm nút <strong>↻ Reload</strong> trên <strong>NTD Agency</strong> 1 lần, rồi bấm <strong>🔄 Kiểm tra lại</strong> để tự động bấm vào từng cơ sở Google Maps và cào SĐT thật 100%. Hoặc copy toàn bộ chữ bên tab Google Maps (<code>Ctrl+A → Ctrl+C</code>) rồi bấm nút Dán bên dưới.';
+    txt.innerHTML = '<strong>⚠️ Extension NTD Agency trên profile Chrome này cần Tải lại (↻) 1 lần:</strong> Phiên bản Extension đang chạy chưa có trình đồng bộ Google Maps mới (<code>MAPS_SYNC_V2</code>). Hãy mở <code>chrome://extensions</code> trên <strong>chính cửa sổ Chrome này</strong> → bấm nút <strong>↻ Reload</strong> trên <strong>NTD Agency</strong> (đảm bảo trỏ đúng thư mục Extension mới), rồi quay lại bấm <strong>🔄 Kiểm tra lại</strong>. Hoặc sang tab Google Maps vừa mở → <code>Ctrl+A → Ctrl+C</code> rồi bấm nút <strong>📋 Dán &amp; trích SĐT</strong> bên dưới.';
   } else {
-    txt.innerHTML = '<strong>🌐 Đang chạy ở chế độ Web trực tiếp:</strong> Do chính sách bảo mật Cross-Origin của trình duyệt, trang Web không thể tự đọc DOM bên trong tab Google Maps nếu chưa bật Extension <strong>NTD Agency</strong>. Bạn có thể cài/bật Extension (chạy tự động 100%) hoặc mở tab Google Maps → bấm <code>Ctrl+A</code>, <code>Ctrl+C</code> rồi bấm nút <strong>📋 Dán &amp; trích SĐT</strong> bên dưới.';
+    txt.innerHTML = '<strong>⚠️ Profile Chrome này chưa kết nối Extension NTD Agency mới:</strong> Trình duyệt Web bị chặn Cross-Origin nên không tự đọc được SĐT bên trong tab Google Maps, hiện đang tạm tra cứu nguồn dự phòng OpenStreetMap (hầu hết chưa có SĐT tại VN). Hãy mở <code>chrome://extensions</code> trên <strong>chính cửa sổ Chrome này</strong> → nạp/bật <strong>NTD Agency</strong> bản mới (hoặc mở đúng profile Chrome đã cài Extension), rồi <code>Ctrl+F5</code> lại trang để tự cào 100% SĐT; hoặc sang tab Google Maps vừa mở → <code>Ctrl+A → Ctrl+C</code> rồi bấm <strong>📋 Dán &amp; trích SĐT</strong> bên dưới.';
   }
 }
 
@@ -1240,10 +1244,11 @@ async function runMapsScraperDirectly({ skipInitialTabOpen = false, extensionOut
       // ── CHẾ ĐỘ WEB PLATFORM (Khi chưa cài Extension hoặc Extension cũ chưa hỗ trợ MAPS_SYNC_V2) ──
       showMapsWebNotice(extensionOutdated);
       if (extensionOutdated) {
-        log('⚠️ Extension hiện tại chưa cập nhật trình cào Google Maps mới (MAPS_SYNC_V2).');
-        log('👉 Vào chrome://extensions bấm Tải lại (↻) NTD Agency 1 lần rồi bấm "🔄 Kiểm tra lại" & "Bắt đầu lượt mới" để cào SĐT thật trực tiếp từ tab Google Maps!');
+        log('⚠️ Extension trên profile Chrome này chưa cập nhật trình cào Google Maps mới (MAPS_SYNC_V2).');
+        log('👉 Mở chrome://extensions trên chính cửa sổ Chrome này bấm Tải lại (↻) NTD Agency, rồi bấm "🔄 Kiểm tra lại" & "Bắt đầu lượt mới" để cào SĐT thật!');
       } else {
-        log('🌐 Đang chạy chế độ Web trực tiếp (Không đọc được DOM cross-origin tab Google Maps nếu thiếu Extension).');
+        log('⚠️ Profile Chrome này CHƯA kết nối Extension NTD Agency (ID affaocloanjmkpcinmkcbmekgipnddnm) — trang Web không thể tự đọc SĐT bên trong tab Google Maps.');
+        log('👉 Đang tạm tra cứu nguồn dự phòng OpenStreetMap (hầu hết chưa có SĐT). Để lấy full SĐT: bật/nạp Extension NTD Agency trên Chrome này rồi Ctrl+F5, HOẶC sang tab Google Maps vừa mở → Ctrl+A → Ctrl+C rồi bấm "📋 Dán & trích SĐT".');
       }
 
       const maxWebProbe = Math.min(j.queries.length, 3);
