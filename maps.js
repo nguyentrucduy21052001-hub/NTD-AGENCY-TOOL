@@ -307,7 +307,13 @@ function escapeRegex(str) {
 }
 
 function uniqueKey(r) {
-  return normPhone(r.phone) || (r.url ? r.url.split('?')[0] : r.name);
+  const p = normPhone(r.phone);
+  if (p) return p;
+  const u = String(r.url || '');
+  if (u && !u.includes('/maps/search/?')) {
+    return u.split('?')[0];
+  }
+  return `${u}|${r.name || ''}|${r.address || ''}`.trim();
 }
 
 function addRow(row, options = {}) {
@@ -1321,7 +1327,11 @@ async function runMapsScraperDirectly({ skipInitialTabOpen = false, extensionOut
       state.job = null;
       state.isScanning = false;
       await saveState();
-      log('🎉 Hoàn tất quét toàn bộ từ khóa. Bạn có thể bấm Xuất Excel ngay.');
+      if (extensionOutdated) {
+        log('⚠️ Extension hiện đang chạy bản cũ chưa có MAPS_SYNC_V2 nên Web không đọc được tab Google Maps. Hãy vào chrome://extensions bấm ↻ Reload NTD Agency rồi chạy lại!');
+      } else {
+        log('⚠️ Đã kiểm tra xong dữ liệu Web dự phòng (OpenStreetMap). Để cào hàng chục cơ sở & SĐT trực tiếp từ Google Maps, hãy bật Extension NTD Agency trên profile Chrome này (hoặc dùng nút 📋 Dán & trích SĐT từ tab Google Maps).');
+      }
     } else {
       state.isScanning = false;
       await saveState();
@@ -2913,8 +2923,9 @@ function setupEventListeners() {
       state.isScanning = false;
       await saveState();
     }
-    if (!mapsExtSupportsSyncV2 && (mapsStatus?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true')) {
-      showMapsWebNotice(true);
+    if (!mapsExtSupportsSyncV2) {
+      const outdated = Boolean(mapsStatus?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true');
+      showMapsWebNotice(outdated);
     }
 
     // Kiểm tra trạng thái đang chạy ngầm Group
@@ -2945,8 +2956,9 @@ function setupEventListeners() {
       groupState.isScanning = false;
       await chrome.storage.local.set({ rinFbGroup: groupState });
     }
-    if (!mapsExtSupportsSyncV2 && (groupStatus?.extensionOutdated || mapsStatus?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true')) {
-      showGroupWebNotice(true);
+    if (!mapsExtSupportsSyncV2) {
+      const outdatedGroup = Boolean(groupStatus?.extensionOutdated || mapsStatus?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true');
+      showGroupWebNotice(outdatedGroup);
     }
 
     // Khôi phục chế độ đã chọn trước đó

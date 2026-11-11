@@ -2060,7 +2060,13 @@ function resolveBusinessPhoneWorker(name = '', address = '', query = '', allowed
 }
 
 function uniqueMapsKeyWorker(r) {
-  return normPhoneWorker(r.phone) || (r.url ? r.url.split('?')[0] : r.name);
+  const p = normPhoneWorker(r.phone);
+  if (p) return p;
+  const u = String(r.url || '');
+  if (u && !u.includes('/maps/search/?')) {
+    return u.split('?')[0];
+  }
+  return `${u}|${r.name || ''}|${r.address || ''}`.trim();
 }
 
 function addMapsRowWorker(rows, row) {
