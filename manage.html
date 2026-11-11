@@ -7,7 +7,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>Quản trị Hệ thống &amp; Phân quyền – NTD Agency</title>
-  <script src="web_adapter.js"></script>
+  <script src="web_adapter.js?v=20261111_1602"></script>
   <script>
     (function () {
       var t = localStorage.getItem('ntd_theme') || 'dark';
@@ -24,7 +24,7 @@
     })();
   </script>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="sidebar.css">
+  <link rel="stylesheet" href="sidebar.css?v=20261111_1602">
   <style>
     :root {
       --primary: #ed6b22;
@@ -469,6 +469,41 @@
       border: 1px solid var(--card-border);
     }
 
+    .user-table-wrap.member-scroll-8 {
+      max-height: 556px;
+      overflow-x: auto !important;
+      overflow-y: auto !important;
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(59, 130, 246, 0.65) rgba(15, 23, 42, 0.9);
+    }
+    .user-table-wrap.member-scroll-8::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    .user-table-wrap.member-scroll-8::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.92);
+      border-radius: 10px;
+    }
+    .user-table-wrap.member-scroll-8::-webkit-scrollbar-thumb {
+      background: rgba(59, 130, 246, 0.6);
+      border-radius: 10px;
+      border: 2px solid rgba(15, 23, 42, 0.92);
+    }
+    .user-table-wrap.member-scroll-8::-webkit-scrollbar-thumb:hover {
+      background: rgba(96, 165, 250, 0.9);
+    }
+    html:not(.ntd-dark-theme) .user-table-wrap.member-scroll-8 {
+      scrollbar-color: #94a3b8 #f1f5f9;
+    }
+    html:not(.ntd-dark-theme) .user-table-wrap.member-scroll-8::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    html:not(.ntd-dark-theme) .user-table-wrap.member-scroll-8::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border: 2px solid #f1f5f9;
+    }
+
     table.user-table {
       width: 100%;
       border-collapse: collapse;
@@ -483,6 +518,12 @@
       font-weight: 700;
       border-bottom: 1px solid var(--card-border);
       white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+    }
+    html:not(.ntd-dark-theme) table.user-table th {
+      background: #f1f5f9;
     }
 
     table.user-table td {
@@ -711,7 +752,7 @@
           </div>
 
           <!-- Table Container -->
-          <div class="user-table-wrap">
+          <div id="dashActivityTableWrap" class="user-table-wrap member-scroll-8">
             <table class="user-table" id="dashActivityTable">
               <thead>
                 <tr>
@@ -813,7 +854,7 @@
             <button type="button" class="btn-secondary role-filter-btn" data-filter="member" style="padding:4px 10px;font-size:11.5px">👤 Chỉ Thành viên</button>
           </div>
 
-          <div id="userListContainer" class="user-table-wrap">
+          <div id="userListContainer" class="user-table-wrap member-scroll-8">
             <p style="padding:20px;text-align:center;color:var(--text-sub)">Đang tải danh sách người dùng...</p>
           </div>
         </div>
@@ -985,7 +1026,7 @@
     </div>
   </main>
 
-  <script type="module" src="manage.js"></script>
+  <script type="module" src="manage.js?v=20261111_1602"></script>
   <script type="module" src="sidebar.js"></script>
 </body>
 

@@ -27,6 +27,35 @@ const DEFAULT_PASS = 'DuyAdmin@2025';
 
 let currentRoleFilter = 'all';
 let cachedUsers = [];
+const MAX_VISIBLE_MEMBER_ROWS = 8;
+
+function fitMemberTableToMaxRows(wrapEl, maxRows = MAX_VISIBLE_MEMBER_ROWS) {
+  if (!wrapEl) return;
+  const table = wrapEl.querySelector('table.user-table');
+  const thead = table?.querySelector('thead');
+  const rows = table ? Array.from(table.querySelectorAll('tbody tr')) : [];
+  if (!table || rows.length <= maxRows) {
+    wrapEl.style.maxHeight = '';
+    return;
+  }
+  const headerHeight = thead ? Math.ceil(thead.getBoundingClientRect().height) : 0;
+  const firstRowHeight = rows[0]?.getBoundingClientRect().height || 0;
+  if (headerHeight === 0 && firstRowHeight === 0) return;
+  let bodyHeight = 0;
+  for (let i = 0; i < maxRows; i++) {
+    bodyHeight += rows[i].getBoundingClientRect().height || rows[i].offsetHeight || 0;
+  }
+  if (bodyHeight > 0) {
+    wrapEl.style.maxHeight = `${Math.ceil(headerHeight + bodyHeight + 2)}px`;
+  }
+}
+
+function refitAllMemberTables() {
+  requestAnimationFrame(() => {
+    fitMemberTableToMaxRows($('dashActivityTableWrap'), MAX_VISIBLE_MEMBER_ROWS);
+    fitMemberTableToMaxRows($('userListContainer'), MAX_VISIBLE_MEMBER_ROWS);
+  });
+}
 
 // ── 1. KIỂM TRA PHÂN QUYỀN (ACCESS GUARD) ────────────────────────────────────
 async function enforceAdminRole() {
@@ -65,7 +94,14 @@ function initTabs() {
       });
       t.btn.classList.add('active');
       if (t.pane) t.pane.style.display = 'block';
+      refitAllMemberTables();
     });
+  });
+
+  let _resizeFitTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(_resizeFitTimer);
+    _resizeFitTimer = setTimeout(refitAllMemberTables, 120);
   });
 }
 
@@ -453,6 +489,7 @@ function renderUserTable() {
   }
 
   if (filtered.length === 0) {
+    container.style.maxHeight = '';
     container.innerHTML = '<p style="padding:24px;text-align:center;color:var(--text-sub)">Không có tài khoản nào phù hợp bộ lọc.</p>';
     return;
   }
@@ -566,6 +603,7 @@ function renderUserTable() {
 
   html += '</tbody></table>';
   container.innerHTML = html;
+  fitMemberTableToMaxRows(container, MAX_VISIBLE_MEMBER_ROWS);
 
   attachTableEventListeners(container);
 }
@@ -794,6 +832,8 @@ function renderDashboardTable() {
   const filtered = filterDashUsers(cachedUsers);
 
   if (filtered.length === 0) {
+    const wrap = $('dashActivityTableWrap');
+    if (wrap) wrap.style.maxHeight = '';
     tbody.innerHTML = `
       <tr>
         <td colspan="10" style="text-align:center;padding:32px;color:var(--text-sub)">
@@ -889,6 +929,8 @@ function renderDashboardTable() {
       }, 100);
     });
   });
+
+  fitMemberTableToMaxRows($('dashActivityTableWrap'), MAX_VISIBLE_MEMBER_ROWS);
 }
 
 function exportDashCsv() {
