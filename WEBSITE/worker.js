@@ -2125,8 +2125,17 @@ function broadcastMapsStateSync(state) {
     isScanning: Boolean(state.isScanning),
     tabId: state.tabId || mapsCurrentTabId || null,
     lastScraped: state.lastScraped || null,
-    totalRows: Array.isArray(state.rows) ? state.rows.length : 0
+    totalRows: Array.isArray(state.rows) ? state.rows.length : 0,
+    recentRows: Array.isArray(state.rows) ? state.rows.slice(-20) : []
   });
+}
+
+function safeDecodeUrlPath(p) {
+  try {
+    return decodeURIComponent(String(p || ''));
+  } catch (_) {
+    return String(p || '');
+  }
 }
 
 async function openMapsScraperTab(url) {
@@ -2155,8 +2164,10 @@ async function openMapsScraperTab(url) {
   const expected = new URL(url);
   let prevPathname = '';
   try { prevPathname = prevTabUrl ? new URL(prevTabUrl).pathname : ''; } catch (_) {}
+  const prevDecodedPath = safeDecodeUrlPath(prevPathname);
   const placeSlugMatch = expected.pathname.match(/\/maps\/place\/([^/]+)/);
   const expectedPlaceSlug = placeSlugMatch ? placeSlugMatch[1] : '';
+  const expectedDecodedSlug = safeDecodeUrlPath(expectedPlaceSlug);
 
   while (Date.now() < deadline) {
     if (mapsScanStop) throw Error('Đã bấm dừng; toàn bộ tiến trình đã được lưu lại.');
@@ -2177,22 +2188,26 @@ async function openMapsScraperTab(url) {
         throw Error('Google Maps yêu cầu xác minh CAPTCHA hoặc đồng ý điều khoản. Mở tab Maps xử lý rồi bấm Tiếp tục.');
       }
 
+      const actualDecodedPath = actual ? safeDecodeUrlPath(actual.pathname) : '';
       let matching = false;
       if (actual && expected.pathname.includes('/maps/search/')) {
         // Google Maps thường tự thêm /@lat,lng,14z/data=... hoặc chuyển thẳng sang /maps/place/...
         const onMapsPage = actual.pathname.includes('/maps/search/') || actual.pathname.includes('/maps/place/');
-        const navigatedAwayFromPrev = !prevPathname || actual.pathname !== prevPathname || (Date.now() - startMs > 3000);
+        const navigatedAwayFromPrev = !prevDecodedPath || actualDecodedPath !== prevDecodedPath || (Date.now() - startMs > 8000);
         matching = onMapsPage && navigatedAwayFromPrev;
       } else if (actual && expected.pathname.includes('/maps/place/')) {
         const onPlace = actual.pathname.includes('/maps/place/');
-        const matchesSlug = !expectedPlaceSlug || actual.pathname.includes(expectedPlaceSlug);
-        const changedPlace = !prevPathname || actual.pathname !== prevPathname || (Date.now() - startMs > 3500);
+        const matchesSlug = !expectedDecodedSlug || actualDecodedPath.includes(expectedDecodedSlug);
+        const changedPlace = !prevDecodedPath || actualDecodedPath !== prevDecodedPath || (Date.now() - startMs > 12000);
         matching = onPlace && (matchesSlug || changedPlace);
       } else if (actual) {
         matching = actual.pathname.includes('/maps/');
       }
 
-      if (page?.ready === 'complete' && matching) return;
+      if (page?.ready === 'complete' && matching) {
+        await sleepMs(450);
+        return;
+      }
     }
     await sleepMs(500);
   }
@@ -2218,21 +2233,32 @@ async function extractFromMapsWorker(mode, limit = 50) {
   throw Error('Tab Maps không trả dữ liệu sau 3 lần thử.');
 }
 
-async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = null) {
+async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = null, scanOptions = {}) {
   if (mapsScanRunning) return;
   mapsScanRunning = true;
   mapsScanStop = false;
 
   let { rinMaps } = await chrome.storage.local.get('rinMaps');
   let state = rinMaps || { rows: [], job: null, settings: null };
-  if (!Array.isArray(state.rows)) state.rows = [];
+  if (!Array.isArray(state.rows) || scanOptions?.resetRows === true) state.rows = [];
   if (!state.seenKeys || typeof state.seenKeys !== 'object') state.seenKeys = {};
 
   if (jobParam) {
     state.job = jobParam;
     if (!state.rows) state.rows = [];
   }
-  if (seenKeysParam && typeof seenKeysParam === 'object') {
+  if (scanOptions?.resetSeenKeys === true) {
+    state.clearedKeepSeen = false;
+    state.seenKeys = (seenKeysParam && typeof seenKeysParam === 'object') ? { ...seenKeysParam } : {};
+  } else if (jobParam && !state.clearedKeepSeen) {
+    // Khởi tạo lại seenKeys đồng bộ theo các dòng thực sự có trong bảng + Web truyền sang, tránh sót key mồ côi
+    const activeKeys = {};
+    for (const r of state.rows) {
+      const k = uniqueMapsKeyWorker(r);
+      if (k) activeKeys[k] = true;
+    }
+    state.seenKeys = { ...activeKeys, ...(seenKeysParam && typeof seenKeysParam === 'object' ? seenKeysParam : {}) };
+  } else if (seenKeysParam && typeof seenKeysParam === 'object') {
     state.seenKeys = { ...state.seenKeys, ...seenKeysParam };
   }
   if (phoneTypesParam) {
@@ -2302,12 +2328,19 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = nul
 
         const finalRow = { ...row, phone: matchedPhone, query };
         const uKey = uniqueMapsKeyWorker(finalRow);
-        if (!state.seenKeys[uKey]) {
+        const alreadyInRows = state.rows.some(r => uniqueMapsKeyWorker(r) === uKey);
+        const alreadySeen = Boolean(state.seenKeys[uKey]);
+        let wasAdded = false;
+
+        if (!alreadySeen && !alreadyInRows) {
           state.seenKeys[uKey] = true;
-          const added = addMapsRowWorker(state.rows, finalRow);
-          if (added) {
+          wasAdded = addMapsRowWorker(state.rows, finalRow);
+          if (wasAdded) {
             broadcastMapsMessage({ type: 'MAPS_ROW_ADDED', row: finalRow });
           }
+        } else if (alreadyInRows) {
+          // Đồng bộ ghép thêm từ khóa cho cơ sở đã tồn tại
+          addMapsRowWorker(state.rows, finalRow);
         }
         j.cursor++;
         state.tabId = mapsCurrentTabId;
@@ -2315,7 +2348,14 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = nul
         await chrome.storage.local.set({ rinMaps: state });
         broadcastMapsStateSync(state);
 
-        const placeLog = matchedPhone ? `✅ ${row.name} - SĐT: ${matchedPhone}` : `📍 ${row.name} (Google Maps không niêm yết SĐT)`;
+        let placeLog;
+        if (wasAdded) {
+          placeLog = matchedPhone ? `✅ ${row.name} - SĐT: ${matchedPhone}` : `📍 ${row.name} (Google Maps không niêm yết SĐT)`;
+        } else {
+          placeLog = matchedPhone
+            ? `♻️ [Trùng/Đã quét trước] ${row.name} (${matchedPhone})`
+            : `♻️ [Đã quét trước] ${row.name}`;
+        }
         broadcastMapsLog(placeLog);
 
         const delaySec = Math.max(2, Number(j.delay) || 5);
@@ -2396,9 +2436,9 @@ async function sendMapsZaloNotify(kind, reason, job, count) {
   }
 }
 
-async function startMapsScan(jobParam, phoneTypesParam, seenKeysParam = null) {
+async function startMapsScan(jobParam, phoneTypesParam, seenKeysParam = null, scanOptions = {}) {
   if (mapsScanRunning) return { ok: true, running: true, syncVersion: 2, message: 'Tiến trình quét đang chạy.' };
-  runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam).catch(err => {
+  runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam, scanOptions).catch(err => {
     console.error('[MapsScraper] Lỗi chạy loop nền:', err);
   });
   return { ok: true, running: true, syncVersion: 2 };
@@ -4066,7 +4106,7 @@ function handleRuntimeMessage(m, sender, reply) {
   }
 
   // MAPS background runner messages (chỉ chạy trong Chrome Extension worker thật)
-  if (m.type === 'MAPS_START_SCAN' || m.type === 'MAPS_RESUME_SCAN' || m.type === 'MAPS_STOP_SCAN' || m.type === 'MAPS_GET_STATUS' || m.type === 'MAPS_SHOW_TAB') {
+  if (m.type === 'MAPS_START_SCAN' || m.type === 'MAPS_RESUME_SCAN' || m.type === 'MAPS_STOP_SCAN' || m.type === 'MAPS_GET_STATUS' || m.type === 'MAPS_SHOW_TAB' || m.type === 'MAPS_CLEAR_DATA') {
     const isWebRuntime = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
     if (isWebRuntime) {
       reply({
@@ -4080,7 +4120,10 @@ function handleRuntimeMessage(m, sender, reply) {
     }
   }
   if (m.type === 'MAPS_START_SCAN') {
-    startMapsScan(m.job, m.phoneTypes, m.seenKeys).then(reply).catch(e => reply({ ok: false, error: e.message }));
+    startMapsScan(m.job, m.phoneTypes, m.seenKeys, {
+      resetSeenKeys: Boolean(m.resetSeenKeys),
+      resetRows: Boolean(m.resetRows)
+    }).then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'MAPS_RESUME_SCAN') {
@@ -4091,10 +4134,32 @@ function handleRuntimeMessage(m, sender, reply) {
     stopMapsScan().then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
+  if (m.type === 'MAPS_CLEAR_DATA') {
+    (async () => {
+      try {
+        const { rinMaps } = await chrome.storage.local.get('rinMaps');
+        const nextState = rinMaps && typeof rinMaps === 'object' ? { ...rinMaps } : { rows: [], job: null, settings: null, seenKeys: {} };
+        nextState.rows = [];
+        nextState.clearedKeepSeen = Boolean(m.keepSeenKeys);
+        if (!m.keepSeenKeys) nextState.seenKeys = {};
+        if (!m.keepJob) {
+          nextState.job = null;
+          nextState.isScanning = false;
+        }
+        await chrome.storage.local.set({ rinMaps: nextState });
+        broadcastMapsStateSync(nextState);
+        reply({ ok: true, cleared: true });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
   if (m.type === 'MAPS_GET_STATUS') {
     (async () => {
       try {
         const { rinMaps } = await chrome.storage.local.get('rinMaps');
+        const allRows = Array.isArray(rinMaps?.rows) ? rinMaps.rows : [];
         reply({
           ok: true,
           running: mapsScanRunning,
@@ -4104,7 +4169,8 @@ function handleRuntimeMessage(m, sender, reply) {
             job: rinMaps.job || null,
             isScanning: Boolean(rinMaps.isScanning),
             lastScraped: rinMaps.lastScraped || null,
-            recentRows: Array.isArray(rinMaps.rows) ? rinMaps.rows.slice(-200) : []
+            totalRows: allRows.length,
+            recentRows: m.includeAllRows ? allRows : allRows.slice(-1000)
           } : null
         });
       } catch (_) {
@@ -4136,7 +4202,7 @@ function handleRuntimeMessage(m, sender, reply) {
   }
 
   // FB GROUP PHONE SCANNER background runner messages (chỉ chạy trong Chrome Extension worker thật)
-  if (m.type === 'FB_GROUP_START_SCAN' || m.type === 'FB_GROUP_RESUME_SCAN' || m.type === 'FB_GROUP_STOP_SCAN' || m.type === 'FB_GROUP_GET_STATUS' || m.type === 'FB_GROUP_SHOW_TAB') {
+  if (m.type === 'FB_GROUP_START_SCAN' || m.type === 'FB_GROUP_RESUME_SCAN' || m.type === 'FB_GROUP_STOP_SCAN' || m.type === 'FB_GROUP_GET_STATUS' || m.type === 'FB_GROUP_SHOW_TAB' || m.type === 'FB_GROUP_CLEAR_DATA') {
     const isWebRuntime = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
     if (isWebRuntime) {
       reply({
@@ -4159,6 +4225,25 @@ function handleRuntimeMessage(m, sender, reply) {
   }
   if (m.type === 'FB_GROUP_STOP_SCAN') {
     stopFbGroupScan().then(reply).catch(e => reply({ ok: false, error: e.message }));
+    return true;
+  }
+  if (m.type === 'FB_GROUP_CLEAR_DATA') {
+    (async () => {
+      try {
+        const { rinFbGroup } = await chrome.storage.local.get('rinFbGroup');
+        const nextState = rinFbGroup && typeof rinFbGroup === 'object' ? { ...rinFbGroup } : {};
+        nextState.rows = [];
+        nextState.seenKeys = {};
+        nextState.postsCount = 0;
+        nextState.commentsCount = 0;
+        nextState.isScanning = false;
+        nextState.job = null;
+        await chrome.storage.local.set({ rinFbGroup: nextState });
+        reply({ ok: true, cleared: true });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
     return true;
   }
   if (m.type === 'FB_GROUP_GET_STATUS') {

@@ -298,7 +298,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261110_1605')
+    _workerLoadPromise = import('./worker.js?v=20261111_0900')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
@@ -400,11 +400,13 @@
         'MAPS_STOP_SCAN',
         'MAPS_GET_STATUS',
         'MAPS_SHOW_TAB',
+        'MAPS_CLEAR_DATA',
         'FB_GROUP_START_SCAN',
         'FB_GROUP_RESUME_SCAN',
         'FB_GROUP_STOP_SCAN',
         'FB_GROUP_GET_STATUS',
         'FB_GROUP_SHOW_TAB',
+        'FB_GROUP_CLEAR_DATA',
         'UNIVERSAL_TABS_CREATE',
         'UNIVERSAL_TABS_UPDATE',
         'UNIVERSAL_TABS_GET',
@@ -435,11 +437,13 @@
         'MAPS_STOP_SCAN',
         'MAPS_GET_STATUS',
         'MAPS_SHOW_TAB',
+        'MAPS_CLEAR_DATA',
         'FB_GROUP_START_SCAN',
         'FB_GROUP_RESUME_SCAN',
         'FB_GROUP_STOP_SCAN',
         'FB_GROUP_GET_STATUS',
-        'FB_GROUP_SHOW_TAB'
+        'FB_GROUP_SHOW_TAB',
+        'FB_GROUP_CLEAR_DATA'
       ]);
       const isGroupSearchCmd = Boolean(message?.type && GROUP_SEARCH_CMDS.has(message.type));
       const isMapsOrFbPhoneCmd = Boolean(message?.type && MAPS_OR_FB_PHONE_CMDS.has(message.type));

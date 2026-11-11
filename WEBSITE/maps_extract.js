@@ -75,7 +75,7 @@ export async function mapsExtract(mode, limit = 50) {
     }
 
     // Detail mode
-    for (let i = 0; i < 13; i++) {
+    for (let i = 0; i < 16; i++) {
       if (
         document.querySelector('[data-item-id^="phone:tel:"]')
         || document.querySelector('a[href^="tel:"]')
@@ -139,7 +139,7 @@ export async function mapsExtract(mode, limit = 50) {
 
     const panel = document.querySelector('div[role="main"]') || document.body;
     const panelText = panel ? (panel.innerText || '') : '';
-    const phoneRegex = /(?:\+?84|0)[1-9](?:[\s.\-()]?\d){7,9}\b|\b(?:1800|1900)(?:[\s.\-]?\d){4,6}\b|\(\s*0\d{1,3}\s*\)[\s.\-]?(?:\d[\s.\-]?){6,8}\d\b/g;
+    const phoneRegex = /(?:\(\s*\+?84\s*\)[\s.\-]*|\+?84[\s.\-]*|0)(?:0?[1-9])(?:[\s.\-()]?\d){7,9}\b|\b(?:1800|1900)(?:[\s.\-]?\d){4,6}\b|\(\s*0\d{1,3}\s*\)[\s.\-]?(?:\d[\s.\-]?){6,8}\d\b/g;
     for (const m of panelText.matchAll(phoneRegex)) {
       pushPhone(m[0]);
     }

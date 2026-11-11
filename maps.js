@@ -310,21 +310,25 @@ function uniqueKey(r) {
   return normPhone(r.phone) || (r.url ? r.url.split('?')[0] : r.name);
 }
 
-function addRow(row) {
+function addRow(row, options = {}) {
   const key = uniqueKey(row);
+  if (!key) return false;
   // Kiểm tra trong dữ liệu hiện tại
   const existing = state.rows.find(r => uniqueKey(r) === key);
   if (existing) {
-    if (row.query && !existing.query.includes(row.query)) {
+    if (row.query && existing.query && !existing.query.includes(row.query)) {
       existing.query += ' | ' + row.query;
+    } else if (row.query && !existing.query) {
+      existing.query = row.query;
     }
-    return;
+    return false;
   }
-  // Kiểm tra trong danh sách đã quét lịch sử (cả những lần trước sau khi xóa dữ liệu báo cáo)
+  // Kiểm tra trong danh sách đã quét lịch sử (trừ trường hợp đồng bộ trực tiếp row thật từ Extension)
   if (!state.seenKeys) state.seenKeys = {};
-  if (state.seenKeys[key]) return; // Đã quét trước đó, bỏ qua
+  if (!options?.forceIfNotInRows && state.seenKeys[key]) return false;
   state.seenKeys[key] = true;
   state.rows.push(row);
+  return true;
 }
 
 function safeLink(url) {
@@ -1347,7 +1351,8 @@ async function runLoop({ tabAlreadyOpened = false } = {}) {
       type: 'MAPS_START_SCAN',
       job: state.job,
       phoneTypes: state.job?.phoneTypes || getActivePhoneTypes(),
-      seenKeys: state.seenKeys || {}
+      seenKeys: state.seenKeys || {},
+      resetSeenKeys: state.rows.length === 0 && Object.keys(state.seenKeys || {}).length === 0
     });
     if (res && res.ok && !res.webFallback) {
       mapsExtSupportsSyncV2 = true;
@@ -2799,12 +2804,14 @@ function setupEventListeners() {
         state.rows = [];
         if (hasJob) {
           await saveState();
+          chrome.runtime.sendMessage({ type: 'MAPS_CLEAR_DATA', keepJob: true, keepSeenKeys: true }).catch(() => {});
           renderUI();
           log('Đã xóa dữ liệu báo cáo Maps. Tiến trình đã được lưu lại, bạn có thể bấm Tiếp tục bất cứ lúc nào.');
         } else {
           state.job = null;
           state.seenKeys = {};
           await saveState();
+          chrome.runtime.sendMessage({ type: 'MAPS_CLEAR_DATA', keepJob: false, keepSeenKeys: false }).catch(() => {});
           renderUI();
           log('Đã xóa toàn bộ dữ liệu Maps.');
         }
@@ -2818,6 +2825,7 @@ function setupEventListeners() {
       groupState.postsCount = 0;
       groupState.commentsCount = 0;
       await chrome.storage.local.set({ rinFbGroup: groupState });
+      chrome.runtime.sendMessage({ type: 'FB_GROUP_CLEAR_DATA' }).catch(() => {});
       renderUI();
       log('Đã xóa toàn bộ dữ liệu số điện thoại quét từ nhóm Facebook.');
     }
@@ -2891,10 +2899,10 @@ function setupEventListeners() {
     syncGroupPhoneTypeUI();
 
     // Kiểm tra trạng thái đang chạy ngầm Maps & khả năng MAPS_SYNC_V2 của Extension
-    const mapsStatus = await chrome.runtime.sendMessage({ type: 'MAPS_GET_STATUS' }).catch(() => null);
+    const mapsStatus = await chrome.runtime.sendMessage({ type: 'MAPS_GET_STATUS', includeAllRows: true }).catch(() => null);
     mapsExtSupportsSyncV2 = Boolean(mapsStatus?.ok && Number(mapsStatus?.syncVersion) >= 2);
     if (Array.isArray(mapsStatus?.state?.recentRows) && mapsStatus.state.recentRows.length) {
-      mapsStatus.state.recentRows.forEach(r => addRow(r));
+      mapsStatus.state.recentRows.forEach(r => addRow(r, { forceIfNotInRows: true }));
       if (mapsStatus.state.job !== undefined && mapsStatus.running) {
         state.job = mapsStatus.state.job;
       }
@@ -2994,13 +3002,34 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // Lắng nghe nhật ký & kết quả thời gian thực từ tiến trình nền (Extension <-> Web Sync)
+let _lastMapsBackfillAt = 0;
+async function syncMissingMapsRowsIfNeeded(expectedTotal) {
+  if (typeof expectedTotal !== 'number' || expectedTotal <= state.rows.length) return;
+  const now = Date.now();
+  if (now - _lastMapsBackfillAt < 2000) return;
+  _lastMapsBackfillAt = now;
+  try {
+    const st = await chrome.runtime.sendMessage({ type: 'MAPS_GET_STATUS', includeAllRows: true }).catch(() => null);
+    if (Array.isArray(st?.state?.recentRows) && st.state.recentRows.length) {
+      let changed = false;
+      for (const r of st.state.recentRows) {
+        if (addRow(r, { forceIfNotInRows: true })) changed = true;
+      }
+      if (changed) {
+        await saveState();
+        renderUI();
+      }
+    }
+  } catch (_) {}
+}
+
 chrome.runtime.onMessage.addListener(m => {
   if (!m || typeof m !== 'object') return;
   if (m.type === 'MAPS_LOG_EVENT' && m.msg) {
     log(m.msg);
   }
   if (m.type === 'MAPS_ROW_ADDED' && m.row) {
-    addRow(m.row);
+    addRow(m.row, { forceIfNotInRows: true });
     saveState();
     renderUI();
   }
@@ -3011,8 +3040,16 @@ chrome.runtime.onMessage.addListener(m => {
       running = m.isScanning;
     }
     if (m.lastScraped) state.lastScraped = m.lastScraped;
+    if (Array.isArray(m.recentRows) && m.recentRows.length) {
+      for (const r of m.recentRows) {
+        addRow(r, { forceIfNotInRows: true });
+      }
+    }
     saveState();
     renderUI();
+    if (typeof m.totalRows === 'number' && m.totalRows > state.rows.length) {
+      syncMissingMapsRowsIfNeeded(m.totalRows);
+    }
   }
   if (m.type === 'FB_GROUP_LOG_EVENT' && m.msg) {
     log(m.msg);
