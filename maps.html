@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>Quét data – NTD Agency</title>
-  <script src="web_adapter.js?v=20261111_1020"></script>
+  <script src="web_adapter.js?v=20261111_1045"></script>
   <script>
     (function() {
       var t = localStorage.getItem('ntd_theme') || 'dark';
@@ -68,7 +68,7 @@
     }
   </style>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="sidebar.css?v=20261111_1020">
+  <link rel="stylesheet" href="sidebar.css?v=20261111_1045">
   <style>
     :root {
       --bg: #f3f5fa;
@@ -1508,6 +1508,10 @@
           <input type="checkbox" id="phoneTypeOld">
           <span>Số điện thoại cũ (11 số)</span>
         </label>
+        <label class="phone-type-chip" id="labelMapsDedupePhones" title="Tích chọn để lọc bỏ các SĐT đã quét trước đây; bỏ tích để lấy toàn bộ SĐT mà không lọc trùng">
+          <input type="checkbox" id="mapsDedupePhones">
+          <span>♻️ Lọc trùng SĐT đã quét trước đây</span>
+        </label>
       </div>
       <div class="phone-prefix-details">
         <div class="prefix-summary-text">
@@ -1668,6 +1672,10 @@
           <input type="checkbox" id="groupPhoneTypeOld">
           <span>Số điện thoại cũ (11 số)</span>
         </label>
+        <label class="phone-type-chip" id="labelGroupDedupePhones" title="Tích chọn để lọc bỏ các SĐT đã quét trước đây; bỏ tích để lấy toàn bộ SĐT mà không lọc trùng">
+          <input type="checkbox" id="groupDedupePhones">
+          <span>♻️ Lọc trùng SĐT đã quét trước đây</span>
+        </label>
       </div>
       <div class="phone-prefix-details">
         <div class="prefix-summary-text">
@@ -1777,7 +1785,11 @@
       <div class="table-search-box">
         <input type="text" id="tableSearch" placeholder="Tìm nhanh cơ sở, SĐT, địa chỉ, từ khóa...">
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label class="phone-type-chip" id="labelTableDedupePhones" style="padding:7px 12px;font-size:12.5px" title="Tích chọn để lọc trùng các SĐT đã quét trước đây (cả khi quét, trên bảng và xuất Excel); bỏ tích để lấy toàn bộ SĐT">
+          <input type="checkbox" id="tableDedupePhones">
+          <span>♻️ Lọc trùng SĐT</span>
+        </label>
         <select id="tableFilter" class="table-filter-select">
           <option value="all">Tất cả cơ sở</option>
           <option value="with_phone">Chỉ cơ sở có SĐT</option>
@@ -1829,7 +1841,7 @@
   </div>
 </main>
 
-<script type="module" src="maps.js?v=20261111_1020"></script>
+<script type="module" src="maps.js?v=20261111_1045"></script>
 <script type="module" src="sidebar.js"></script>
 </body>
 </html>

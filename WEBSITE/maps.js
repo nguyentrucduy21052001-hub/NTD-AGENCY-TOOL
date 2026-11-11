@@ -44,6 +44,63 @@ let groupState = {
 let groupRunning = false;
 let groupStop = false;
 
+let dedupePhonesEnabled = false;
+let _clientRowSeq = 0;
+
+function nextClientRowId(prefix = 'row') {
+  return `${prefix}_${Date.now()}_${++_clientRowSeq}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function isDedupePhonesEnabled() {
+  return Boolean(dedupePhonesEnabled);
+}
+
+function syncDedupeToggleUI() {
+  const checked = isDedupePhonesEnabled();
+  const pairs = [
+    ['mapsDedupePhones', 'labelMapsDedupePhones'],
+    ['groupDedupePhones', 'labelGroupDedupePhones'],
+    ['tableDedupePhones', 'labelTableDedupePhones']
+  ];
+  for (const [inputId, labelId] of pairs) {
+    const input = $(inputId);
+    const label = $(labelId);
+    if (input) input.checked = checked;
+    if (label) label.classList.toggle('checked', checked);
+  }
+}
+
+async function setDedupePhonesEnabled(enabled, { save = true, syncExtension = true, announce = false } = {}) {
+  dedupePhonesEnabled = Boolean(enabled);
+  syncDedupeToggleUI();
+  updateQueryPreview();
+  if (save) {
+    if (!state.settings) state.settings = {};
+    state.settings.dedupePhones = dedupePhonesEnabled;
+    if (!groupState.settings) groupState.settings = {};
+    groupState.settings.dedupePhones = dedupePhonesEnabled;
+    await chrome.storage.local.set({
+      mapsDedupePhones: dedupePhonesEnabled,
+      rinMaps: state,
+      rinFbGroup: groupState
+    }).catch(() => {});
+  }
+  if (syncExtension) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { mapsDedupePhones: dedupePhonesEnabled }
+      });
+    } catch (_) {}
+  }
+  renderUI();
+  if (announce) {
+    log(dedupePhonesEnabled
+      ? '♻️ Đã BẬT lọc trùng SĐT đã quét trước đây (áp dụng khi quét mới, hiển thị bảng & xuất Excel).'
+      : '📋 Đã TẮT lọc trùng SĐT: sẽ lấy toàn bộ số điện thoại mà không lọc trùng.');
+  }
+}
+
 // ── Chuẩn hóa và lọc số điện thoại (Đồng bộ tuyệt đối với Google Maps) ─────────
 const CURRENT_PHONE_PREFIXES = [
   '032', '033', '034', '035', '036', '037', '038', '039',
@@ -275,18 +332,38 @@ function syncGroupPhoneTypeUI() {
   });
 }
 
+function dedupeRowsList(rows, mode = 'maps') {
+  const seen = new Set();
+  const out = [];
+  for (const r of rows || []) {
+    if (!r || typeof r !== 'object') continue;
+    const p = normPhone(r.phone);
+    const k = p || (mode === 'maps' ? uniqueKey(r) : String(r.phone || r.id || '').trim());
+    if (!k) {
+      out.push(r);
+      continue;
+    }
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  return out;
+}
+
 function filterMapsExportableRows() {
   const allowed = getActivePhoneTypes();
-  return state.rows
+  const rows = state.rows
     .map(r => ({ ...r, phone: normPhone(r.phone) }))
     .filter(r => r.phone && isPhoneAllowed(r.phone, allowed));
+  return isDedupePhonesEnabled() ? dedupeRowsList(rows, 'maps') : rows;
 }
 
 function filterGroupExportableRows() {
   const allowed = getActiveGroupPhoneTypes();
-  return (groupState.rows || [])
+  const rows = (groupState.rows || [])
     .map(r => ({ ...r, phone: normPhone(r.phone) }))
     .filter(r => r.phone && isPhoneAllowed(r.phone, allowed));
+  return isDedupePhonesEnabled() ? dedupeRowsList(rows, 'group') : rows;
 }
 
 function filterExportableRows() {
@@ -316,24 +393,49 @@ function uniqueKey(r) {
   return `${u}|${r.name || ''}|${r.address || ''}`.trim();
 }
 
+function legacyMapsSyncSig(r) {
+  return `${normPhone(r?.phone)}|${String(r?.url || '').split('?')[0]}|${r?.name || ''}|${r?.address || ''}|${r?.query || ''}`;
+}
+
 function addRow(row, options = {}) {
   const key = uniqueKey(row);
   if (!key) return false;
-  // Kiểm tra trong dữ liệu hiện tại
-  const existing = state.rows.find(r => uniqueKey(r) === key);
-  if (existing) {
-    if (row.query && existing.query && !existing.query.includes(row.query)) {
-      existing.query += ' | ' + row.query;
-    } else if (row.query && !existing.query) {
-      existing.query = row.query;
-    }
-    return false;
-  }
-  // Kiểm tra trong danh sách đã quét lịch sử (trừ trường hợp đồng bộ trực tiếp row thật từ Extension)
   if (!state.seenKeys) state.seenKeys = {};
-  if (!options?.forceIfNotInRows && state.seenKeys[key]) return false;
+
+  // Đồng bộ dữ liệu từ Extension Background Worker sang bảng Web
+  if (options?.syncFromWorker || options?.forceIfNotInRows) {
+    if (row.id && state.rows.some(r => r.id && r.id === row.id)) {
+      state.seenKeys[key] = true;
+      return false;
+    }
+    if (!row.id) {
+      const sig = legacyMapsSyncSig(row);
+      if (state.rows.some(r => legacyMapsSyncSig(r) === sig)) {
+        state.seenKeys[key] = true;
+        return false;
+      }
+    }
+    state.seenKeys[key] = true;
+    state.rows.push(row.id ? row : { ...row, id: nextClientRowId('mp') });
+    return true;
+  }
+
+  // Chỉ kiểm tra trùng SĐT / lịch sử đã quét khi bật chế độ Lọc trùng SĐT
+  if (isDedupePhonesEnabled()) {
+    const existing = state.rows.find(r => uniqueKey(r) === key);
+    if (existing) {
+      if (row.query && existing.query && !existing.query.includes(row.query)) {
+        existing.query += ' | ' + row.query;
+      } else if (row.query && !existing.query) {
+        existing.query = row.query;
+      }
+      return false;
+    }
+    if (state.seenKeys[key]) return false;
+  }
+
   state.seenKeys[key] = true;
-  state.rows.push(row);
+  state.rows.push(row.id ? row : { ...row, id: nextClientRowId('mp') });
   return true;
 }
 
@@ -613,6 +715,10 @@ function renderMapsTable() {
     );
   }
 
+  if (isDedupePhonesEnabled()) {
+    filtered = dedupeRowsList(filtered, 'maps');
+  }
+
   const countDisplay = $('displayCount');
   if (countDisplay) {
     countDisplay.textContent = `Hiển thị ${filtered.length}/${state.rows.length} cơ sở`;
@@ -749,6 +855,10 @@ function renderGroupTable() {
       (r.groupName || '').toLowerCase().includes(searchTerm) ||
       (r.source || '').toLowerCase().includes(searchTerm)
     );
+  }
+
+  if (isDedupePhonesEnabled()) {
+    filtered = dedupeRowsList(filtered, 'group');
   }
 
   const countDisplay = $('displayCount');
@@ -1353,6 +1463,7 @@ async function runLoop({ tabAlreadyOpened = false } = {}) {
       job: state.job,
       phoneTypes: state.job?.phoneTypes || getActivePhoneTypes(),
       seenKeys: state.seenKeys || {},
+      dedupePhones: isDedupePhonesEnabled(),
       resetSeenKeys: state.rows.length === 0 && Object.keys(state.seenKeys || {}).length === 0
     });
     if (res && res.ok && !res.webFallback) {
@@ -1436,7 +1547,9 @@ async function importGroupPhonesFromClipboardText(rawText) {
         skipped++;
         continue;
       }
-      if (groupState.seenKeys[cleanP]) continue;
+      if (isDedupePhonesEnabled() && (groupState.seenKeys[cleanP] || groupState.rows.some(r => (normPhone(r.phone) || r.phone) === cleanP))) {
+        continue;
+      }
       groupState.seenKeys[cleanP] = true;
 
       let authorName = 'Thành viên nhóm';
@@ -1451,7 +1564,7 @@ async function importGroupPhonesFromClipboardText(rawText) {
       }
 
       groupState.rows.push({
-        id: 'fg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: nextClientRowId('fg'),
         phone: cleanP,
         rawPhone: m[0].trim(),
         name: authorName,
@@ -1583,8 +1696,9 @@ async function runGroupScraperDirectly({ skipInitialTabOpen = false, extensionOu
         await sleep(2000);
         if (groupStop) break;
 
-        // Lưu trữ tập hợp các bài viết duy nhất đã duyệt trong nhóm hiện tại
+        // Lưu trữ tập hợp các bài viết duy nhất đã duyệt & DOM đã đọc trong nhóm hiện tại
         const seenPostKeysInThisGroup = new Set();
+        const runDomOccurrences = new Set();
         let stagnantCount = 0;
         let totalPostsScannedInGroup = 0;
         let previousPostCount = 0;
@@ -1630,6 +1744,8 @@ async function runGroupScraperDirectly({ skipInitialTabOpen = false, extensionOu
           totalPostsScannedInGroup = Math.max(seenPostKeysInThisGroup.size, data.postsCount || 0);
 
           let newPhonesAddedInRound = 0;
+          const roundOccurCounts = new Map();
+          const dedupeEnabled = isDedupePhonesEnabled();
           if (!groupState.seenKeys) groupState.seenKeys = {};
           if (!Array.isArray(groupState.rows)) groupState.rows = [];
 
@@ -1640,12 +1756,23 @@ async function runGroupScraperDirectly({ skipInitialTabOpen = false, extensionOu
             const category = item.category || classifyPhone(phone);
             if (!isPhoneAllowed(phone, allowedTypes)) continue;
 
-            // Bỏ trùng lặp SĐT
-            if (groupState.seenKeys[phone]) continue;
-            groupState.seenKeys[phone] = true;
+            const cleanKey = normPhone(phone) || phone;
+            const occurBase = `${item.postKey || item.postUrl || ''}|${item.source || ''}|${item.name || ''}|${cleanKey}|${item.context || ''}`;
+            const occurIdx = roundOccurCounts.get(occurBase) || 0;
+            roundOccurCounts.set(occurBase, occurIdx + 1);
+            const domOccurKey = `${occurBase}#${occurIdx}`;
+            if (runDomOccurrences.has(domOccurKey)) continue;
+            runDomOccurrences.add(domOccurKey);
+
+            // Chỉ bỏ trùng SĐT đã quét trước đây khi người dùng tích bật Lọc trùng SĐT
+            if (dedupeEnabled) {
+              const alreadyInRows = groupState.rows.some(r => (normPhone(r.phone) || r.phone) === cleanKey);
+              if (groupState.seenKeys[cleanKey] || alreadyInRows) continue;
+            }
+            groupState.seenKeys[cleanKey] = true;
 
             groupState.rows.push({
-              id: 'fg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+              id: nextClientRowId('fg'),
               phone: phone,
               rawPhone: item.rawPhone || phone,
               name: item.name || 'Thành viên nhóm',
@@ -2220,7 +2347,8 @@ function updateQueryPreview() {
       $('provinces').value,
       $('wards').value
     );
-    $('preview').textContent = `${q.length} lượt tìm kiếm sẽ chạy lần lượt · Tự lọc trùng SĐT`;
+    const dedupeHint = isDedupePhonesEnabled() ? 'Đang bật lọc trùng SĐT' : 'Lấy toàn bộ SĐT (không lọc trùng)';
+    $('preview').textContent = `${q.length} lượt tìm kiếm sẽ chạy lần lượt · ${dedupeHint}`;
     $('queryPreview').textContent = q.join('\n');
   } catch (e) {
     $('preview').textContent = e.message;
@@ -2280,6 +2408,13 @@ function setupEventListeners() {
   $('tableFilter')?.addEventListener('change', renderTable);
   $('clearLogBtn')?.addEventListener('click', () => {
     $('log').textContent = '';
+  });
+
+  // Lắng nghe thay đổi tùy chọn Lọc trùng SĐT (3 nút đồng bộ: Maps, Nhóm FB, Bảng báo cáo)
+  ['mapsDedupePhones', 'groupDedupePhones', 'tableDedupePhones'].forEach(id => {
+    $(id)?.addEventListener('change', e => {
+      setDedupePhonesEnabled(Boolean(e.target.checked), { announce: true });
+    });
   });
 
   // Lắng nghe thay đổi loại số điện thoại cần quét & bộ lọc đầu số riêng
@@ -2397,7 +2532,8 @@ function setupEventListeners() {
       mode: $('areaMode').value,
       provinces: $('provinces').value,
       wards: $('wards').value,
-      phoneTypes
+      phoneTypes,
+      dedupePhones: isDedupePhonesEnabled()
     };
 
     if (state.job && !confirm('Thay thế lượt quét đang lưu bằng lượt mới? Dữ liệu kết quả đã quét vẫn được giữ nguyên.')) {
@@ -2411,7 +2547,8 @@ function setupEventListeners() {
       cursor: 0,
       limit: Math.max(1, Math.min(500, Number($('limit').value) || 50)),
       delay: Math.max(3, Math.min(120, Number($('delay').value) || 5)),
-      phoneTypes
+      phoneTypes,
+      dedupePhones: isDedupePhonesEnabled()
     };
 
     // Chỉ mở window.open ở click khi CHƯA có Extension Sync V2 (tránh mở 2 tab Google Maps trùng nhau!)
@@ -2445,7 +2582,10 @@ function setupEventListeners() {
     running = true;
     renderUI();
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'MAPS_RESUME_SCAN' });
+      const res = await chrome.runtime.sendMessage({
+        type: 'MAPS_RESUME_SCAN',
+        dedupePhones: isDedupePhonesEnabled()
+      });
       if (res && res.ok && !res.webFallback) {
         log('🚀 Tiến trình quét Google Maps đang tiếp tục chạy ngầm...');
         return;
@@ -2604,7 +2744,8 @@ function setupEventListeners() {
       maxPosts,
       scrollDelay,
       phoneTypes,
-      options
+      options,
+      dedupePhones: isDedupePhonesEnabled()
     };
 
     groupState.job = {
@@ -2613,7 +2754,8 @@ function setupEventListeners() {
       maxPosts,
       scrollDelay,
       phoneTypes,
-      options
+      options,
+      dedupePhones: isDedupePhonesEnabled()
     };
     groupState.isScanning = true;
 
@@ -2628,6 +2770,7 @@ function setupEventListeners() {
         type: 'FB_GROUP_START_SCAN',
         job: groupState.job,
         phoneTypes,
+        dedupePhones: isDedupePhonesEnabled(),
         seenKeys: groupState.seenKeys || {}
       });
       if (res && res.ok && !res.webFallback) {
@@ -2673,7 +2816,10 @@ function setupEventListeners() {
     renderUI();
     let extensionOutdated = false;
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'FB_GROUP_RESUME_SCAN' });
+      const res = await chrome.runtime.sendMessage({
+        type: 'FB_GROUP_RESUME_SCAN',
+        dedupePhones: isDedupePhonesEnabled()
+      });
       if (res && res.ok && !res.webFallback) {
         mapsExtSupportsSyncV2 = true;
         hideGroupWebNotice();
@@ -2772,12 +2918,16 @@ function setupEventListeners() {
   // Xuất riêng file SĐT (.xlsx)
   $('phones').onclick = () => {
     const rows = filterExportableRows();
-    const phones = [...new Set(rows.map(r => r.phone).filter(Boolean))];
+    const rawPhones = rows.map(r => r.phone).filter(Boolean);
+    const deduped = isDedupePhonesEnabled();
+    const phones = deduped ? [...new Set(rawPhones)] : rawPhones;
     if (!phones.length) return log('Chưa có số điện thoại phù hợp để xuất.');
 
     const prefix = activeMode === 'maps' ? 'NTD-Maps-SDT' : 'NTD-Nhom-SDT';
     downloadXlsx(`${prefix}-${new Date().toISOString().slice(0, 10)}.xlsx`, phones.map(p => [p]));
-    log(`Đã xuất ${phones.length} số điện thoại duy nhất, bảo toàn số 0 ở đầu.`);
+    log(deduped
+      ? `Đã xuất ${phones.length} số điện thoại duy nhất (đã lọc trùng), bảo toàn số 0 ở đầu.`
+      : `Đã xuất toàn bộ ${phones.length} số điện thoại (không lọc trùng), bảo toàn số 0 ở đầu.`);
   };
 
   // Sao lưu JSON
@@ -2797,8 +2947,11 @@ function setupEventListeners() {
   $('clear').onclick = async () => {
     if (activeMode === 'maps') {
       const hasJob = state.job && Array.isArray(state.job.queries) && state.job.index < state.job.queries.length;
+      const dedupeNote = isDedupePhonesEnabled()
+        ? '\n⚠ Số điện thoại đã quét vẫn được ghi nhớ vì bạn đang bật "Lọc trùng SĐT".'
+        : '\nℹ️ Lọc trùng SĐT đang TẮT — lần quét tiếp theo sẽ lấy toàn bộ SĐT như bình thường.';
       const confirmMsg = hasJob
-        ? 'Xóa toàn bộ dữ liệu đã hiển thị trong bảng báo cáo Maps?\n\n✔ Tiến trình chiến dịch (' + state.job.index + '/' + state.job.queries.length + ' từ khóa) vẫn được giữ nguyên để bạn có thể tiếp tục.\n⚠ Số điện thoại đã quét vẫn được ghi nhớ để không quét trùng lại.'
+        ? 'Xóa toàn bộ dữ liệu đã hiển thị trong bảng báo cáo Maps?\n\n✔ Tiến trình chiến dịch (' + state.job.index + '/' + state.job.queries.length + ' từ khóa) vẫn được giữ nguyên để bạn có thể tiếp tục.' + dedupeNote
         : 'Xóa toàn bộ dữ liệu hiển thị trong bảng báo cáo Maps? Tiến trình quét cũng sẽ bị xóa.';
 
       if (confirm(confirmMsg)) {
@@ -2833,18 +2986,48 @@ function setupEventListeners() {
   };
 }
 
+function syncGroupRowFromWorker(r) {
+  if (!r || typeof r !== 'object') return false;
+  if (!groupState.seenKeys) groupState.seenKeys = {};
+  if (!Array.isArray(groupState.rows)) groupState.rows = [];
+  const k = normPhone(r.phone) || r.phone;
+  if (r.id && groupState.rows.some(x => x.id === r.id)) {
+    if (k) groupState.seenKeys[k] = true;
+    return false;
+  }
+  if (!r.id) {
+    const sig = `${k}|${r.postUrl || ''}|${r.source || ''}|${r.name || ''}|${r.context || ''}`;
+    if (groupState.rows.some(x => `${normPhone(x.phone) || x.phone}|${x.postUrl || ''}|${x.source || ''}|${x.name || ''}|${x.context || ''}` === sig)) {
+      if (k) groupState.seenKeys[k] = true;
+      return false;
+    }
+  }
+  if (k) groupState.seenKeys[k] = true;
+  groupState.rows.push(r.id ? r : { ...r, id: nextClientRowId('fg') });
+  return true;
+}
+
 // ── Khởi tạo ứng dụng ────────────────────────────────────────────────────────
 (async () => {
   setupEventListeners();
 
   try {
-    const store = await chrome.storage.local.get(['rinMaps', 'rinFbGroup', 'mapsActiveMode']);
+    const store = await chrome.storage.local.get(['rinMaps', 'rinFbGroup', 'mapsActiveMode', 'mapsDedupePhones']);
     if (store.rinMaps) {
       state = store.rinMaps;
     }
     if (store.rinFbGroup) {
       groupState = store.rinFbGroup;
     }
+    // Mặc định KHÔNG lọc trùng SĐT trừ khi người dùng chủ động bấm tích bật
+    dedupePhonesEnabled = Boolean(store.mapsDedupePhones === true);
+    syncDedupeToggleUI();
+    try {
+      chrome.runtime.sendMessage({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { mapsDedupePhones: dedupePhonesEnabled }
+      }).catch(() => {});
+    } catch (_) {}
 
     // Khôi phục Maps config
     if (state.settings) {
@@ -2925,14 +3108,8 @@ function setupEventListeners() {
       mapsExtSupportsSyncV2 = true;
     }
     if (Array.isArray(groupStatus?.state?.recentRows) && groupStatus.state.recentRows.length) {
-      if (!groupState.seenKeys) groupState.seenKeys = {};
-      if (!Array.isArray(groupState.rows)) groupState.rows = [];
       for (const r of groupStatus.state.recentRows) {
-        const k = normPhone(r.phone) || r.phone;
-        if (k && (!groupState.seenKeys[k] || !groupState.rows.some(x => (normPhone(x.phone) || x.phone) === k))) {
-          groupState.seenKeys[k] = true;
-          groupState.rows.push(r);
-        }
+        syncGroupRowFromWorker(r);
       }
       if (typeof groupStatus.state.postsCount === 'number' && groupStatus.running) {
         groupState.postsCount = groupStatus.state.postsCount;
@@ -2970,6 +3147,12 @@ function setupEventListeners() {
 })();
 
 window.addEventListener('NTD_EXTENSION_READY', async () => {
+  try {
+    chrome.runtime.sendMessage({
+      type: 'SYNC_DATA_TO_EXTENSION',
+      data: { mapsDedupePhones: isDedupePhonesEnabled() }
+    }).catch(() => {});
+  } catch (_) {}
   const st = await chrome.runtime.sendMessage({ type: 'MAPS_GET_STATUS' }).catch(() => null);
   mapsExtSupportsSyncV2 = Boolean(st?.ok && Number(st?.syncVersion) >= 2);
   if (mapsExtSupportsSyncV2) {
@@ -3058,12 +3241,7 @@ chrome.runtime.onMessage.addListener(m => {
     log(m.msg);
   }
   if (m.type === 'FB_GROUP_ROW_ADDED' && m.row) {
-    if (!groupState.seenKeys) groupState.seenKeys = {};
-    if (!Array.isArray(groupState.rows)) groupState.rows = [];
-    const k = normPhone(m.row.phone) || m.row.phone;
-    if (k && !groupState.seenKeys[k]) {
-      groupState.seenKeys[k] = true;
-      groupState.rows.push(m.row);
+    if (syncGroupRowFromWorker(m.row)) {
       chrome.storage.local.set({ rinFbGroup: groupState });
       renderUI();
     }

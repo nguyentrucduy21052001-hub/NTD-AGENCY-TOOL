@@ -537,6 +537,7 @@ function extractGroupPhonesFromDOM(options = {}) {
               source: 'Bài viết',
               context: p.snippet,
               postUrl: postUrl,
+              postKey: pKey,
               groupName: groupTitle,
               groupUrl: currentUrl,
               at: new Date().toISOString()
@@ -557,6 +558,7 @@ function extractGroupPhonesFromDOM(options = {}) {
               source: 'Bài viết',
               context: p.snippet || hrefRaw,
               postUrl: postUrl,
+              postKey: pKey,
               groupName: groupTitle,
               groupUrl: currentUrl,
               at: new Date().toISOString()
@@ -579,6 +581,7 @@ function extractGroupPhonesFromDOM(options = {}) {
               source: 'Hình ảnh bài viết',
               context: p.snippet,
               postUrl: postUrl,
+              postKey: pKey,
               groupName: groupTitle,
               groupUrl: currentUrl,
               at: new Date().toISOString()
@@ -615,6 +618,7 @@ function extractGroupPhonesFromDOM(options = {}) {
                 source: 'Bình luận',
                 context: p.snippet,
                 postUrl: postUrl,
+              postKey: pKey,
                 groupName: groupTitle,
                 groupUrl: currentUrl,
                 at: new Date().toISOString()
@@ -636,6 +640,7 @@ function extractGroupPhonesFromDOM(options = {}) {
                   source: 'Hình ảnh bình luận',
                   context: p.snippet,
                   postUrl: postUrl,
+              postKey: pKey,
                   groupName: groupTitle,
                   groupUrl: currentUrl,
                   at: new Date().toISOString()

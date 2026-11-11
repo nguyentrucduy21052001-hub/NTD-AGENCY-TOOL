@@ -2082,6 +2082,20 @@ function addMapsRowWorker(rows, row) {
   return true;
 }
 
+let workerRowSeq = 0;
+function nextWorkerRowId(prefix = 'row') {
+  return `${prefix}_${Date.now()}_${++workerRowSeq}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+async function isWorkerDedupePhonesEnabled(fallbackFlag = undefined) {
+  try {
+    const { mapsDedupePhones } = await chrome.storage.local.get('mapsDedupePhones');
+    if (typeof mapsDedupePhones === 'boolean') return mapsDedupePhones;
+  } catch (_) {}
+  if (typeof fallbackFlag === 'boolean') return fallbackFlag;
+  return false;
+}
+
 let mapsScanRunning = false;
 let mapsScanStop = false;
 let mapsCurrentTabId = null;
@@ -2332,14 +2346,20 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = nul
           continue;
         }
 
-        const finalRow = { ...row, phone: matchedPhone, query };
+        const dedupeEnabled = await isWorkerDedupePhonesEnabled(j.dedupePhones);
+        const finalRow = { ...row, phone: matchedPhone, query, id: nextWorkerRowId('mp') };
         const uKey = uniqueMapsKeyWorker(finalRow);
         const alreadyInRows = state.rows.some(r => uniqueMapsKeyWorker(r) === uKey);
         const alreadySeen = Boolean(state.seenKeys[uKey]);
         let wasAdded = false;
 
-        if (!alreadySeen && !alreadyInRows) {
-          state.seenKeys[uKey] = true;
+        if (!dedupeEnabled) {
+          if (uKey) state.seenKeys[uKey] = true;
+          state.rows.push(finalRow);
+          wasAdded = true;
+          broadcastMapsMessage({ type: 'MAPS_ROW_ADDED', row: finalRow });
+        } else if (!alreadySeen && !alreadyInRows) {
+          if (uKey) state.seenKeys[uKey] = true;
           wasAdded = addMapsRowWorker(state.rows, finalRow);
           if (wasAdded) {
             broadcastMapsMessage({ type: 'MAPS_ROW_ADDED', row: finalRow });
@@ -2625,8 +2645,9 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam = 
       await sleepMs(2000);
       if (fbGroupScanStop) break;
 
-      // Lưu trữ tập hợp các bài viết duy nhất đã duyệt trong nhóm hiện tại
+      // Lưu trữ tập hợp các bài viết duy nhất đã duyệt & từng lần xuất hiện DOM trong lượt quét hiện tại
       const seenPostKeysInThisGroup = new Set();
+      const runDomOccurrences = new Set();
       let stagnantCount = 0;
       let totalPostsScannedInGroup = 0;
       let previousPostCount = 0;
@@ -2672,6 +2693,8 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam = 
         totalPostsScannedInGroup = Math.max(seenPostKeysInThisGroup.size, data.postsCount || 0);
 
         let newPhonesAddedInRound = 0;
+        const roundOccurCounts = new Map();
+        const dedupeEnabled = await isWorkerDedupePhonesEnabled(j.dedupePhones);
         for (const item of foundItems) {
           const phone = item.phone;
           if (!phone) continue;
@@ -2679,13 +2702,25 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam = 
           const category = item.category || classifyPhoneWorker(phone);
           if (!isPhoneAllowedWorker(phone, allowedTypes)) continue;
 
-          // Bỏ trùng lặp SĐT
           const key = normPhoneWorker(phone) || phone;
-          if (state.seenKeys[key]) continue;
+          const occurBase = `${item.postKey || item.postUrl || ''}|${item.source || ''}|${item.name || ''}|${key}|${item.context || ''}`;
+          const occurIdx = roundOccurCounts.get(occurBase) || 0;
+          roundOccurCounts.set(occurBase, occurIdx + 1);
+          const domOccurKey = `${occurBase}#${occurIdx}`;
+
+          // Chống quét lặp cùng 1 phần tử DOM còn đứng trên màn hình qua các vòng cuộn của lượt hiện tại
+          if (runDomOccurrences.has(domOccurKey)) continue;
+          runDomOccurrences.add(domOccurKey);
+
+          // Chỉ lọc trùng SĐT đã quét trước đây khi người dùng BẬT tùy chọn lọc trùng
+          if (dedupeEnabled) {
+            const alreadyInGroupRows = state.rows.some(r => (normPhoneWorker(r.phone) || r.phone) === key);
+            if (state.seenKeys[key] || alreadyInGroupRows) continue;
+          }
           state.seenKeys[key] = true;
 
           const fbRow = {
-            id: 'fg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            id: nextWorkerRowId('fg'),
             phone: key,
             rawPhone: item.rawPhone || phone,
             name: item.name || 'Thành viên nhóm',
@@ -4126,14 +4161,24 @@ function handleRuntimeMessage(m, sender, reply) {
     }
   }
   if (m.type === 'MAPS_START_SCAN') {
-    startMapsScan(m.job, m.phoneTypes, m.seenKeys, {
-      resetSeenKeys: Boolean(m.resetSeenKeys),
-      resetRows: Boolean(m.resetRows)
-    }).then(reply).catch(e => reply({ ok: false, error: e.message }));
+    (async () => {
+      if (typeof m.dedupePhones === 'boolean') {
+        await chrome.storage.local.set({ mapsDedupePhones: m.dedupePhones });
+      }
+      return startMapsScan(m.job, m.phoneTypes, m.seenKeys, {
+        resetSeenKeys: Boolean(m.resetSeenKeys),
+        resetRows: Boolean(m.resetRows)
+      });
+    })().then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'MAPS_RESUME_SCAN') {
-    startMapsScan().then(reply).catch(e => reply({ ok: false, error: e.message }));
+    (async () => {
+      if (typeof m.dedupePhones === 'boolean') {
+        await chrome.storage.local.set({ mapsDedupePhones: m.dedupePhones });
+      }
+      return startMapsScan();
+    })().then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'MAPS_STOP_SCAN') {
@@ -4222,11 +4267,21 @@ function handleRuntimeMessage(m, sender, reply) {
     }
   }
   if (m.type === 'FB_GROUP_START_SCAN') {
-    startFbGroupScan(m.job, m.phoneTypes, m.seenKeys).then(reply).catch(e => reply({ ok: false, error: e.message }));
+    (async () => {
+      if (typeof m.dedupePhones === 'boolean') {
+        await chrome.storage.local.set({ mapsDedupePhones: m.dedupePhones });
+      }
+      return startFbGroupScan(m.job, m.phoneTypes, m.seenKeys);
+    })().then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'FB_GROUP_RESUME_SCAN') {
-    startFbGroupScan().then(reply).catch(e => reply({ ok: false, error: e.message }));
+    (async () => {
+      if (typeof m.dedupePhones === 'boolean') {
+        await chrome.storage.local.set({ mapsDedupePhones: m.dedupePhones });
+      }
+      return startFbGroupScan();
+    })().then(reply).catch(e => reply({ ok: false, error: e.message }));
     return true;
   }
   if (m.type === 'FB_GROUP_STOP_SCAN') {
