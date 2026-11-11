@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>Quét data – NTD Agency</title>
-  <script src="web_adapter.js?v=20261111_1005"></script>
+  <script src="web_adapter.js?v=20261111_1020"></script>
   <script>
     (function() {
       var t = localStorage.getItem('ntd_theme') || 'dark';
@@ -68,7 +68,7 @@
     }
   </style>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="sidebar.css">
+  <link rel="stylesheet" href="sidebar.css?v=20261111_1020">
   <style>
     :root {
       --bg: #f3f5fa;
@@ -749,12 +749,54 @@
     }
 
     .table-container {
-      overflow-x: auto;
+      overflow-x: auto !important;
+      overflow-y: auto !important;
       border: 1px solid var(--border);
       border-radius: 12px;
       background: #fff;
       max-height: 520px;
-      overflow-y: auto;
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+      scrollbar-color: #94a3b8 #f1f5f9;
+    }
+    .table-container::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    .table-container::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 10px;
+    }
+    .table-container::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 10px;
+      border: 2px solid #f1f5f9;
+    }
+    .table-container::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+    html.ntd-dark-theme .table-container,
+    body.ntd-dark-theme .table-container {
+      overflow-x: auto !important;
+      overflow-y: auto !important;
+      scrollbar-color: rgba(59, 130, 246, 0.65) rgba(15, 23, 42, 0.9);
+    }
+    html.ntd-dark-theme .table-container::-webkit-scrollbar-track,
+    body.ntd-dark-theme .table-container::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.92);
+    }
+    html.ntd-dark-theme .table-container::-webkit-scrollbar-thumb,
+    body.ntd-dark-theme .table-container::-webkit-scrollbar-thumb {
+      background: rgba(59, 130, 246, 0.6);
+      border: 2px solid rgba(15, 23, 42, 0.92);
+    }
+    html.ntd-dark-theme .table-container::-webkit-scrollbar-thumb:hover,
+    body.ntd-dark-theme .table-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(96, 165, 250, 0.9);
+    }
+    html.ntd-dark-theme table.data-table th,
+    body.ntd-dark-theme table.data-table th {
+      background: #10192b !important;
     }
     table.data-table {
       width: 100%;
@@ -1787,7 +1829,7 @@
   </div>
 </main>
 
-<script type="module" src="maps.js?v=20261111_1005"></script>
+<script type="module" src="maps.js?v=20261111_1020"></script>
 <script type="module" src="sidebar.js"></script>
 </body>
 </html>

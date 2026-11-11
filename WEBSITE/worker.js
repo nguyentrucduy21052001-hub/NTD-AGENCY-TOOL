@@ -4266,7 +4266,7 @@ function handleRuntimeMessage(m, sender, reply) {
             isScanning: Boolean(rinFbGroup.isScanning),
             postsCount: rinFbGroup.postsCount || 0,
             commentsCount: rinFbGroup.commentsCount || 0,
-            recentRows: Array.isArray(rinFbGroup.rows) ? rinFbGroup.rows.slice(-200) : []
+            recentRows: Array.isArray(rinFbGroup.rows) ? (m.includeAllRows ? rinFbGroup.rows : rinFbGroup.rows.slice(-200)) : []
           } : null
         });
       } catch (_) {

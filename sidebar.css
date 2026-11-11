@@ -1499,7 +1499,35 @@ body.ntd-dark-theme .results-table-container {
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 18px !important;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5) !important;
-  overflow: hidden !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.65) rgba(15, 23, 42, 0.9);
+}
+
+body.ntd-dark-theme .table-container::-webkit-scrollbar,
+body.ntd-dark-theme .report-table-wrap::-webkit-scrollbar,
+body.ntd-dark-theme .results-table-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+body.ntd-dark-theme .table-container::-webkit-scrollbar-track,
+body.ntd-dark-theme .report-table-wrap::-webkit-scrollbar-track,
+body.ntd-dark-theme .results-table-container::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 10px;
+}
+body.ntd-dark-theme .table-container::-webkit-scrollbar-thumb,
+body.ntd-dark-theme .report-table-wrap::-webkit-scrollbar-thumb,
+body.ntd-dark-theme .results-table-container::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.6);
+  border-radius: 10px;
+  border: 2px solid rgba(15, 23, 42, 0.92);
+}
+body.ntd-dark-theme .table-container::-webkit-scrollbar-thumb:hover,
+body.ntd-dark-theme .report-table-wrap::-webkit-scrollbar-thumb:hover,
+body.ntd-dark-theme .results-table-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(96, 165, 250, 0.9);
 }
 
 body.ntd-dark-theme table.data-table th,
@@ -1507,7 +1535,7 @@ body.ntd-dark-theme .report-table thead th,
 body.ntd-dark-theme .results-table th,
 body.ntd-dark-theme table.acc-table th,
 body.ntd-dark-theme table.user-table th {
-  background: rgba(16, 24, 40, 0.85) !important;
+  background: #10192b !important;
   color: #94a3b8 !important;
   border-bottom: 1.5px solid rgba(255, 255, 255, 0.08) !important;
   font-weight: 700 !important;

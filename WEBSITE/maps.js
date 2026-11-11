@@ -558,6 +558,30 @@ function renderTable() {
   }
 }
 
+const COPY_PHONE_ICON_SVG = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>
+`;
+
+function ensurePhoneCopyHandler(tbody) {
+  if (!tbody || tbody.dataset.phoneCopyBound === '1') return;
+  tbody.dataset.phoneCopyBound = '1';
+  tbody.addEventListener('click', e => {
+    const btn = e.target.closest('.phone-copy-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const phone = btn.getAttribute('data-phone');
+    if (!phone) return;
+    navigator.clipboard.writeText(phone).catch(() => {});
+    btn.innerHTML = '✓';
+    setTimeout(() => {
+      if (btn.isConnected) btn.innerHTML = COPY_PHONE_ICON_SVG;
+    }, 1200);
+  });
+}
+
 function renderMapsTable() {
   const tbody = $('rows');
   if (!tbody) return;
@@ -606,7 +630,7 @@ function renderMapsTable() {
   }
 
   const frag = document.createDocumentFragment();
-  const displayRows = filtered.slice(-500).reverse();
+  const displayRows = filtered.slice().reverse();
 
   displayRows.forEach((r, idx) => {
     const tr = document.createElement('tr');
@@ -688,26 +712,7 @@ function renderMapsTable() {
   });
 
   tbody.replaceChildren(frag);
-
-  // Gán sự kiện click nút Copy số điện thoại
-  tbody.querySelectorAll('.phone-copy-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const phone = btn.getAttribute('data-phone');
-      if (phone) {
-        navigator.clipboard.writeText(phone);
-        btn.innerHTML = '✓';
-        setTimeout(() => {
-          btn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-          `;
-        }, 1200);
-      }
-    });
-  });
+  ensurePhoneCopyHandler(tbody);
 }
 
 function renderGroupTable() {
@@ -763,7 +768,7 @@ function renderGroupTable() {
   }
 
   const frag = document.createDocumentFragment();
-  const displayRows = filtered.slice(-500).reverse();
+  const displayRows = filtered.slice().reverse();
 
   displayRows.forEach((r, idx) => {
     const tr = document.createElement('tr');
@@ -859,26 +864,7 @@ function renderGroupTable() {
   });
 
   tbody.replaceChildren(frag);
-
-  // Gán sự kiện click nút Copy số điện thoại
-  tbody.querySelectorAll('.phone-copy-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      const phone = btn.getAttribute('data-phone');
-      if (phone) {
-        navigator.clipboard.writeText(phone);
-        btn.innerHTML = '✓';
-        setTimeout(() => {
-          btn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-          `;
-        }, 1200);
-      }
-    });
-  });
+  ensurePhoneCopyHandler(tbody);
 }
 
 function truncateUrl(url) {
@@ -2934,7 +2920,7 @@ function setupEventListeners() {
     }
 
     // Kiểm tra trạng thái đang chạy ngầm Group
-    const groupStatus = await chrome.runtime.sendMessage({ type: 'FB_GROUP_GET_STATUS' }).catch(() => null);
+    const groupStatus = await chrome.runtime.sendMessage({ type: 'FB_GROUP_GET_STATUS', includeAllRows: true }).catch(() => null);
     if (Number(groupStatus?.syncVersion) >= 2) {
       mapsExtSupportsSyncV2 = true;
     }
@@ -2943,7 +2929,7 @@ function setupEventListeners() {
       if (!Array.isArray(groupState.rows)) groupState.rows = [];
       for (const r of groupStatus.state.recentRows) {
         const k = normPhone(r.phone) || r.phone;
-        if (k && !groupState.seenKeys[k]) {
+        if (k && (!groupState.seenKeys[k] || !groupState.rows.some(x => (normPhone(x.phone) || x.phone) === k))) {
           groupState.seenKeys[k] = true;
           groupState.rows.push(r);
         }
