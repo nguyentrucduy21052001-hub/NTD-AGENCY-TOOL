@@ -1285,7 +1285,8 @@ async function prepareAccountSession(accountId, opts = {}) {
         targetTabId: opts.targetTabId || null,
         openFacebookTab: true,
         keepSession: true,
-        isBackground: true
+        isBackground: true,
+        failFastOnChallenge: true
       });
       if (!loginRes?.ok) {
         throw new Error(`Tài khoản "${acc.name}" hết hạn phiên và tự động đăng nhập lại thất bại: ${loginRes?.error || 'Không rõ lỗi.'}`);
@@ -1434,6 +1435,7 @@ async function wakeNextCoordinatorAccountAfterPause(pausedAccountId) {
     if (nextAccId) {
       const delayMs = 3000;
       const nextCamp = campaigns[nextAccId];
+      if (nextCamp.state !== 'running') nextCamp.active = null;
       nextCamp.state = 'running';
       nextCamp.nextAt = Date.now() + delayMs;
       nextCamp.breakNote = `Nick trước tạm dừng, chuyển lượt sang nick tiếp theo...`;
@@ -1602,6 +1604,119 @@ async function advanceCampaign(accountId, { isError = false, isSkipped = false, 
   await saveCampaigns(campaigns);
 }
 
+const ACTIVE_JOB_TIMEOUT_MS = 95000;
+
+/** Pause a campaign and wake the next eligible account in round_robin/sequential order. */
+async function pauseCampaignAndWakeNext(accountId, campaigns, {
+  breakNote,
+  zaloKind = 'error',
+  zaloNote,
+  groupUrl,
+  postedCount,
+  totalJobs
+} = {}) {
+  const c = campaigns?.[accountId];
+  if (!c) return;
+  c.state = 'paused';
+  c.active = null;
+  if (breakNote) c.breakNote = breakNote;
+  await saveCampaigns(campaigns);
+  await wakeNextCoordinatorAccountAfterPause(accountId);
+
+  sendFacebookZaloNotify({
+    kind: zaloKind,
+    accountName: c.accountName || accountId,
+    accountType: c.accountType,
+    groupUrl: groupUrl ?? c.jobs?.[c.index]?.url,
+    note: zaloNote || breakNote || 'Chiến dịch đã tạm dừng.',
+    postedCount: postedCount ?? c.postedCount ?? 0,
+    totalJobs: totalJobs ?? c.jobs?.length ?? 0
+  }).catch(() => {});
+}
+
+/**
+ * Mark the current active job as failed/skipped, clear c.active, and either pause + hand off
+ * (when auto-skip is disabled, forced, or consecutive errors >= 5) or advance to the next turn.
+ */
+async function failOrSkipTurnOnError(accountId, {
+  status = 'error',
+  note = 'Lỗi xử lý bài đăng.',
+  expectedToken = null,
+  expectedTabId = null,
+  forcePause = false,
+  pauseWhenAutoSkipDisabled = true,
+  breakNote = null,
+  advanceIndex = true,
+  zaloKind = 'error',
+  zaloNote = null
+} = {}) {
+  const campaigns = await readCampaigns();
+  const c = campaigns[accountId];
+  if (!c || c.state !== 'running') return false;
+  if (expectedToken && c.active?.token !== expectedToken) return false;
+  if (expectedTabId && c.active?.tabId !== expectedTabId) return false;
+
+  const activeTabId = c.active?.tabId || expectedTabId;
+  if (activeTabId) {
+    try { chrome.tabs.remove(activeTabId).catch(() => {}); } catch (_) {}
+  }
+
+  const jobIdx = typeof c.index === 'number' ? c.index : 0;
+  const job = Array.isArray(c.jobs) ? c.jobs[jobIdx] : null;
+  if (job) {
+    job.status = status;
+    job.note = note;
+    job.doneAt = Date.now();
+  }
+
+  c.consecutiveErrors = (c.consecutiveErrors || 0) + 1;
+  const hitErrorLimit = c.consecutiveErrors >= 5;
+  const shouldPause = forcePause || hitErrorLimit || (pauseWhenAutoSkipDisabled && c.autoSkipOnError === false);
+
+  c.active = null;
+  if (advanceIndex && (hitErrorLimit || !shouldPause)) {
+    c.index = jobIdx + 1;
+  }
+
+  if (shouldPause) {
+    const resolvedBreakNote = hitErrorLimit && !forcePause
+      ? '🛑 Đã tự động tạm dừng sau 5 lỗi liên tiếp để bảo vệ tài khoản Facebook.'
+      : (breakNote || ('Tạm dừng do lỗi: ' + note));
+    const resolvedZaloNote = hitErrorLimit && !forcePause
+      ? 'Chiến dịch gặp 5 lỗi liên tiếp. Hệ thống đã tự động tạm dừng nick này và chuyển lượt sang nick tiếp theo.'
+      : (zaloNote || (note + ' Chiến dịch đã tạm dừng.'));
+    await pauseCampaignAndWakeNext(accountId, { ...campaigns, [accountId]: c }, {
+      breakNote: resolvedBreakNote,
+      zaloKind,
+      zaloNote: resolvedZaloNote,
+      groupUrl: job?.url,
+      postedCount: c.postedCount || 0,
+      totalJobs: c.jobs?.length || 0
+    });
+    return true;
+  }
+
+  await saveCampaigns({ ...campaigns, [accountId]: c });
+  await advanceCampaign(accountId, { isError: true, note });
+  return true;
+}
+
+/** Recover a campaign stuck in c.active beyond ACTIVE_JOB_TIMEOUT_MS without deadlocking on locked(). */
+async function recoverStaleActiveCampaign(accountId, expectedToken = null) {
+  const campaigns = await readCampaigns();
+  const c = campaigns[accountId];
+  if (!c || c.state !== 'running' || !c.active) return false;
+  if (expectedToken && c.active.token !== expectedToken) return false;
+  if (Date.now() - (c.active.since || 0) <= ACTIVE_JOB_TIMEOUT_MS) return false;
+
+  return failOrSkipTurnOnError(accountId, {
+    status: 'error',
+    note: 'Quá thời gian xử lý lượt đăng. Tự động bỏ qua lượt này và chuyển sang lượt tiếp theo.',
+    expectedToken: c.active.token,
+    breakNote: '🛑 Tạm dừng sau khi quá nhiều lượt quá thời gian xử lý.'
+  });
+}
+
 // ── Tick: advance one job for a given account ─────────────────────────────────
 async function tick(accountId) {
   const campaigns = await readCampaigns();
@@ -1609,17 +1724,9 @@ async function tick(accountId) {
   if (!c || c.state !== 'running') return;
 
   if (c.active) {
-    // Check for timeout (2 minutes)
-    if (Date.now() - c.active.since > 120000) {
-      if (c.active.tabId) {
-        chrome.tabs.remove(c.active.tabId).catch(() => {});
-      }
-      c.jobs[c.index].status = 'error';
-      c.jobs[c.index].note = 'Quá thời gian xử lý (2 phút). Tự động chuyển nhóm tiếp theo.';
-      c.jobs[c.index].doneAt = Date.now();
-      c.index++;
-      await saveCampaigns({...campaigns, [accountId]: c});
-      await advanceCampaign(accountId, { isError: true, note: 'Quá thời gian xử lý (2 phút).' });
+    // Check for timeout (ACTIVE_JOB_TIMEOUT_MS)
+    if (Date.now() - (c.active.since || 0) > ACTIVE_JOB_TIMEOUT_MS) {
+      await recoverStaleActiveCampaign(accountId, c.active.token);
     }
     return;
   }
@@ -1644,10 +1751,22 @@ async function tick(accountId) {
   }
 
   // ── Đảm bảo an toàn đa tài khoản: Không mở nhiều tab Facebook xung đột phiên cùng lúc ─
-  const isAnyOtherActive = Object.entries(campaigns).some(([otherId, otherCamp]) => 
+  const activeOthers = Object.entries(campaigns).filter(([otherId, otherCamp]) =>
     otherId !== accountId && otherCamp.active && otherCamp.state === 'running'
   );
-  if (isAnyOtherActive) {
+  if (activeOthers.length > 0) {
+    let recoveredStaleOther = false;
+    for (const [otherId, otherCamp] of activeOthers) {
+      if (Date.now() - (otherCamp.active?.since || 0) > ACTIVE_JOB_TIMEOUT_MS) {
+        if (await recoverStaleActiveCampaign(otherId, otherCamp.active?.token)) {
+          recoveredStaleOther = true;
+        }
+      }
+    }
+    if (recoveredStaleOther) {
+      await scheduleAccountTick(accountId, Date.now() + 1500);
+      return;
+    }
     // Tài khoản khác đang đăng bài trên tab Facebook -> Đợi 3s để tài khoản đó hoàn tất trước
     await scheduleAccountTick(accountId, Date.now() + 3000);
     return;
@@ -1657,8 +1776,10 @@ async function tick(accountId) {
   j.status = 'working';
   j.startedAt = j.startedAt || Date.now();
   c.breakNote = null;
-  c.active = {since: Date.now(), token: crypto.randomUUID()};
+  const activeToken = crypto.randomUUID();
+  c.active = {since: Date.now(), token: activeToken};
   await saveCampaigns({...campaigns, [accountId]: c});
+  try { chrome.alarms.create('tick_' + accountId, { when: Date.now() + ACTIVE_JOB_TIMEOUT_MS + 5000 }); } catch (_) {}
 
   try {
     // Chuẩn bị phiên Facebook cho tài khoản này (Tự động đăng xuất tài khoản cũ và đăng nhập/nạp cookies tài khoản này)
@@ -1692,46 +1813,48 @@ async function tick(accountId) {
 
     const campaigns2 = await readCampaigns();
     const c2 = campaigns2[accountId];
-    if (c2?.active) {
-      c2.active.tabId = tab.id;
-      await saveCampaigns({...campaigns2, [accountId]: c2});
+    if (!c2 || c2.state !== 'running' || c2.active?.token !== activeToken) {
+      if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
+      return;
     }
+    c2.active.tabId = tab.id;
+    await saveCampaigns({...campaigns2, [accountId]: c2});
 
-    // If already loaded, dispatch immediately
+    // If already loaded, dispatch immediately; otherwise arm a 25s fallback timer if tab load stalls
     const loaded = await chrome.tabs.get(tab.id).catch(() => null);
-    if (loaded?.status === 'complete') await dispatch(accountId, tab.id);
-  } catch (e) {
-    const campaigns3 = await readCampaigns();
-    const c3 = campaigns3[accountId];
-    if (c3 && c3.state === 'running') {
-      c3.jobs[c3.index].status = 'error';
-      c3.jobs[c3.index].note = e.message || 'Lỗi mở tab Facebook.';
-      c3.jobs[c3.index].doneAt = Date.now();
-
-      const isFatalAuth = /cookie|phiên|đăng nhập|hết hạn|không tìm thấy|unauthorized/i.test(e.message || '');
-      if (c3.autoSkipOnError === false || isFatalAuth) {
-        c3.state = 'paused';
-        c3.active = null;
-        c3.breakNote = 'Tạm dừng do lỗi: ' + (e.message || 'Lỗi mở tab/phiên Facebook.');
-        await saveCampaigns({...campaigns3, [accountId]: c3});
-        await wakeNextCoordinatorAccountAfterPause(accountId);
-
-        sendFacebookZaloNotify({
-          kind: 'error',
-          accountName: c3.accountName || accountId,
-          accountType: c3.accountType,
-          groupUrl: c3.jobs[c3.index]?.url,
-          note: e.message || 'Lỗi khởi tạo tab hoặc phiên Facebook. Chiến dịch đã tạm dừng.',
-          postedCount: c3.postedCount || 0,
-          totalJobs: c3.jobs?.length || 0
-        }).catch(() => {});
-        return;
-      }
-
-      c3.index++;
-      await saveCampaigns({...campaigns3, [accountId]: c3});
-      await advanceCampaign(accountId, { isError: true, note: e.message });
+    if (loaded?.status === 'complete') {
+      await dispatch(accountId, tab.id);
+    } else {
+      setTimeout(async () => {
+        try {
+          const cx = await readCampaigns();
+          const cv = cx[accountId];
+          if (!cv || cv.state !== 'running' || cv.active?.token !== activeToken || cv.active?.dispatched) return;
+          const delayedTab = await chrome.tabs.get(tab.id).catch(() => null);
+          if (!delayedTab || !delayedTab.url) {
+            await failOrSkipTurnOnError(accountId, {
+              status: 'unknown',
+              note: 'Tab Facebook không phản hồi hoặc đã bị đóng khi đang tải.',
+              expectedToken: activeToken,
+              expectedTabId: tab.id
+            });
+            return;
+          }
+          locked(accountId, () => dispatch(accountId, tab.id));
+        } catch (_) {}
+      }, 25000);
     }
+  } catch (e) {
+    const isFatalAuth = /cookie|phiên|đăng nhập|hết hạn|không tìm thấy|unauthorized|2fa|checkpoint/i.test(e.message || '');
+    await failOrSkipTurnOnError(accountId, {
+      status: 'error',
+      note: e.message || 'Lỗi mở tab Facebook.',
+      expectedToken: activeToken,
+      forcePause: isFatalAuth,
+      advanceIndex: !isFatalAuth,
+      breakNote: 'Tạm dừng do lỗi: ' + (e.message || 'Lỗi mở tab/phiên Facebook.'),
+      zaloNote: e.message || 'Lỗi khởi tạo tab hoặc phiên Facebook. Chiến dịch đã tạm dừng.'
+    });
   }
 }
 
@@ -1902,7 +2025,15 @@ async function dispatch(accountId, tabId) {
 
     // Đảm bảo tab vẫn còn tồn tại trước khi tiêm script
     const currentTab = await chrome.tabs.get(tabId).catch(() => null);
-    if (!currentTab || !currentTab.url) return;
+    if (!currentTab || !currentTab.url) {
+      await failOrSkipTurnOnError(accountId, {
+        status: 'unknown',
+        note: 'Tab Facebook không còn tồn tại trước khi điền bài. Tự động bỏ qua lượt này.',
+        expectedToken: c.active.token,
+        expectedTabId: tabId
+      });
+      return;
+    }
 
     // Chạy content script xử lý tự động đăng bài
     await chrome.scripting.executeScript({target: {tabId}, files: ['content.js']});
@@ -1963,66 +2094,22 @@ async function dispatch(accountId, tabId) {
     }
 
     if (!ackReceived) {
-      if (tabId) chrome.tabs.remove(tabId).catch(() => {});
-      const cx = await readCampaigns();
-      const cv = cx[accountId];
-      if (cv?.active?.token === c.active.token && cv.state === 'running') {
-        cv.jobs[cv.index].status = 'unknown';
-        cv.jobs[cv.index].note = 'Không nhận được phản hồi từ tab Facebook sau 3 lần thử.';
-        cv.jobs[cv.index].doneAt = Date.now();
-        if (cv.autoSkipOnError === false) {
-          cv.state = 'paused';
-          cv.active = null;
-          cv.breakNote = 'Tạm dừng: Không nhận được phản hồi từ tab Facebook sau 3 lần thử.';
-          await saveCampaigns({...cx, [accountId]: cv});
-          await maybeStopGlobalAlarm();
-
-          sendFacebookZaloNotify({
-            kind: 'error',
-            accountName: cv.accountName || accountId,
-            accountType: cv.accountType,
-            groupUrl: cv.jobs[cv.index]?.url,
-            note: 'Không nhận được phản hồi từ tab Facebook sau 3 lần thử. Chiến dịch đã tạm dừng.',
-            postedCount: cv.postedCount || 0,
-            totalJobs: cv.jobs?.length || 0
-          }).catch(() => {});
-          return;
-        }
-        cv.index++;
-        await saveCampaigns({...cx, [accountId]: cv});
-        await advanceCampaign(accountId, { isError: true, note: 'Không nhận được phản hồi từ tab Facebook.' });
-      }
+      await failOrSkipTurnOnError(accountId, {
+        status: 'unknown',
+        note: 'Không nhận được phản hồi từ tab Facebook sau 3 lần thử.',
+        expectedToken: c.active.token,
+        breakNote: 'Tạm dừng: Không nhận được phản hồi từ tab Facebook sau 3 lần thử.',
+        zaloNote: 'Không nhận được phản hồi từ tab Facebook sau 3 lần thử. Chiến dịch đã tạm dừng.'
+      });
     }
   } catch (e) {
-    if (tabId) chrome.tabs.remove(tabId).catch(() => {});
-    const cx = await readCampaigns();
-    const cv = cx[accountId];
-    if (cv && cv.state === 'running') {
-      cv.jobs[cv.index].status = 'error';
-      cv.jobs[cv.index].note = e.message || 'Lỗi nạp script đăng bài.';
-      cv.jobs[cv.index].doneAt = Date.now();
-      if (cv.autoSkipOnError === false) {
-        cv.state = 'paused';
-        cv.active = null;
-        cv.breakNote = 'Tạm dừng: ' + (e.message || 'Lỗi nạp script đăng bài.');
-        await saveCampaigns({...cx, [accountId]: cv});
-        await maybeStopGlobalAlarm();
-
-        sendFacebookZaloNotify({
-          kind: 'error',
-          accountName: cv.accountName || accountId,
-          accountType: cv.accountType,
-          groupUrl: cv.jobs[cv.index]?.url,
-          note: (e.message || 'Lỗi nạp script đăng bài.') + ' Chiến dịch đã tạm dừng.',
-          postedCount: cv.postedCount || 0,
-          totalJobs: cv.jobs?.length || 0
-        }).catch(() => {});
-        return;
-      }
-      cv.index++;
-      await saveCampaigns({...cx, [accountId]: cv});
-      await advanceCampaign(accountId, { isError: true, note: e.message });
-    }
+    await failOrSkipTurnOnError(accountId, {
+      status: 'error',
+      note: e.message || 'Lỗi nạp script đăng bài.',
+      expectedToken: c.active.token,
+      breakNote: 'Tạm dừng: ' + (e.message || 'Lỗi nạp script đăng bài.'),
+      zaloNote: (e.message || 'Lỗi nạp script đăng bài.') + ' Chiến dịch đã tạm dừng.'
+    });
   }
 }
 
@@ -4312,8 +4399,24 @@ chrome.alarms.onAlarm.addListener(async a => {
   }
 
   if (a.name === 'queue') {
-    const campaigns = await readCampaigns();
+    let campaigns = await readCampaigns();
     const now = Date.now();
+    let recoveredAny = false;
+
+    for (const [accountId, c] of Object.entries(campaigns)) {
+      if (c?.state === 'running' && c.active) {
+        if ((now - (c.active.since || 0)) > ACTIVE_JOB_TIMEOUT_MS) {
+          if (await recoverStaleActiveCampaign(accountId, c.active.token)) {
+            recoveredAny = true;
+          }
+        }
+      }
+    }
+
+    if (recoveredAny) {
+      campaigns = await readCampaigns();
+    }
+
     let hasRunning = false;
     let anyRunningOrWaiting = false;
     const waitingCandidates = [];
@@ -4322,7 +4425,7 @@ chrome.alarms.onAlarm.addListener(async a => {
       if (c.state === 'running') {
         hasRunning = true;
         anyRunningOrWaiting = true;
-        if (!c.active && c.nextAt && c.nextAt <= now) {
+        if (!c.active && (!c.nextAt || c.nextAt <= now)) {
           locked(accountId, () => tick(accountId));
         } else if (!c.active && c.nextAt && c.nextAt > now) {
           try { chrome.alarms.create('tick_' + accountId, { when: c.nextAt }); } catch (_) {}
@@ -4347,6 +4450,7 @@ chrome.alarms.onAlarm.addListener(async a => {
       const campToWake = campaigns[targetToWake];
       if (campToWake) {
         campToWake.state = 'running';
+        campToWake.active = null;
         campToWake.nextAt = Date.now() + 1000;
         campToWake.breakNote = 'Đang tiếp tục đến lượt đăng...';
         if (coord) {
@@ -4415,36 +4519,13 @@ chrome.tabs.onRemoved.addListener(id => {
   readCampaigns().then(campaigns => {
     for (const [accountId, c] of Object.entries(campaigns)) {
       if (c?.state === 'running' && c.active?.tabId === id) {
-        locked(accountId, async () => {
-          const cx = await readCampaigns();
-          const cv = cx[accountId];
-          if (cv?.state === 'running' && cv.active?.tabId === id) {
-            cv.jobs[cv.index].status = 'unknown';
-            cv.jobs[cv.index].note = 'Tab Facebook bị đóng trước khi gửi bài.';
-            cv.jobs[cv.index].doneAt = Date.now();
-            if (cv.autoSkipOnError === false) {
-              cv.state = 'paused';
-              cv.active = null;
-              cv.breakNote = 'Tạm dừng do tab Facebook bị đóng trước khi gửi bài.';
-              await saveCampaigns({...cx, [accountId]: cv});
-              await maybeStopGlobalAlarm();
-
-              sendFacebookZaloNotify({
-                kind: 'error',
-                accountName: cv.accountName || accountId,
-                accountType: cv.accountType,
-                groupUrl: cv.jobs[cv.index]?.url,
-                note: 'Tab Facebook bị đóng trước khi gửi bài. Chiến dịch đã tạm dừng.',
-                postedCount: cv.postedCount || 0,
-                totalJobs: cv.jobs?.length || 0
-              }).catch(() => {});
-              return;
-            }
-            cv.index++;
-            await saveCampaigns({...cx, [accountId]: cv});
-            await advanceCampaign(accountId, { isError: true, note: 'Tab Facebook bị đóng.' });
-          }
-        });
+        failOrSkipTurnOnError(accountId, {
+          status: 'unknown',
+          note: 'Tab Facebook bị đóng trước khi gửi bài.',
+          expectedTabId: id,
+          breakNote: 'Tạm dừng do tab Facebook bị đóng trước khi gửi bài.',
+          zaloNote: 'Tab Facebook bị đóng trước khi gửi bài. Chiến dịch đã tạm dừng.'
+        }).catch(() => {});
       }
     }
   });
@@ -4784,6 +4865,304 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
     await scheduleAccountTick(firstId, targetTime);
   }
   return { ok: true };
+}
+
+async function waitForTabLoadComplete(tabId, timeoutMs = 20000) {
+  if (!tabId) return false;
+  const current = await chrome.tabs.get(tabId).catch(() => null);
+  if (!current) return false;
+  if (current.status === 'complete') return true;
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      chrome.tabs.onUpdated.removeListener(handler);
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const handler = (id, change) => {
+      if (id === tabId && change.status === 'complete') finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    chrome.tabs.onUpdated.addListener(handler);
+    chrome.tabs.get(tabId).then(t => {
+      if (t?.status === 'complete') finish(true);
+    }).catch(() => finish(false));
+  });
+}
+
+async function inspectTabFacebookAuthState(tabId) {
+  if (!tabId || typeof chrome.scripting?.executeScript !== 'function') {
+    return { url: '', hasPasswordInput: false, hasEmailInput: false, hasTwoFactorInput: false, hasSwitchAccountBtn: false };
+  }
+  return await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const hasPasswordInput = Boolean(
+        document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"]')
+      );
+      const hasEmailInput = Boolean(
+        document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[aria-label*="Email" i], input[aria-label*="di động" i]')
+      );
+      const hasTwoFactorInput = Boolean(
+        document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
+      );
+      const hasSwitchAccountBtn = [...document.querySelectorAll('a, button, [role="button"]')].some(el => {
+        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+        return t.includes('tài khoản khác') || t.includes('another account') || t.includes('dùng tài khoản khác');
+      });
+      return {
+        url: location.href,
+        hasPasswordInput,
+        hasEmailInput,
+        hasTwoFactorInput,
+        hasSwitchAccountBtn
+      };
+    }
+  }).then(r => r?.[0]?.result || null).catch(() => null) || {
+    url: '',
+    hasPasswordInput: false,
+    hasEmailInput: false,
+    hasTwoFactorInput: false,
+    hasSwitchAccountBtn: false
+  };
+}
+
+async function performFacebookLogin(m) {
+  let tabId = null;
+  let createdFreshTab = false;
+  try {
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step1' }).catch(() => {});
+
+    // Nếu truyền targetTabId hợp lệ, tái sử dụng tab đó để không mở dư nhiều tab
+    if (m.targetTabId) {
+      const targetTab = await chrome.tabs.get(m.targetTabId).catch(() => null);
+      if (targetTab) {
+        tabId = targetTab.id;
+        await chrome.tabs.update(tabId, { url: 'about:blank', active: !m.isBackground }).catch(() => {});
+      }
+    }
+
+    // ── 1. Xóa sạch session và cookies Facebook hiện có trên trình duyệt ─
+    await clearAllFacebookSession();
+    await new Promise(r => setTimeout(r, 700));
+
+    // ── 2. Mở hoặc điều hướng tab tới trang đăng nhập Facebook ─────────
+    const loginUrl = 'https://www.facebook.com/login.php';
+    if (tabId) {
+      await chrome.tabs.update(tabId, { url: loginUrl, active: !m.isBackground });
+    } else {
+      const tab = await chrome.tabs.create({ url: loginUrl, active: !m.isBackground });
+      tabId = tab.id;
+      createdFreshTab = true;
+    }
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step2' }).catch(() => {});
+
+    await waitForTabLoadComplete(tabId, 25000);
+    await new Promise(r => setTimeout(r, 1200));
+
+    // Kiểm tra DOM thực tế thay vì chỉ đoán theo URL (vì Facebook Comet mới thường render màn hình đăng nhập ngay tại facebook.com/ hoặc facebook.com/?_r=...)
+    const initialAuthState = await inspectTabFacebookAuthState(tabId);
+    const tabInfo = await chrome.tabs.get(tabId).catch(() => ({}));
+    const currentUrl = tabInfo.url || initialAuthState.url || '';
+    const alreadyHasLoginUi = initialAuthState.hasPasswordInput || initialAuthState.hasEmailInput || initialAuthState.hasSwitchAccountBtn || initialAuthState.hasTwoFactorInput;
+
+    if (!alreadyHasLoginUi && !currentUrl.includes('/login') && !currentUrl.includes('checkpoint') && currentUrl.includes('facebook.com/')) {
+      await chrome.tabs.update(tabId, { url: 'about:blank' }).catch(() => {});
+      await clearAllFacebookSession();
+      await new Promise(r => setTimeout(r, 600));
+      await chrome.tabs.update(tabId, {
+        url: 'https://www.facebook.com/login.php?login_attempt=1'
+      });
+      await waitForTabLoadComplete(tabId, 15000);
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    // Inject script hỗ trợ đăng nhập
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] });
+    await new Promise(r => setTimeout(r, 500));
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step3' }).catch(() => {});
+
+    const loginResult = await chrome.tabs.sendMessage(tabId, {
+      type: 'DO_LOGIN',
+      email: m.email,
+      password: m.password
+    }).catch(e => {
+      if (e.message && e.message.includes('message channel closed')) {
+        return { ok: true, submitted: true };
+      }
+      return { ok: false, error: 'Không thể gửi lệnh vào tab: ' + e.message };
+    });
+
+    if (!loginResult?.ok) {
+      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+      return { ok: false, error: loginResult?.error || 'Đăng nhập thất bại.' };
+    }
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step4' }).catch(() => {});
+
+    // Chờ cookies phiên đăng nhập (c_user) xuất hiện (tối đa 35s, hoặc 120s nếu có 2FA)
+    const startTime = Date.now();
+    let endWait = startTime + 35000;
+    let cUser = null;
+    let allNewCookies = [];
+    let cookieMap = new Map();
+    let notified2FA = false;
+    let submitted2FASucceeded = false;
+    let twoFaAttempts = 0;
+    let last2FaAttemptAt = 0;
+    let loopTick = 0;
+
+    while (Date.now() < endWait) {
+      await new Promise(r => setTimeout(r, 1000));
+      loopTick++;
+
+      const tabCheck = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tabCheck) break;
+
+      const is2FaUrl = Boolean(tabCheck.url && /checkpoint|two_step|two_factor|2fa|approvals|auth_platform/i.test(tabCheck.url));
+      let has2FaDom = false;
+      if (!is2FaUrl && !submitted2FASucceeded && loopTick >= 3 && loopTick % 2 === 1) {
+        const probeState = await inspectTabFacebookAuthState(tabId);
+        has2FaDom = Boolean(probeState.hasTwoFactorInput);
+      }
+
+      if (is2FaUrl || has2FaDom) {
+        if (m.failFastOnChallenge && !m.twoFactor) {
+          if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+          return {
+            ok: false,
+            error: 'Tài khoản yêu cầu xác minh 2FA/Checkpoint nhưng chưa có mã 2FA (bỏ qua nhanh khi chạy nền).'
+          };
+        }
+        if (!notified2FA) {
+          notified2FA = true;
+          endWait = Date.now() + 120000;
+          await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+        }
+
+        if (m.twoFactor && !submitted2FASucceeded && twoFaAttempts < 4 && (Date.now() - last2FaAttemptAt > 2500)) {
+          twoFaAttempts++;
+          last2FaAttemptAt = Date.now();
+          await waitForTabLoadComplete(tabId, 8000);
+          await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] }).catch(() => {});
+          await new Promise(r => setTimeout(r, 400));
+
+          const otp = await generate2FACode(m.twoFactor);
+          if (otp) {
+            chrome.runtime.sendMessage({
+              type: 'LOGIN_STEP',
+              step: 'step_2fa',
+              message: `⚡ Đang tự động giải mã 2FA (${otp})...`
+            }).catch(() => {});
+
+            const twoFaRes = await chrome.tabs.sendMessage(tabId, { type: 'SUBMIT_2FA', code: otp })
+              .catch(e => (e?.message?.includes('message channel closed') ? { ok: true } : { ok: false }));
+            if (twoFaRes?.ok) {
+              submitted2FASucceeded = true;
+            }
+          }
+        } else if (!m.twoFactor) {
+          chrome.runtime.sendMessage({
+            type: 'LOGIN_STEP',
+            step: 'step_2fa',
+            message: 'Vui lòng nhập mã 2FA trên tab Facebook...'
+          }).catch(() => {});
+        }
+      }
+
+      allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
+        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+      );
+
+      cookieMap = new Map();
+      for (const ck of allNewCookies) {
+        if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+          cookieMap.set(ck.name, ck);
+        }
+      }
+
+      cUser = cookieMap.get('c_user');
+      if (cUser && cUser.value && !is2FaUrl && !has2FaDom) {
+        break;
+      }
+
+      if (!notified2FA && Date.now() - startTime > 5500 && tabCheck?.url) {
+        if (tabCheck.url.includes('login_attempt') || tabCheck.url.includes('error') || tabCheck.url.includes('facebook.com')) {
+          const errMsg = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+              const el = document.querySelector('#error_box, [role="alert"], [data-testid="login_error"]');
+              return el ? el.innerText.trim() : '';
+            }
+          }).then(r => r?.[0]?.result).catch(() => '');
+
+          if (errMsg && errMsg.length > 5 && /mật khẩu|password|sai|incorrect|không đúng|tài khoản|account/i.test(errMsg)) {
+            if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+            return { ok: false, error: 'Facebook báo lỗi: ' + errMsg.slice(0, 200) };
+          }
+        }
+      }
+    }
+
+    if (!cUser) {
+      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+      if (notified2FA) {
+        return { ok: false, error: 'Hết thời gian chờ xác minh 2FA. Vui lòng kiểm tra lại mã 2FA của VIA.' };
+      }
+      return { ok: false, error: 'Đăng nhập quá thời gian — không lấy được cookies phiên. Vui lòng kiểm tra lại email/mật khẩu.' };
+    }
+
+    // Đợi thêm 1.5s để các cookie phiên (xs, fr, datr, sb...) ghi đầy đủ
+    await new Promise(r => setTimeout(r, 1500));
+    allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
+      c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+    );
+    cookieMap = new Map();
+    for (const ck of allNewCookies) {
+      if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+        cookieMap.set(ck.name, ck);
+      }
+    }
+    const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+
+    const [tokenEAAG, tokenEAAB] = await Promise.all([
+      fetchTokenEAAG().catch(() => null),
+      fetchTokenEAAB().catch(() => null)
+    ]);
+    const activeToken = tokenEAAG || tokenEAAB || null;
+
+    if (m.existingAccountId) {
+      const { accounts } = await chrome.storage.local.get('accounts');
+      const accList = accounts || [];
+      const targetAcc = accList.find(a => a.id === m.existingAccountId);
+      if (targetAcc) {
+        targetAcc.cookies = cookieStr;
+        if (activeToken) targetAcc.token = activeToken;
+        targetAcc.fbId = cUser.value;
+        targetAcc.lastCookieSync = Date.now();
+        await chrome.storage.local.set({ accounts: accList });
+      }
+    }
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step5' }).catch(() => {});
+
+    if (m.keepSession || m.openFacebookTab) {
+      await chrome.tabs.update(tabId, { url: `https://www.facebook.com/?_r=${Date.now()}`, active: !m.isBackground }).catch(() => {});
+    } else if (tabId) {
+      await chrome.tabs.remove(tabId).catch(() => {});
+      tabId = null;
+    }
+
+    return { ok: true, cookies: cookieStr, cUser: cUser.value, token: activeToken, tabId };
+  } catch (e) {
+    if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+    return { ok: false, error: e.message };
+  }
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -5227,297 +5606,6 @@ function handleRuntimeMessage(m, sender, reply) {
     })();
     return true;
   }
-
-async function waitForTabLoadComplete(tabId, timeoutMs = 20000) {
-  if (!tabId) return false;
-  const current = await chrome.tabs.get(tabId).catch(() => null);
-  if (!current) return false;
-  if (current.status === 'complete') return true;
-
-  return await new Promise((resolve) => {
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      chrome.tabs.onUpdated.removeListener(handler);
-      clearTimeout(timer);
-      resolve(ok);
-    };
-    const handler = (id, change) => {
-      if (id === tabId && change.status === 'complete') finish(true);
-    };
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    chrome.tabs.onUpdated.addListener(handler);
-    chrome.tabs.get(tabId).then(t => {
-      if (t?.status === 'complete') finish(true);
-    }).catch(() => finish(false));
-  });
-}
-
-async function inspectTabFacebookAuthState(tabId) {
-  if (!tabId || typeof chrome.scripting?.executeScript !== 'function') {
-    return { url: '', hasPasswordInput: false, hasEmailInput: false, hasTwoFactorInput: false, hasSwitchAccountBtn: false };
-  }
-  return await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      const hasPasswordInput = Boolean(
-        document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"]')
-      );
-      const hasEmailInput = Boolean(
-        document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[aria-label*="Email" i], input[aria-label*="di động" i]')
-      );
-      const hasTwoFactorInput = Boolean(
-        document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
-      );
-      const hasSwitchAccountBtn = [...document.querySelectorAll('a, button, [role="button"]')].some(el => {
-        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
-        return t.includes('tài khoản khác') || t.includes('another account') || t.includes('dùng tài khoản khác');
-      });
-      return {
-        url: location.href,
-        hasPasswordInput,
-        hasEmailInput,
-        hasTwoFactorInput,
-        hasSwitchAccountBtn
-      };
-    }
-  }).then(r => r?.[0]?.result || null).catch(() => null) || {
-    url: '',
-    hasPasswordInput: false,
-    hasEmailInput: false,
-    hasTwoFactorInput: false,
-    hasSwitchAccountBtn: false
-  };
-}
-
-async function performFacebookLogin(m) {
-  let tabId = null;
-  let createdFreshTab = false;
-  try {
-    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step1' }).catch(() => {});
-
-    // Nếu truyền targetTabId hợp lệ, tái sử dụng tab đó để không mở dư nhiều tab
-    if (m.targetTabId) {
-      const targetTab = await chrome.tabs.get(m.targetTabId).catch(() => null);
-      if (targetTab) {
-        tabId = targetTab.id;
-        await chrome.tabs.update(tabId, { url: 'about:blank', active: !m.isBackground }).catch(() => {});
-      }
-    }
-
-    // ── 1. Xóa sạch session và cookies Facebook hiện có trên trình duyệt ─
-    await clearAllFacebookSession();
-    await new Promise(r => setTimeout(r, 700));
-
-    // ── 2. Mở hoặc điều hướng tab tới trang đăng nhập Facebook ─────────
-    const loginUrl = 'https://www.facebook.com/login.php';
-    if (tabId) {
-      await chrome.tabs.update(tabId, { url: loginUrl, active: !m.isBackground });
-    } else {
-      const tab = await chrome.tabs.create({ url: loginUrl, active: !m.isBackground });
-      tabId = tab.id;
-      createdFreshTab = true;
-    }
-
-    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step2' }).catch(() => {});
-
-    await waitForTabLoadComplete(tabId, 25000);
-    await new Promise(r => setTimeout(r, 1200));
-
-    // Kiểm tra DOM thực tế thay vì chỉ đoán theo URL (vì Facebook Comet mới thường render màn hình đăng nhập ngay tại facebook.com/ hoặc facebook.com/?_r=...)
-    const initialAuthState = await inspectTabFacebookAuthState(tabId);
-    const tabInfo = await chrome.tabs.get(tabId).catch(() => ({}));
-    const currentUrl = tabInfo.url || initialAuthState.url || '';
-    const alreadyHasLoginUi = initialAuthState.hasPasswordInput || initialAuthState.hasEmailInput || initialAuthState.hasSwitchAccountBtn || initialAuthState.hasTwoFactorInput;
-
-    if (!alreadyHasLoginUi && !currentUrl.includes('/login') && !currentUrl.includes('checkpoint') && currentUrl.includes('facebook.com/')) {
-      await chrome.tabs.update(tabId, { url: 'about:blank' }).catch(() => {});
-      await clearAllFacebookSession();
-      await new Promise(r => setTimeout(r, 600));
-      await chrome.tabs.update(tabId, {
-        url: 'https://www.facebook.com/login.php?login_attempt=1'
-      });
-      await waitForTabLoadComplete(tabId, 15000);
-      await new Promise(r => setTimeout(r, 1200));
-    }
-
-    // Inject script hỗ trợ đăng nhập
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] });
-    await new Promise(r => setTimeout(r, 500));
-
-    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step3' }).catch(() => {});
-
-    const loginResult = await chrome.tabs.sendMessage(tabId, {
-      type: 'DO_LOGIN',
-      email: m.email,
-      password: m.password
-    }).catch(e => {
-      if (e.message && e.message.includes('message channel closed')) {
-        return { ok: true, submitted: true };
-      }
-      return { ok: false, error: 'Không thể gửi lệnh vào tab: ' + e.message };
-    });
-
-    if (!loginResult?.ok) {
-      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
-      return { ok: false, error: loginResult?.error || 'Đăng nhập thất bại.' };
-    }
-
-    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step4' }).catch(() => {});
-
-    // Chờ cookies phiên đăng nhập (c_user) xuất hiện (tối đa 35s, hoặc 120s nếu có 2FA)
-    const startTime = Date.now();
-    let endWait = startTime + 35000;
-    let cUser = null;
-    let allNewCookies = [];
-    let cookieMap = new Map();
-    let notified2FA = false;
-    let submitted2FASucceeded = false;
-    let twoFaAttempts = 0;
-    let last2FaAttemptAt = 0;
-    let loopTick = 0;
-
-    while (Date.now() < endWait) {
-      await new Promise(r => setTimeout(r, 1000));
-      loopTick++;
-
-      const tabCheck = await chrome.tabs.get(tabId).catch(() => null);
-      if (!tabCheck) break;
-
-      const is2FaUrl = Boolean(tabCheck.url && /checkpoint|two_step|two_factor|2fa|approvals|auth_platform/i.test(tabCheck.url));
-      let has2FaDom = false;
-      if (!is2FaUrl && !submitted2FASucceeded && loopTick >= 3 && loopTick % 2 === 1) {
-        const probeState = await inspectTabFacebookAuthState(tabId);
-        has2FaDom = Boolean(probeState.hasTwoFactorInput);
-      }
-
-      if (is2FaUrl || has2FaDom) {
-        if (!notified2FA) {
-          notified2FA = true;
-          endWait = Date.now() + 120000;
-          await chrome.tabs.update(tabId, { active: true }).catch(() => {});
-        }
-
-        if (m.twoFactor && !submitted2FASucceeded && twoFaAttempts < 4 && (Date.now() - last2FaAttemptAt > 2500)) {
-          twoFaAttempts++;
-          last2FaAttemptAt = Date.now();
-          await waitForTabLoadComplete(tabId, 8000);
-          await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] }).catch(() => {});
-          await new Promise(r => setTimeout(r, 400));
-
-          const otp = await generate2FACode(m.twoFactor);
-          if (otp) {
-            chrome.runtime.sendMessage({
-              type: 'LOGIN_STEP',
-              step: 'step_2fa',
-              message: `⚡ Đang tự động giải mã 2FA (${otp})...`
-            }).catch(() => {});
-
-            const twoFaRes = await chrome.tabs.sendMessage(tabId, { type: 'SUBMIT_2FA', code: otp })
-              .catch(e => (e?.message?.includes('message channel closed') ? { ok: true } : { ok: false }));
-            if (twoFaRes?.ok) {
-              submitted2FASucceeded = true;
-            }
-          }
-        } else if (!m.twoFactor) {
-          chrome.runtime.sendMessage({
-            type: 'LOGIN_STEP',
-            step: 'step_2fa',
-            message: 'Vui lòng nhập mã 2FA trên tab Facebook...'
-          }).catch(() => {});
-        }
-      }
-
-      allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
-        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
-      );
-
-      cookieMap = new Map();
-      for (const ck of allNewCookies) {
-        if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
-          cookieMap.set(ck.name, ck);
-        }
-      }
-
-      cUser = cookieMap.get('c_user');
-      if (cUser && cUser.value && !is2FaUrl && !has2FaDom) {
-        break;
-      }
-
-      if (!notified2FA && Date.now() - startTime > 5500 && tabCheck?.url) {
-        if (tabCheck.url.includes('login_attempt') || tabCheck.url.includes('error') || tabCheck.url.includes('facebook.com')) {
-          const errMsg = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => {
-              const el = document.querySelector('#error_box, [role="alert"], [data-testid="login_error"]');
-              return el ? el.innerText.trim() : '';
-            }
-          }).then(r => r?.[0]?.result).catch(() => '');
-
-          if (errMsg && errMsg.length > 5 && /mật khẩu|password|sai|incorrect|không đúng|tài khoản|account/i.test(errMsg)) {
-            if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
-            return { ok: false, error: 'Facebook báo lỗi: ' + errMsg.slice(0, 200) };
-          }
-        }
-      }
-    }
-
-    if (!cUser) {
-      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
-      if (notified2FA) {
-        return { ok: false, error: 'Hết thời gian chờ xác minh 2FA. Vui lòng kiểm tra lại mã 2FA của VIA.' };
-      }
-      return { ok: false, error: 'Đăng nhập quá thời gian — không lấy được cookies phiên. Vui lòng kiểm tra lại email/mật khẩu.' };
-    }
-
-    // Đợi thêm 1.5s để các cookie phiên (xs, fr, datr, sb...) ghi đầy đủ
-    await new Promise(r => setTimeout(r, 1500));
-    allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
-      c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
-    );
-    cookieMap = new Map();
-    for (const ck of allNewCookies) {
-      if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
-        cookieMap.set(ck.name, ck);
-      }
-    }
-    const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
-
-    const [tokenEAAG, tokenEAAB] = await Promise.all([
-      fetchTokenEAAG().catch(() => null),
-      fetchTokenEAAB().catch(() => null)
-    ]);
-    const activeToken = tokenEAAG || tokenEAAB || null;
-
-    if (m.existingAccountId) {
-      const { accounts } = await chrome.storage.local.get('accounts');
-      const accList = accounts || [];
-      const targetAcc = accList.find(a => a.id === m.existingAccountId);
-      if (targetAcc) {
-        targetAcc.cookies = cookieStr;
-        if (activeToken) targetAcc.token = activeToken;
-        targetAcc.fbId = cUser.value;
-        targetAcc.lastCookieSync = Date.now();
-        await chrome.storage.local.set({ accounts: accList });
-      }
-    }
-
-    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step5' }).catch(() => {});
-
-    if (m.keepSession || m.openFacebookTab) {
-      await chrome.tabs.update(tabId, { url: `https://www.facebook.com/?_r=${Date.now()}`, active: true }).catch(() => {});
-    } else if (tabId) {
-      await chrome.tabs.remove(tabId).catch(() => {});
-      tabId = null;
-    }
-
-    return { ok: true, cookies: cookieStr, cUser: cUser.value, token: activeToken, tabId };
-  } catch (e) {
-    if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
-    return { ok: false, error: e.message };
-  }
-}
 
   // ACTIVATE_ACCOUNT_SESSION: Nạp cookies của tài khoản vào Chrome và tùy chọn mở/làm mới tab Facebook
   if (m.type === 'ACTIVATE_ACCOUNT_SESSION') {
@@ -6807,49 +6895,31 @@ async function performFacebookLogin(m) {
             totalJobs: c.jobs?.length || 0
           }).catch(() => {});
         } else {
-          c.state = 'paused';
-          c.active = null;
-          c.breakNote = '🛑 Đã tạm dừng do Facebook cảnh báo spam/hạn chế tính năng.';
-          await saveCampaigns(campaigns);
-          await maybeStopGlobalAlarm();
-
-          sendFacebookZaloNotify({
-            kind: 'blocked',
-            accountName: c.accountName || accountId,
-            accountType: c.accountType,
+          await pauseCampaignAndWakeNext(accountId, campaigns, {
+            breakNote: '🛑 Đã tạm dừng do Facebook cảnh báo spam/hạn chế tính năng.',
+            zaloKind: 'blocked',
             groupUrl,
-            note: m.note || 'Facebook cảnh báo spam hoặc hạn chế tính năng! Chiến dịch đã tạm dừng để bảo vệ tài khoản.',
-            postedCount: c.postedCount || 0,
-            totalJobs: c.jobs?.length || 0
-          }).catch(() => {});
-
+            zaloNote: m.note || 'Facebook cảnh báo spam hoặc hạn chế tính năng! Chiến dịch đã tạm dừng để bảo vệ tài khoản.'
+          });
           return {ok: true};
         }
       }
 
       if (status === 'preview') {
         c.state = 'paused';
+        c.active = null;
         c.breakNote = 'Đã điền bài (Chế độ xem trước). Kiểm tra tab Facebook.';
         await saveCampaigns(campaigns);
         return {ok: true};
       }
 
       if ((status === 'error' || status === 'unknown') && c.autoSkipOnError === false) {
-        c.state = 'paused';
-        c.active = null;
-        c.breakNote = 'Tạm dừng do nhóm bị lỗi (Bỏ chọn Tự động bỏ qua). Bấm Tiếp tục để chạy lại.';
-        await saveCampaigns(campaigns);
-
-        sendFacebookZaloNotify({
-          kind: 'error',
-          accountName: c.accountName || accountId,
-          accountType: c.accountType,
+        await pauseCampaignAndWakeNext(accountId, campaigns, {
+          breakNote: 'Tạm dừng do nhóm bị lỗi (Bỏ chọn Tự động bỏ qua). Bấm Tiếp tục để chạy lại.',
+          zaloKind: 'error',
           groupUrl: c.jobs[c.index]?.url,
-          note: m.note || 'Đăng bài vào nhóm thất bại. Chiến dịch đã tạm dừng do tắt Tự động bỏ qua lỗi.',
-          postedCount: c.postedCount || 0,
-          totalJobs: c.jobs?.length || 0
-        }).catch(() => {});
-
+          zaloNote: m.note || 'Đăng bài vào nhóm thất bại. Chiến dịch đã tạm dừng do tắt Tự động bỏ qua lỗi.'
+        });
         return {ok: true};
       }
 
@@ -6861,23 +6931,14 @@ async function performFacebookLogin(m) {
       } else if (isError) {
         c.consecutiveErrors = (c.consecutiveErrors || 0) + 1;
         if (c.consecutiveErrors >= 5) {
-          c.state = 'paused';
-          c.active = null;
-          c.breakNote = '🛑 Đã tự động tạm dừng sau 5 lỗi liên tiếp để bảo vệ tài khoản Facebook.';
+          const failedGroupUrl = c.jobs[c.index]?.url;
           c.index++;
-          await saveCampaigns(campaigns);
-          await maybeStopGlobalAlarm();
-
-          sendFacebookZaloNotify({
-            kind: 'error',
-            accountName: c.accountName || accountId,
-            accountType: c.accountType,
-            groupUrl: c.jobs[c.index - 1]?.url,
-            note: 'Chiến dịch gặp 5 lỗi liên tiếp (có thể do mất mạng hoặc tài khoản bị hạn chế). Hệ thống đã tự động tạm dừng để bảo vệ nick.',
-            postedCount: c.postedCount || 0,
-            totalJobs: c.jobs?.length || 0
-          }).catch(() => {});
-
+          await pauseCampaignAndWakeNext(accountId, campaigns, {
+            breakNote: '🛑 Đã tự động tạm dừng sau 5 lỗi liên tiếp để bảo vệ tài khoản Facebook.',
+            zaloKind: 'error',
+            groupUrl: failedGroupUrl,
+            zaloNote: 'Chiến dịch gặp 5 lỗi liên tiếp (có thể do mất mạng hoặc tài khoản bị hạn chế). Hệ thống đã tự động tạm dừng nick này và chuyển lượt sang nick tiếp theo.'
+          });
           return {ok: true};
         }
       }
