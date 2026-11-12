@@ -568,27 +568,29 @@ export async function injectCookies(cookieInput) {
       } catch (_) {}
     }
 
-    // 3. Fallback set host-only trên các subdomains
-    const subUrls = [
-      'https://www.facebook.com/',
-      'https://m.facebook.com/',
-      'https://web.facebook.com/',
-      'https://upload.facebook.com/'
-    ];
-    for (const targetUrl of subUrls) {
-      try {
-        const resFallback = await chrome.cookies.set({
-          url: targetUrl,
-          name,
-          value,
-          path: '/',
-          secure: true,
-          httpOnly: isHttpOnly,
-          sameSite: sameSiteVal,
-          expirationDate: expDate
-        });
-        if (resFallback && resFallback.name) success = true;
-      } catch (_) {}
+    // 3. CHỈ Fallback set host-only trên các subdomains khi domain cookie (.facebook.com / facebook.com) thất bại
+    if (!success) {
+      const subUrls = [
+        'https://www.facebook.com/',
+        'https://m.facebook.com/',
+        'https://web.facebook.com/',
+        'https://upload.facebook.com/'
+      ];
+      for (const targetUrl of subUrls) {
+        try {
+          const resFallback = await chrome.cookies.set({
+            url: targetUrl,
+            name,
+            value,
+            path: '/',
+            secure: true,
+            httpOnly: isHttpOnly,
+            sameSite: sameSiteVal,
+            expirationDate: expDate
+          });
+          if (resFallback && resFallback.name) success = true;
+        } catch (_) {}
+      }
     }
 
     if (success) {
@@ -1231,6 +1233,113 @@ export function parseTokenOrCookieInput(rawInput) {
     emailPassword: via.emailPassword
   };
 }
+
+function getPostArraySlotIndex(allPosts, postObj, fallbackIdx = 0) {
+  if (!postObj) return fallbackIdx;
+  if (Number.isFinite(Number(postObj.idx))) return Number(postObj.idx);
+  if (Number.isFinite(Number(postObj.id)) && Number(postObj.id) >= 1) return Number(postObj.id) - 1;
+  const arrIdx = Array.isArray(allPosts) ? allPosts.indexOf(postObj) : -1;
+  return arrIdx >= 0 ? arrIdx : fallbackIdx;
+}
+
+/**
+ * Resolve the exact post configuration (text, picture, background, postLinkMode)
+ * assigned to a given account without leaking postLinkMode or wrong pictures across Bài 1/2/3.
+ */
+export function resolveAssignedPostForAccount(allPosts, accountPostMap, accountId, fallback = {}) {
+  const list = Array.isArray(allPosts) ? allPosts : [];
+  const rawIdx = (accountPostMap && accountPostMap[accountId] !== undefined)
+    ? Number(accountPostMap[accountId])
+    : 0;
+  const requestedPostIdx = Number.isFinite(rawIdx) && rawIdx >= 0 ? rawIdx : 0;
+  const hasContent = p => Boolean(p && ((typeof p.text === 'string' && p.text.trim()) || p.picture?.data || p.picture?.name));
+
+  const exactByMeta = list.find(p => p && (p.idx === requestedPostIdx || p.id === (requestedPostIdx + 1)));
+  const exactByIndex = (!exactByMeta && list[requestedPostIdx] && (list[requestedPostIdx].idx === undefined || list[requestedPostIdx].idx === requestedPostIdx))
+    ? list[requestedPostIdx]
+    : null;
+  const requestedSlot = exactByMeta || exactByIndex || null;
+
+  let assignedPost = hasContent(requestedSlot) ? requestedSlot : null;
+  let effectivePostIdx = requestedPostIdx;
+
+  if (!assignedPost && list.length > 0) {
+    const firstWithContent = list.find(hasContent);
+    if (firstWithContent) {
+      assignedPost = firstWithContent;
+      effectivePostIdx = getPostArraySlotIndex(list, firstWithContent, 0);
+    } else if (requestedSlot) {
+      assignedPost = requestedSlot;
+    } else if (list[0]) {
+      assignedPost = list[0];
+      effectivePostIdx = getPostArraySlotIndex(list, list[0], 0);
+    }
+  }
+
+  const usedFallbackOnly = !assignedPost;
+  if (!assignedPost) {
+    assignedPost = {
+      text: fallback.text || '',
+      picture: fallback.picture !== undefined ? fallback.picture : null,
+      background: fallback.background || null,
+      postLinkMode: !!fallback.postLinkMode
+    };
+  }
+
+  const postText = (typeof assignedPost.text === 'string' && assignedPost.text.trim())
+    ? assignedPost.text
+    : (usedFallbackOnly ? (fallback.text || '') : '');
+  const postBg = assignedPost.background || null;
+  const rawPic = assignedPost.picture !== undefined ? assignedPost.picture : (usedFallbackOnly ? fallback.picture : null);
+  const postPic = (!postBg || postBg === 'none') ? (rawPic || null) : null;
+
+  const hasUrlInPost = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(postText);
+  const perPostLinkMode = assignedPost.postLinkMode !== undefined
+    ? !!assignedPost.postLinkMode
+    : (usedFallbackOnly ? !!fallback.postLinkMode : false);
+  const postLinkMode = !postPic && (
+    perPostLinkMode ||
+    (hasUrlInPost && postText.trim().startsWith('http') && !postText.trim().includes('\n'))
+  );
+
+  return {
+    requestedPostIdx,
+    effectivePostIdx,
+    assignedPost,
+    postText,
+    postBg,
+    postPic,
+    postLinkMode
+  };
+}
+
+/**
+ * Determine whether switching session requires clearing Chrome cookies and/or auto-relogin via credentials.
+ */
+export function shouldAttemptSessionRelogin({ cookieObj, hasCredentials, activeCUser, expectedCUser, activeXs, forceRelogin = false }) {
+  const hasUsableCookies = Boolean(cookieObj && cookieObj.c_user && cookieObj.xs);
+  const hasCompleteCookies = hasCompleteFacebookCookies(cookieObj || {});
+  const needSwitchUser = Boolean(
+    !activeCUser ||
+    !activeXs ||
+    !hasUsableCookies ||
+    (expectedCUser && String(activeCUser) !== String(expectedCUser))
+  );
+  const needRelogin = Boolean(
+    hasCredentials && (
+      forceRelogin ||
+      !hasUsableCookies ||
+      (!hasCompleteCookies && needSwitchUser)
+    )
+  );
+  return {
+    hasUsableCookies,
+    hasCompleteCookies,
+    needSwitchUser,
+    needRelogin
+  };
+}
+
 
 
 

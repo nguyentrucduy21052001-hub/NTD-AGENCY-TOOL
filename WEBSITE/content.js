@@ -320,23 +320,24 @@
   return result;
  }
 
- const OPENER_RE = /Bạn viết gì đi|Viết gì đó|Bạn đang nghĩ gì|Tạo bài viết|Tạo bài|Viết bài|Write something|What's on your mind|Create a post|Create public post|Discussion/i;
+ const OPENER_RE = /Bạn viết gì đi|Viết gì đó|Viết gì đi|Bạn đang nghĩ gì|Bạn muốn chia sẻ|Chia sẻ điều gì đó|Bắt đầu thảo luận|Tạo bài viết|Tạo bài|Viết bài|Write something|What's on your mind|Share something|Start a discussion|Create a post|Create public post/i;
 
  function findOpener() {
   const clickable = [...document.querySelectorAll('[role="button"], button, [role="combobox"], [tabindex="0"]')].filter(visible);
   for (const el of clickable) {
-   const lbl = label(el);
+   if (el.closest('nav, header, [role="banner"], [role="navigation"]')) continue;
+   const lbl = label(el) || el.getAttribute('aria-placeholder') || el.getAttribute('placeholder') || '';
    if (OPENER_RE.test(lbl)) {
-    if (/^(Thảo luận|Discussion)$/i.test(lbl) && el.tagName === 'A') continue;
+    if (/^(Thảo luận|Discussion)$/i.test(lbl.trim()) && el.tagName === 'A') continue;
     return el;
    }
   }
 
   const textEls = [...document.querySelectorAll('span, div')].filter(visible);
   for (const el of textEls) {
-   const txt = (el.innerText || '').trim();
+   const txt = (el.innerText || el.getAttribute('aria-placeholder') || '').trim();
    if (txt && OPENER_RE.test(txt) && txt.length < 80) {
-    if (el.closest('nav, header, [role="navigation"]')) continue;
+    if (el.closest('nav, header, [role="banner"], [role="navigation"]')) continue;
     const btn = el.closest('[role="button"], button, [tabindex="0"]') || el;
     if (visible(btn)) return btn;
    }
@@ -344,41 +345,99 @@
 
   const discTab = [...document.querySelectorAll('[role="tab"], a, [role="button"]')].filter(visible).find(e => {
    const t = label(e);
-   return /^(Thảo luận|Discussion)$/i.test(t) && !e.closest('header, nav');
+   return /^(Thảo luận|Discussion)$/i.test(t) && !e.closest('header, nav, [role="banner"]');
   });
   if (discTab && !discTab.dataset.__duyClicked) {
    discTab.dataset.__duyClicked = 'true';
    try { discTab.click(); } catch (_) {}
+   try { if (typeof globalThis.scrollTo === 'function') globalThis.scrollTo({ top: 0, behavior: 'instant' }); } catch (_) {}
   }
 
   return null;
  }
 
  function setInputValue(input, value) {
-  if (!input || !value) return;
+  if (!input || value === undefined || value === null) return;
   input.focus();
+  const prevValue = input.value;
   const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
   if (nativeSetter) nativeSetter.call(input, value);
   else input.value = value;
+  const tracker = input._valueTracker;
+  if (tracker) {
+   try { tracker.setValue(prevValue === value ? '' : prevValue); } catch (_) {}
+  }
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
  }
 
- async function handleLoginIfLoggedOut(job) {
-  // Tìm form / modal đăng nhập (bao gồm modal "Xem thêm trên Facebook" hoặc trang login)
-  let emailInput = document.querySelector('input[name="email"], input[type="email"], #email');
-  let passInput = document.querySelector('input[name="pass"], input[type="password"], #pass');
-  const isLoginUrl = location.pathname.includes('/login') || location.pathname.includes('/checkpoint');
+ function hasCUserCookie() {
+  try {
+   return Boolean(document.cookie && /(?:^|;\s*)c_user=\d+/.test(document.cookie));
+  } catch (_) {
+   return false;
+  }
+ }
 
+ function findLoginInputs() {
+  const emailInput =
+   document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[placeholder*="mobile" i], input[aria-label*="Email" i], input[aria-label*="di động" i]') ||
+   null;
+  const passInput =
+   document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"], input[placeholder*="Mật khẩu" i], input[placeholder*="Password" i], input[aria-label*="Mật khẩu" i], input[aria-label*="Password" i]') ||
+   null;
+  return { emailInput, passInput };
+ }
+
+ function findVisibleLoginDialog() {
   const dialogs = [...document.querySelectorAll('[role="dialog"]')].filter(visible);
-  const loginDialog = dialogs.find(d => {
+  return dialogs.find(d => {
+   if (d.querySelector('[contenteditable="true"][role="textbox"]')) return false;
    const text = (d.innerText || '').toLowerCase();
-   return text.includes('đăng nhập') || text.includes('log in') || text.includes('xem thêm trên facebook') || text.includes('see more on facebook');
-  });
+   return (
+    text.includes('xem thêm trên facebook') ||
+    text.includes('see more on facebook') ||
+    text.includes('đăng nhập vào facebook') ||
+    text.includes('log in to facebook') ||
+    text.includes('bạn chưa đăng nhập') ||
+    ((text.includes('đăng nhập') || text.includes('log in')) && Boolean(d.querySelector('input[type="password"], input[name="pass"], input[name="email"], input[placeholder*="Email" i], input[placeholder*="di động" i], button[name="login"], [aria-label*="Đăng nhập" i]')))
+   );
+  }) || null;
+ }
 
-  // Nếu trong cookies của trang đã có c_user và có dialog "Xem thêm trên Facebook"
-  const hasCUserInDoc = Boolean(document.cookie && document.cookie.includes('c_user='));
-  if (loginDialog) {
+ function detectLoggedOutFacebookState() {
+  const isLoginUrl = /\/login|\/checkpoint|login\.php|\/auth/i.test(location.pathname || '');
+  const { emailInput, passInput } = findLoginInputs();
+  const hasVisibleAuthInputs = Boolean((emailInput && visible(emailInput)) || (passInput && visible(passInput)));
+  const loginDialog = findVisibleLoginDialog();
+  const hasCUser = hasCUserCookie();
+  const pageText = (document.body ? document.body.innerText : '') || '';
+  const hasLoginBanner = !hasCUser && (
+   hasVisibleAuthInputs ||
+   Boolean(loginDialog) ||
+   /Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Đăng nhập hoặc đăng ký|Log in or sign up|You must log in to continue|Xem thêm trên Facebook|See more on Facebook/i.test(pageText) ||
+   [...document.querySelectorAll('a, button, [role="button"]')].filter(visible).some(el => {
+    const t = (el.innerText || el.getAttribute('aria-label') || '').trim();
+    return /^(Tạo tài khoản mới|Create new account|Quên mật khẩu\??|Forgotten password\??|Forgotten account\??)$/i.test(t);
+   })
+  );
+
+  return {
+   isLoggedOut: Boolean(isLoginUrl || hasVisibleAuthInputs || loginDialog || hasLoginBanner),
+   isLoginUrl,
+   emailInput,
+   passInput,
+   loginDialog,
+   hasCUser
+  };
+ }
+
+ async function handleLoginIfLoggedOut(job) {
+  let state = detectLoggedOutFacebookState();
+  let { emailInput, passInput, loginDialog, hasCUser } = state;
+
+  // Chỉ đóng dialog "Xem thêm trên Facebook" nếu cookie c_user THỰC SỰ đã đăng nhập
+  if (loginDialog && hasCUser) {
    const closeBtn = loginDialog.querySelector('[aria-label="Đóng"], [aria-label="Close"]') ||
                     [...loginDialog.querySelectorAll('[role="button"], button')].find(b => {
                      const l = (b.getAttribute('aria-label') || b.innerText || '').trim();
@@ -387,27 +446,30 @@
    if (closeBtn) {
     try { closeBtn.click(); } catch (_) {}
     await delay(600);
-    if (!visible(loginDialog)) {
-     if (hasCUserInDoc || findOpener()) return { handled: false };
+    if (!visible(loginDialog) && (hasCUserCookie() || findOpener())) {
+     return { handled: false };
     }
+    state = detectLoggedOutFacebookState();
+    emailInput = state.emailInput;
+    passInput = state.passInput;
+    loginDialog = state.loginDialog;
+    hasCUser = state.hasCUser;
    }
   }
 
-  if (!emailInput && !passInput && !isLoginUrl && !loginDialog) {
+  if (!state.isLoggedOut) {
    return { handled: false };
   }
 
-  if (hasCUserInDoc && !isLoginUrl && !emailInput) {
+  if (hasCUser && !state.isLoginUrl && !emailInput && !passInput && findOpener()) {
    return { handled: false };
   }
 
-  if (!emailInput) emailInput = document.querySelector('input[name="email"], input[type="email"], #email');
-  if (!passInput) passInput = document.querySelector('input[name="pass"], input[type="password"], #pass');
-
-  const loginBtn = document.querySelector(
-   '[name="login"], #loginbutton, [data-testid="royal_login_button"], button[type="submit"]'
-  ) || [...document.querySelectorAll('button, [role="button"]')].find(b =>
-   /^(Đăng nhập|Log In|Log in)$/i.test((b.innerText || b.getAttribute('aria-label') || '').trim())
+  const root = loginDialog || document;
+  const loginBtn = root.querySelector(
+   '[name="login"], #loginbutton, [data-testid="royal_login_button"], button[type="submit"], [role="button"][aria-label*="Đăng nhập" i], [role="button"][aria-label*="Log in" i]'
+  ) || [...root.querySelectorAll('button, [role="button"], input[type="submit"]')].filter(visible).find(b =>
+   /^(Đăng nhập|Log In|Log in)$/i.test((b.innerText || b.value || b.getAttribute('aria-label') || '').trim())
   );
 
   let emailVal = emailInput?.value || '';
@@ -425,15 +487,15 @@
    await delay(200);
   }
 
-  // Nếu có thông tin đăng nhập từ email/pass đã được cấu hình cho tài khoản này
-  if (emailInput && passInput && emailVal && passVal && loginBtn && job.accountPassword) {
+  // Nếu có thông tin đăng nhập (không cần 2FA thủ công) thì thử đăng nhập nhanh inline
+  if (emailInput && passInput && emailVal && passVal && loginBtn && job.accountPassword && !job.twoFactor) {
    try {
     loginBtn.click();
     const endWait = Date.now() + 7000;
     while (Date.now() < endWait) {
      await delay(600);
-     const stillEmail = document.querySelector('input[name="email"], input[type="email"], #email');
-     if (!stillEmail || !visible(stillEmail)) {
+     const after = detectLoggedOutFacebookState();
+     if (!after.isLoggedOut && hasCUserCookie()) {
       chrome.runtime.sendMessage({
        type: 'UPDATE_COOKIES',
        accountId: job.accountId
@@ -452,17 +514,18 @@
   return {
    handled: true,
    success: false,
-   reason: 'Tài khoản Facebook chưa đăng nhập (bị đăng xuất). Hãy vào Quản lý tài khoản và bấm "🔑 Đăng nhập FB" hoặc dán lại cookie mới.'
+   authExpired: true,
+   reason: 'Tài khoản Facebook chưa đăng nhập hoặc Cookie đã hết hạn (bị đăng xuất).'
   };
  }
 
  function checkGroupEligibility(job = null) {
   const pageText = (document.body ? document.body.innerText : '') || '';
 
-  // Nếu chưa đăng nhập Facebook: KHÔNG báo là "Chưa tham gia nhóm"
-  const emailInput = document.querySelector('input[name="email"], input[type="email"], #email');
-  if (emailInput && visible(emailInput)) {
-   return 'Tài khoản Facebook chưa đăng nhập (bị đăng xuất). Hãy đăng nhập lại Facebook.';
+  // Nếu chưa đăng nhập Facebook: KHÔNG báo là "Chưa tham gia nhóm" hoặc "Không tìm thấy ô tạo bài"
+  const authState = detectLoggedOutFacebookState();
+  if (authState.isLoggedOut) {
+   return 'AUTH_EXPIRED: Tài khoản Facebook chưa đăng nhập (bị đăng xuất). Hãy đăng nhập lại Facebook.';
   }
 
   if (job?.accountType === 'fanpage') {
@@ -512,15 +575,18 @@
   if (loginState.handled && !loginState.success) {
    return {
     status: 'error',
+    authExpired: Boolean(loginState.authExpired),
     note: loginState.reason || '❌ Facebook chưa đăng nhập (bị đăng xuất). Hãy đăng nhập lại Facebook.'
    };
   }
 
   await check(job);
 
-  // Đóng các popup phụ (như quy tắc nhóm, thông báo, hoặc modal xác nhận chuyển sang Trang)
+  // Đóng các popup phụ (như quy tắc nhóm, thông báo) nhưng KHÔNG đóng popup đăng nhập khi chưa có session
+  const activeLoginDialog = findVisibleLoginDialog();
   const existingDialogs = [...document.querySelectorAll('[role="dialog"]')].filter(visible);
   for (const d of existingDialogs) {
+   if (d === activeLoginDialog && !hasCUserCookie()) continue;
    if (!d.querySelector('[contenteditable="true"][role="textbox"]')) {
     const dismissBtn = [...d.querySelectorAll('[role="button"], button')].filter(visible).find(e => {
      const lbl = label(e);
@@ -610,6 +676,9 @@
    if (Date.now() > openerTimeout - 25000) {
     const ineligibility = checkGroupEligibility(job);
     if (ineligibility) {
+     if (ineligibility.startsWith('AUTH_EXPIRED:')) {
+      return { status: 'error', authExpired: true, note: ineligibility.replace(/^AUTH_EXPIRED:\s*/, '') };
+     }
      return { status: 'skipped', note: 'Bỏ qua: ' + ineligibility };
     }
    }
@@ -619,7 +688,13 @@
   if (!opener) {
    const finalReason = checkGroupEligibility(job);
    if (finalReason) {
+    if (finalReason.startsWith('AUTH_EXPIRED:')) {
+     return { status: 'error', authExpired: true, note: finalReason.replace(/^AUTH_EXPIRED:\s*/, '') };
+    }
     return { status: 'skipped', note: 'Bỏ qua: ' + finalReason };
+   }
+   if (detectLoggedOutFacebookState().isLoggedOut) {
+    return { status: 'error', authExpired: true, note: 'Tài khoản Facebook chưa đăng nhập hoặc Cookie đã hết hạn (bị đăng xuất).' };
    }
    return { status: 'skipped', note: 'Đã bỏ qua: Không tìm thấy ô tạo bài (Giao diện nhóm khác biệt hoặc chưa sẵn sàng).' };
   }
