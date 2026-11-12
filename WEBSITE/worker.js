@@ -4192,6 +4192,7 @@ function handleRuntimeMessage(m, sender, reply) {
         const nextState = rinMaps && typeof rinMaps === 'object' ? { ...rinMaps } : { rows: [], job: null, settings: null, seenKeys: {} };
         nextState.rows = [];
         nextState.clearedKeepSeen = Boolean(m.keepSeenKeys);
+        nextState.lastClearedAt = Number(m.clearedAt) || Date.now();
         if (!m.keepSeenKeys) nextState.seenKeys = {};
         if (!m.keepJob) {
           nextState.job = null;
@@ -4199,7 +4200,7 @@ function handleRuntimeMessage(m, sender, reply) {
         }
         await chrome.storage.local.set({ rinMaps: nextState });
         broadcastMapsStateSync(nextState);
-        reply({ ok: true, cleared: true });
+        reply({ ok: true, cleared: true, lastClearedAt: nextState.lastClearedAt });
       } catch (e) {
         reply({ ok: false, error: e.message });
       }
@@ -4220,6 +4221,7 @@ function handleRuntimeMessage(m, sender, reply) {
             job: rinMaps.job || null,
             isScanning: Boolean(rinMaps.isScanning),
             lastScraped: rinMaps.lastScraped || null,
+            lastClearedAt: Number(rinMaps.lastClearedAt) || 0,
             totalRows: allRows.length,
             recentRows: m.includeAllRows ? allRows : allRows.slice(-1000)
           } : null
@@ -4299,8 +4301,9 @@ function handleRuntimeMessage(m, sender, reply) {
         nextState.commentsCount = 0;
         nextState.isScanning = false;
         nextState.job = null;
+        nextState.lastClearedAt = Number(m.clearedAt) || Date.now();
         await chrome.storage.local.set({ rinFbGroup: nextState });
-        reply({ ok: true, cleared: true });
+        reply({ ok: true, cleared: true, lastClearedAt: nextState.lastClearedAt });
       } catch (e) {
         reply({ ok: false, error: e.message });
       }
@@ -4321,6 +4324,7 @@ function handleRuntimeMessage(m, sender, reply) {
             isScanning: Boolean(rinFbGroup.isScanning),
             postsCount: rinFbGroup.postsCount || 0,
             commentsCount: rinFbGroup.commentsCount || 0,
+            lastClearedAt: Number(rinFbGroup.lastClearedAt) || 0,
             recentRows: Array.isArray(rinFbGroup.rows) ? (m.includeAllRows ? rinFbGroup.rows : rinFbGroup.rows.slice(-200)) : []
           } : null
         });

@@ -1,6 +1,7 @@
 // warmup.js – Quản lý giao diện và điều phối tiến trình nuôi tài khoản Facebook
 import { getTodayDateStr } from './core.js';
 import { checkCurrentLicense } from './license.js';
+import { supabaseClearReportScope } from './supabase.js?v=20261112_0840';
 
 const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -793,6 +794,10 @@ $('btnClearReport')?.addEventListener('click', async () => {
   if (confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử báo cáo nuôi tài khoản?')) {
     await chrome.storage.local.set({ warmupReports: [] });
     await renderReportTable();
+    await Promise.all([
+      chrome.runtime.sendMessage({ type: 'SYNC_DATA_TO_EXTENSION', data: { warmupReports: [] } }).catch(() => null),
+      supabaseClearReportScope(null, 'warmup_reports').catch(() => null)
+    ]);
   }
 });
 

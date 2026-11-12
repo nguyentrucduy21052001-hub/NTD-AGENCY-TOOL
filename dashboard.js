@@ -4,7 +4,7 @@
  */
 
 import { checkCurrentLicense } from './license.js';
-import { supabaseListUsers } from './supabase.js';
+import { supabaseListUsers } from './supabase.js?v=20261112_0840';
 
 const $ = id => document.getElementById(id);
 

@@ -97,11 +97,13 @@ async function supabaseRequest(endpoint, options = {}) {
   const timeoutId = setTimeout(() => controller.abort(), options.timeout || 15000);
 
   try {
-    const res = await fetch(url, {
+    const fetchOpts = {
       ...options,
       headers,
       signal: controller.signal
-    });
+    };
+    if (options.keepalive) fetchOpts.keepalive = true;
+    const res = await fetch(url, fetchOpts);
     clearTimeout(timeoutId);
 
     const text = await res.text();
@@ -521,6 +523,221 @@ export const SYNC_WORKSPACE_KEYS = [
   'lastSelectedCategory'
 ];
 
+export const CLOUD_CLEAR_LEDGER_KEY = 'ntd_cloud_clear_ledger';
+
+const CLOUD_CLEAR_SPECS = {
+  maps: {
+    localKey: 'rinMaps',
+    endpoints: (u) => [
+      `ntd_scanned_phones?owner_username=eq.${encodeURIComponent(u)}&source=eq.maps`
+    ]
+  },
+  fb_group: {
+    localKey: 'rinFbGroup',
+    endpoints: (u) => [
+      `ntd_scanned_phones?owner_username=eq.${encodeURIComponent(u)}&source=eq.fb_group`
+    ]
+  },
+  scanned_groups: {
+    localKey: 'lastScannedGroups',
+    endpoints: (u) => [
+      `ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.lastScannedGroups`,
+      `ntd_scanned_groups?owner_username=eq.${encodeURIComponent(u)}&in_saved_category=eq.false`
+    ]
+  },
+  scanned_group_history: {
+    localKey: 'scannedGroupHistory',
+    endpoints: (u) => [
+      `ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.scannedGroupHistory`
+    ]
+  },
+  warmup_reports: {
+    localKey: 'warmupReports',
+    endpoints: (u) => [
+      `ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.warmupReports`
+    ]
+  },
+  posted_group_history: {
+    localKey: 'postedGroupHistory',
+    endpoints: (u) => [
+      `ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.postedGroupHistory`
+    ]
+  }
+};
+
+const SIMPLE_KEY_CLEAR_SCOPE = {
+  warmupReports: 'warmup_reports',
+  scannedGroupHistory: 'scanned_group_history',
+  postedGroupHistory: 'posted_group_history'
+};
+
+async function resolveActiveSyncUsername(explicitUsername = '') {
+  const direct = String(explicitUsername || '').trim().toLowerCase();
+  if (direct) return direct;
+  try {
+    if (chrome?.storage?.local?.get) {
+      const res = await chrome.storage.local.get('license');
+      const stored = String(res?.license?.username || '').trim().toLowerCase();
+      if (stored) return stored;
+    }
+  } catch (_) {}
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('ntd_store_license');
+      const parsed = raw ? JSON.parse(raw) : null;
+      const fromLs = String(parsed?.username || '').trim().toLowerCase();
+      if (fromLs) return fromLs;
+    }
+  } catch (_) {}
+  return '';
+}
+
+export async function readCloudClearLedger() {
+  try {
+    if (chrome?.storage?.local?.get) {
+      const data = await chrome.storage.local.get(CLOUD_CLEAR_LEDGER_KEY);
+      const ledger = data?.[CLOUD_CLEAR_LEDGER_KEY];
+      return (ledger && typeof ledger === 'object' && !Array.isArray(ledger)) ? { ...ledger } : {};
+    }
+  } catch (_) {}
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(`ntd_store_${CLOUD_CLEAR_LEDGER_KEY}`);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+    }
+  } catch (_) {}
+  return {};
+}
+
+async function writeCloudClearLedger(ledger) {
+  const safe = (ledger && typeof ledger === 'object' && !Array.isArray(ledger)) ? ledger : {};
+  try {
+    if (chrome?.storage?.local?.set) {
+      await chrome.storage.local.set({ [CLOUD_CLEAR_LEDGER_KEY]: safe });
+      return;
+    }
+  } catch (_) {}
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(`ntd_store_${CLOUD_CLEAR_LEDGER_KEY}`, JSON.stringify(safe));
+    }
+  } catch (_) {}
+}
+
+function getLedgerSeq(ledger, scope) {
+  return Number(ledger?.[scope]?.seq) || 0;
+}
+
+function didScopeClearAdvance(beforeLedger, afterLedger, scope) {
+  return Boolean(afterLedger?.[scope]?.pending) || getLedgerSeq(afterLedger, scope) > getLedgerSeq(beforeLedger, scope);
+}
+
+export async function markCloudClearPending(scopeOrScopes, clearedAt = Date.now()) {
+  const scopes = (Array.isArray(scopeOrScopes) ? scopeOrScopes : [scopeOrScopes])
+    .filter(s => typeof s === 'string' && Boolean(CLOUD_CLEAR_SPECS[s]));
+  if (scopes.length === 0) return {};
+
+  const ledger = await readCloudClearLedger();
+  const stamp = Number(clearedAt) || Date.now();
+  for (const scope of scopes) {
+    const prev = ledger[scope] || {};
+    ledger[scope] = {
+      pending: true,
+      seq: (Number(prev.seq) || 0) + 1,
+      clearedAt: stamp
+    };
+  }
+  await writeCloudClearLedger(ledger);
+  return ledger;
+}
+
+async function deleteScopeFromSupabase(username, scope) {
+  const spec = CLOUD_CLEAR_SPECS[scope];
+  if (!spec || !username) return { ok: true, skipped: true };
+  const endpoints = spec.endpoints(username);
+  for (const ep of endpoints) {
+    try {
+      await supabaseRequest(ep, {
+        method: 'DELETE',
+        keepalive: true,
+        headers: { 'Prefer': 'return=minimal' }
+      });
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err;
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Hoàn tất các lệnh xóa báo cáo đang chờ đẩy lên Supabase (chạy trước khi hydrate hoặc push).
+ * Trả về Set các scope vẫn chưa xóa được trên cloud (ví dụ do mất mạng tạm thời).
+ */
+export async function flushPendingCloudClears(username = '') {
+  const ledger = await readCloudClearLedger();
+  const pendingScopes = Object.keys(CLOUD_CLEAR_SPECS).filter(s => Boolean(ledger[s]?.pending));
+  const stillPending = new Set(pendingScopes);
+  if (pendingScopes.length === 0) return stillPending;
+
+  const u = await resolveActiveSyncUsername(username);
+  if (!u || !(await isSupabaseConfigured())) return stillPending;
+
+  const clearedScopes = new Set();
+  for (const scope of pendingScopes) {
+    const seqBefore = getLedgerSeq(ledger, scope);
+    try {
+      await deleteScopeFromSupabase(u, scope);
+      const latest = await readCloudClearLedger();
+      if (getLedgerSeq(latest, scope) === seqBefore) {
+        clearedScopes.add(scope);
+        stillPending.delete(scope);
+      }
+    } catch (_) {
+      // Giữ pending: true để lần chuyển tab tiếp theo tự động xóa lại trên Supabase
+    }
+  }
+
+  if (clearedScopes.size > 0) {
+    const latest = await readCloudClearLedger();
+    let anyUpdated = false;
+    for (const scope of clearedScopes) {
+      if (getLedgerSeq(latest, scope) === getLedgerSeq(ledger, scope) && latest[scope]?.pending) {
+        latest[scope] = { ...latest[scope], pending: false };
+        anyUpdated = true;
+      }
+    }
+    if (anyUpdated) {
+      await writeCloudClearLedger(latest);
+    }
+  }
+  return stillPending;
+}
+
+/**
+ * Xóa dữ liệu báo cáo trên Supabase cho một phạm vi cụ thể (maps, fb_group, scanned_groups, ...)
+ * Luôn ghi nhận trạng thái pending cục bộ trước để tránh khôi phục dữ liệu cũ khi chuyển tab nhanh.
+ */
+export async function supabaseClearReportScope(username, scopeOrScopes, options = {}) {
+  const scopes = (Array.isArray(scopeOrScopes) ? scopeOrScopes : [scopeOrScopes])
+    .filter(s => typeof s === 'string' && Boolean(CLOUD_CLEAR_SPECS[s]));
+  if (scopes.length === 0) return { ok: false, error: 'Invalid clear scope' };
+
+  await markCloudClearPending(scopes, options?.clearedAt);
+  const u = await resolveActiveSyncUsername(username);
+  if (!u || !(await isSupabaseConfigured())) {
+    return { ok: false, deferred: true };
+  }
+
+  const stillPending = await flushPendingCloudClears(u);
+  const unresolved = scopes.filter(s => stillPending.has(s));
+  return {
+    ok: unresolved.length === 0,
+    pending: unresolved,
+    cleared: scopes.filter(s => !stillPending.has(s))
+  };
+}
+
 function isMissingTableError(err) {
   const msg = String(err?.message || '');
   return err?.status === 404 || err?.code === 'PGRST205' || /does not exist|PGRST205|schema cache/i.test(msg);
@@ -731,6 +948,10 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null) {
   const u = (username || '').trim().toLowerCase();
   if (!u || !(await isSupabaseConfigured())) return { ok: false, skipped: true };
 
+  // Hoàn tất mọi lệnh xóa báo cáo đang chờ trước khi đồng bộ lên Supabase
+  await flushPendingCloudClears(u);
+  const startLedger = await readCloudClearLedger();
+
   const keysToRead = changedKeys && Array.isArray(changedKeys) && changedKeys.length > 0
     ? Array.from(new Set(changedKeys))
     : [...SYNC_WORKSPACE_KEYS, 'rinMaps', 'rinFbGroup'];
@@ -739,6 +960,9 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null) {
   const wsMap = {};
   for (const k of SYNC_WORKSPACE_KEYS) {
     if (keysToRead.includes(k) && local[k] !== undefined) {
+      if (k === 'lastScannedGroups' && startLedger.scanned_groups?.pending) continue;
+      const simpleScope = SIMPLE_KEY_CLEAR_SCOPE[k];
+      if (simpleScope && startLedger[simpleScope]?.pending) continue;
       wsMap[k] = local[k];
     }
   }
@@ -747,28 +971,60 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null) {
   let needTables = false;
 
   if (Object.keys(wsMap).length > 0) {
-    const r = await supabaseUpsertWorkspaceKeys(u, wsMap);
-    if (r.needTables) needTables = true;
-    totalRecords += r.count || 0;
+    const latestBeforeWs = await readCloudClearLedger();
+    if (wsMap.lastScannedGroups !== undefined && didScopeClearAdvance(startLedger, latestBeforeWs, 'scanned_groups')) {
+      delete wsMap.lastScannedGroups;
+    }
+    for (const [k, sc] of Object.entries(SIMPLE_KEY_CLEAR_SCOPE)) {
+      if (wsMap[k] !== undefined && didScopeClearAdvance(startLedger, latestBeforeWs, sc)) {
+        delete wsMap[k];
+      }
+    }
+    if (Object.keys(wsMap).length > 0) {
+      const r = await supabaseUpsertWorkspaceKeys(u, wsMap);
+      if (r.needTables) needTables = true;
+      totalRecords += r.count || 0;
+    }
   }
 
   if (keysToRead.includes('rinMaps') && Array.isArray(local.rinMaps?.rows) && local.rinMaps.rows.length > 0) {
-    const r = await supabaseUpsertScannedPhones(u, 'maps', local.rinMaps.rows);
-    if (r.needTables) needTables = true;
-    totalRecords += r.count || 0;
+    const latestLedger = await readCloudClearLedger();
+    if (!didScopeClearAdvance(startLedger, latestLedger, 'maps')) {
+      const r = await supabaseUpsertScannedPhones(u, 'maps', local.rinMaps.rows);
+      if (r.needTables) needTables = true;
+      totalRecords += r.count || 0;
+      const afterLedger = await readCloudClearLedger();
+      if (didScopeClearAdvance(startLedger, afterLedger, 'maps')) {
+        await deleteScopeFromSupabase(u, 'maps').catch(() => {});
+      }
+    }
   }
 
   if (keysToRead.includes('rinFbGroup') && Array.isArray(local.rinFbGroup?.rows) && local.rinFbGroup.rows.length > 0) {
-    const r = await supabaseUpsertScannedPhones(u, 'fb_group', local.rinFbGroup.rows);
-    if (r.needTables) needTables = true;
-    totalRecords += r.count || 0;
+    const latestLedger = await readCloudClearLedger();
+    if (!didScopeClearAdvance(startLedger, latestLedger, 'fb_group')) {
+      const r = await supabaseUpsertScannedPhones(u, 'fb_group', local.rinFbGroup.rows);
+      if (r.needTables) needTables = true;
+      totalRecords += r.count || 0;
+      const afterLedger = await readCloudClearLedger();
+      if (didScopeClearAdvance(startLedger, afterLedger, 'fb_group')) {
+        await deleteScopeFromSupabase(u, 'fb_group').catch(() => {});
+      }
+    }
   }
 
   // Đồng bộ nhóm quét tạm và các nhóm đã lưu danh mục lên bảng ntd_scanned_groups
   if (keysToRead.includes('lastScannedGroups') && Array.isArray(local.lastScannedGroups) && local.lastScannedGroups.length > 0) {
-    const r = await supabaseUpsertScannedGroups(u, local.lastScannedGroups, { inSavedCategory: false });
-    if (r.needTables) needTables = true;
-    totalRecords += r.count || 0;
+    const latestLedger = await readCloudClearLedger();
+    if (!didScopeClearAdvance(startLedger, latestLedger, 'scanned_groups')) {
+      const r = await supabaseUpsertScannedGroups(u, local.lastScannedGroups, { inSavedCategory: false });
+      if (r.needTables) needTables = true;
+      totalRecords += r.count || 0;
+      const afterLedger = await readCloudClearLedger();
+      if (didScopeClearAdvance(startLedger, afterLedger, 'scanned_groups')) {
+        await deleteScopeFromSupabase(u, 'scanned_groups').catch(() => {});
+      }
+    }
   }
   if (keysToRead.includes('groupCategories') && Array.isArray(local.groupCategories) && local.groupCategories.length > 0) {
     const savedGroups = [];
@@ -827,6 +1083,10 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   const force = Boolean(options.force);
   if (!u || !(await isSupabaseConfigured())) return { ok: false, skipped: true };
 
+  // Hoàn tất mọi lệnh xóa báo cáo đang chờ trước khi kéo dữ liệu từ Supabase về
+  const pendingClearScopes = await flushPendingCloudClears(u);
+  const startLedger = await readCloudClearLedger();
+
   const local = await chrome.storage.local.get([
     ...SYNC_WORKSPACE_KEYS,
     'rinMaps',
@@ -865,6 +1125,8 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   // 3. Các key cấu hình / nhật ký đơn lẻ
   const simpleKeys = ['draft', 'dailyPostStats', 'warmupConfig', 'warmupReports', 'rinZalo', 'postedGroupHistory', 'scannedGroupHistory', 'lastSelectedCategory'];
   for (const k of simpleKeys) {
+    const simpleScope = SIMPLE_KEY_CLEAR_SCOPE[k];
+    if (simpleScope && pendingClearScopes.has(simpleScope)) continue;
     const rv = wsMap.get(k);
     if (rv === undefined || rv === null) continue;
     const lv = local[k];
@@ -874,8 +1136,8 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
     }
   }
 
-  // 4. Danh sách nhóm quét tạm (`lastScannedGroups`) — chỉ gộp khi không đang quét
-  if (!local.isGroupScanning) {
+  // 4. Danh sách nhóm quét tạm (`lastScannedGroups`) — chỉ gộp khi không đang quét và không đang chờ xóa
+  if (!local.isGroupScanning && !pendingClearScopes.has('scanned_groups')) {
     const remoteScanGroups = Array.isArray(wsMap.get('lastScannedGroups')) ? wsMap.get('lastScannedGroups') : [];
     const tableScanGroups = groupRows
       .filter(g => !g.in_saved_category)
@@ -897,7 +1159,7 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   }
 
   // 5. SĐT Google Maps (`rinMaps.rows`)
-  if (!local.rinMaps?.isScanning) {
+  if (!local.rinMaps?.isScanning && !pendingClearScopes.has('maps')) {
     const remoteMaps = phoneRows.filter(p => p.source === 'maps').map(p => ({
       name: p.name || '',
       phone: p.phone || '',
@@ -922,7 +1184,7 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   }
 
   // 6. SĐT Facebook Group (`rinFbGroup.rows`)
-  if (!local.rinFbGroup?.isScanning) {
+  if (!local.rinFbGroup?.isScanning && !pendingClearScopes.has('fb_group')) {
     const remoteFb = phoneRows.filter(p => p.source === 'fb_group').map((p, idx) => ({
       id: `fg_sb_${p.id || idx}`,
       phone: p.phone || '',
@@ -948,6 +1210,14 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
       if (mergedRows.length > curRows.length || force) {
         toSet.rinFbGroup = { ...curGroupState, rows: mergedRows, seenKeys: seen };
       }
+    }
+  }
+
+  // Chốt chống xung đột đa tab: nếu người dùng vừa bấm Xóa dữ liệu ở tab khác trong lúc đang tải Supabase, bỏ qua ghi đè key đó
+  const endLedger = await readCloudClearLedger();
+  for (const [scope, spec] of Object.entries(CLOUD_CLEAR_SPECS)) {
+    if (toSet[spec.localKey] !== undefined && didScopeClearAdvance(startLedger, endLedger, scope)) {
+      delete toSet[spec.localKey];
     }
   }
 

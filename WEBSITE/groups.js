@@ -1,6 +1,7 @@
 // groups.js – Quản lý kho nhóm và phân loại danh mục nhóm
 import { enforceLicenseGate } from './license.js';
 import { getGroupKey, getAllPostedGroupKeys } from './core.js';
+import { supabaseClearReportScope } from './supabase.js?v=20261112_0840';
 import {
   extractCanonicalGroupKey,
   normalizeGroupName,
@@ -798,6 +799,10 @@ async function clearScannedGroupHistory() {
   try {
     await chrome.storage.local.remove('scannedGroupHistory');
     await updateDedupeBadges();
+    await Promise.all([
+      chrome.runtime.sendMessage({ type: 'SYNC_DATA_TO_EXTENSION', data: { scannedGroupHistory: [] } }).catch(() => null),
+      supabaseClearReportScope(null, 'scanned_group_history').catch(() => null)
+    ]);
     showToast('✅ Đã xóa toàn bộ bộ nhớ nhóm đã quét.');
   } catch (err) {
     showToast('Lỗi khi xóa lịch sử: ' + err.message);
@@ -2466,19 +2471,33 @@ $('clearScannedResultsBtn')?.addEventListener('click', async () => {
   if (!confirm(`Bạn có chắc muốn xóa toàn bộ ${currentScannedGroups.length} nhóm đã quét trong danh sách?\n(Dữ liệu trong các danh mục nhóm đã lưu sẽ KHÔNG bị ảnh hưởng)`)) {
     return;
   }
-  if (isScanning || webScanState.active) {
-    await stopScanningProcess(true);
+  const clearBtn = $('clearScannedResultsBtn');
+  if (clearBtn) clearBtn.disabled = true;
+  try {
+    if (isScanning || webScanState.active) {
+      await stopScanningProcess(true);
+    }
+    if (_saveScannedTimeout) {
+      clearTimeout(_saveScannedTimeout);
+      _saveScannedTimeout = null;
+    }
+    currentScannedGroups = [];
+    duplicateSkippedTotal = 0;
+    lowMembersSkippedTotal = 0;
+    privacySkippedTotal = 0;
+    await chrome.storage.local.remove('lastScannedGroups');
+    renderResultsTable();
+    updateScanStats();
+    if ($('scanResultsCard')) $('scanResultsCard').style.display = 'none';
+    if ($('scanProgressCard')) $('scanProgressCard').style.display = 'none';
+    await Promise.all([
+      chrome.runtime.sendMessage({ type: 'SYNC_DATA_TO_EXTENSION', data: { lastScannedGroups: [] } }).catch(() => null),
+      supabaseClearReportScope(null, 'scanned_groups').catch(() => null)
+    ]);
+    showToast('🗑️ Đã xóa toàn bộ kết quả nhóm đã quét.');
+  } finally {
+    if (clearBtn) clearBtn.disabled = false;
   }
-  currentScannedGroups = [];
-  duplicateSkippedTotal = 0;
-  lowMembersSkippedTotal = 0;
-  privacySkippedTotal = 0;
-  await chrome.storage.local.remove('lastScannedGroups');
-  renderResultsTable();
-  updateScanStats();
-  if ($('scanResultsCard')) $('scanResultsCard').style.display = 'none';
-  if ($('scanProgressCard')) $('scanProgressCard').style.display = 'none';
-  showToast('🗑️ Đã xóa toàn bộ kết quả nhóm đã quét.');
 });
 
 // Chuyển nhanh đến tab Facebook đang quét

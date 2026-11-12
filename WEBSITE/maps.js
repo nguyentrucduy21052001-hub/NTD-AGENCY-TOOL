@@ -5,6 +5,8 @@
 import { enforceLicenseGate } from './license.js';
 await enforceLicenseGate();
 
+import { supabaseClearReportScope } from './supabase.js?v=20261112_0840';
+
 import { mapsExtract } from './maps_extract.js';
 import { splitItems, buildQueries } from './maps_batch.js';
 import { downloadXlsx } from './maps_export.js';
@@ -1464,7 +1466,8 @@ async function runLoop({ tabAlreadyOpened = false } = {}) {
       phoneTypes: state.job?.phoneTypes || getActivePhoneTypes(),
       seenKeys: state.seenKeys || {},
       dedupePhones: isDedupePhonesEnabled(),
-      resetSeenKeys: state.rows.length === 0 && Object.keys(state.seenKeys || {}).length === 0
+      resetSeenKeys: state.rows.length === 0 && Object.keys(state.seenKeys || {}).length === 0,
+      resetRows: state.rows.length === 0
     });
     if (res && res.ok && !res.webFallback) {
       mapsExtSupportsSyncV2 = true;
@@ -2943,8 +2946,26 @@ function setupEventListeners() {
     setTimeout(() => URL.revokeObjectURL(u), 30000);
   };
 
+async function syncClearedExtensionState(clearMsg, fallbackData) {
+  try {
+    const resp = await chrome.runtime.sendMessage(clearMsg).catch(() => null);
+    if (resp && resp.ok && resp.cleared) return true;
+  } catch (_) {}
+  try {
+    if (fallbackData && typeof fallbackData === 'object') {
+      const syncResp = await chrome.runtime.sendMessage({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: fallbackData
+      }).catch(() => null);
+      return Boolean(syncResp?.ok);
+    }
+  } catch (_) {}
+  return false;
+}
+
   // Xóa dữ liệu báo cáo
   $('clear').onclick = async () => {
+    const clearBtn = $('clear');
     if (activeMode === 'maps') {
       const hasJob = state.job && Array.isArray(state.job.queries) && state.job.index < state.job.queries.length;
       const dedupeNote = isDedupePhonesEnabled()
@@ -2954,34 +2975,62 @@ function setupEventListeners() {
         ? 'Xóa toàn bộ dữ liệu đã hiển thị trong bảng báo cáo Maps?\n\n✔ Tiến trình chiến dịch (' + state.job.index + '/' + state.job.queries.length + ' từ khóa) vẫn được giữ nguyên để bạn có thể tiếp tục.' + dedupeNote
         : 'Xóa toàn bộ dữ liệu hiển thị trong bảng báo cáo Maps? Tiến trình quét cũng sẽ bị xóa.';
 
-      if (confirm(confirmMsg)) {
-        state.rows = [];
-        if (hasJob) {
-          await saveState();
-          chrome.runtime.sendMessage({ type: 'MAPS_CLEAR_DATA', keepJob: true, keepSeenKeys: true }).catch(() => {});
-          renderUI();
-          log('Đã xóa dữ liệu báo cáo Maps. Tiến trình đã được lưu lại, bạn có thể bấm Tiếp tục bất cứ lúc nào.');
-        } else {
-          state.job = null;
-          state.seenKeys = {};
-          await saveState();
-          chrome.runtime.sendMessage({ type: 'MAPS_CLEAR_DATA', keepJob: false, keepSeenKeys: false }).catch(() => {});
-          renderUI();
-          log('Đã xóa toàn bộ dữ liệu Maps.');
-        }
+      if (!confirm(confirmMsg)) return;
+
+      const clearedAt = Date.now();
+      state.rows = [];
+      state.lastClearedAt = clearedAt;
+      if (!hasJob) {
+        state.job = null;
+        state.seenKeys = {};
+      }
+
+      if (clearBtn) clearBtn.disabled = true;
+      try {
+        await saveState();
+        renderUI();
+        log(hasJob
+          ? 'Đã xóa dữ liệu báo cáo Maps. Tiến trình đã được lưu lại, bạn có thể bấm Tiếp tục bất cứ lúc nào.'
+          : 'Đã xóa toàn bộ dữ liệu Maps.');
+        await Promise.all([
+          syncClearedExtensionState(
+            { type: 'MAPS_CLEAR_DATA', keepJob: hasJob, keepSeenKeys: hasJob, clearedAt },
+            { rinMaps: state }
+          ),
+          supabaseClearReportScope(null, 'maps', { clearedAt }).catch(() => null)
+        ]);
+      } finally {
+        renderUI();
       }
     } else {
       if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ dữ liệu số điện thoại đã quét từ nhóm Facebook?')) {
         return;
       }
+      const clearedAt = Date.now();
       groupState.rows = [];
       groupState.seenKeys = {};
       groupState.postsCount = 0;
       groupState.commentsCount = 0;
-      await chrome.storage.local.set({ rinFbGroup: groupState });
-      chrome.runtime.sendMessage({ type: 'FB_GROUP_CLEAR_DATA' }).catch(() => {});
-      renderUI();
-      log('Đã xóa toàn bộ dữ liệu số điện thoại quét từ nhóm Facebook.');
+      groupState.job = null;
+      groupState.isScanning = false;
+      groupState.lastClearedAt = clearedAt;
+      groupRunning = false;
+
+      if (clearBtn) clearBtn.disabled = true;
+      try {
+        await chrome.storage.local.set({ rinFbGroup: groupState });
+        renderUI();
+        log('Đã xóa toàn bộ dữ liệu số điện thoại quét từ nhóm Facebook.');
+        await Promise.all([
+          syncClearedExtensionState(
+            { type: 'FB_GROUP_CLEAR_DATA', clearedAt },
+            { rinFbGroup: groupState }
+          ),
+          supabaseClearReportScope(null, 'fb_group', { clearedAt }).catch(() => null)
+        ]);
+      } finally {
+        renderUI();
+      }
     }
   };
 }
@@ -3085,7 +3134,15 @@ function syncGroupRowFromWorker(r) {
     // Kiểm tra trạng thái đang chạy ngầm Maps & khả năng MAPS_SYNC_V2 của Extension
     const mapsStatus = await chrome.runtime.sendMessage({ type: 'MAPS_GET_STATUS', includeAllRows: true }).catch(() => null);
     mapsExtSupportsSyncV2 = Boolean(mapsStatus?.ok && Number(mapsStatus?.syncVersion) >= 2);
-    if (Array.isArray(mapsStatus?.state?.recentRows) && mapsStatus.state.recentRows.length) {
+    const localMapsClearedAt = Number(state.lastClearedAt || 0);
+    const extMapsClearedAt = Number(mapsStatus?.state?.lastClearedAt || 0);
+    if (!mapsStatus?.running && (!Array.isArray(state.rows) || state.rows.length === 0) && localMapsClearedAt > extMapsClearedAt) {
+      const keepJobOnExt = Boolean(state.job && Array.isArray(state.job.queries) && state.job.index < state.job.queries.length);
+      syncClearedExtensionState(
+        { type: 'MAPS_CLEAR_DATA', keepJob: keepJobOnExt, keepSeenKeys: keepJobOnExt, clearedAt: localMapsClearedAt },
+        { rinMaps: state }
+      ).catch(() => {});
+    } else if (Array.isArray(mapsStatus?.state?.recentRows) && mapsStatus.state.recentRows.length) {
       mapsStatus.state.recentRows.forEach(r => addRow(r, { forceIfNotInRows: true }));
       if (mapsStatus.state.job !== undefined && mapsStatus.running) {
         state.job = mapsStatus.state.job;
@@ -3107,7 +3164,14 @@ function syncGroupRowFromWorker(r) {
     if (Number(groupStatus?.syncVersion) >= 2) {
       mapsExtSupportsSyncV2 = true;
     }
-    if (Array.isArray(groupStatus?.state?.recentRows) && groupStatus.state.recentRows.length) {
+    const localGroupClearedAt = Number(groupState.lastClearedAt || 0);
+    const extGroupClearedAt = Number(groupStatus?.state?.lastClearedAt || 0);
+    if (!groupStatus?.running && (!Array.isArray(groupState.rows) || groupState.rows.length === 0) && localGroupClearedAt > extGroupClearedAt) {
+      syncClearedExtensionState(
+        { type: 'FB_GROUP_CLEAR_DATA', clearedAt: localGroupClearedAt },
+        { rinFbGroup: groupState }
+      ).catch(() => {});
+    } else if (Array.isArray(groupStatus?.state?.recentRows) && groupStatus.state.recentRows.length) {
       for (const r of groupStatus.state.recentRows) {
         syncGroupRowFromWorker(r);
       }
@@ -3158,6 +3222,24 @@ window.addEventListener('NTD_EXTENSION_READY', async () => {
   if (mapsExtSupportsSyncV2) {
     hideMapsWebNotice();
     hideGroupWebNotice();
+    const localMapsClearedAt = Number(state.lastClearedAt || 0);
+    if (!st?.running && (!Array.isArray(state.rows) || state.rows.length === 0) && localMapsClearedAt > Number(st?.state?.lastClearedAt || 0)) {
+      const keepJobOnExt = Boolean(state.job && Array.isArray(state.job.queries) && state.job.index < state.job.queries.length);
+      syncClearedExtensionState(
+        { type: 'MAPS_CLEAR_DATA', keepJob: keepJobOnExt, keepSeenKeys: keepJobOnExt, clearedAt: localMapsClearedAt },
+        { rinMaps: state }
+      ).catch(() => {});
+    }
+    const localGroupClearedAt = Number(groupState.lastClearedAt || 0);
+    if (!groupRunning && (!Array.isArray(groupState.rows) || groupState.rows.length === 0) && localGroupClearedAt > 0) {
+      const gst = await chrome.runtime.sendMessage({ type: 'FB_GROUP_GET_STATUS' }).catch(() => null);
+      if (!gst?.running && localGroupClearedAt > Number(gst?.state?.lastClearedAt || 0)) {
+        syncClearedExtensionState(
+          { type: 'FB_GROUP_CLEAR_DATA', clearedAt: localGroupClearedAt },
+          { rinFbGroup: groupState }
+        ).catch(() => {});
+      }
+    }
   } else if (st?.extensionOutdated || document.documentElement.dataset.ntdExtensionConnected === 'true') {
     showMapsWebNotice(true);
     showGroupWebNotice(true);
