@@ -1,7 +1,7 @@
 // groups.js – Quản lý kho nhóm và phân loại danh mục nhóm
 import { enforceLicenseGate } from './license.js';
 import { getGroupKey, getAllPostedGroupKeys } from './core.js';
-import { supabaseClearReportScope } from './supabase.js?v=20261112_0840';
+import { supabaseClearReportScope } from './supabase.js?v=20261112_1000';
 import {
   extractCanonicalGroupKey,
   normalizeGroupName,

@@ -411,7 +411,13 @@
         'UNIVERSAL_TABS_UPDATE',
         'UNIVERSAL_TABS_GET',
         'UNIVERSAL_TABS_REMOVE',
-        'UNIVERSAL_SCRIPTING_EXECUTE'
+        'UNIVERSAL_SCRIPTING_EXECUTE',
+        'SCHEDULE_GET_ALL',
+        'SCHEDULE_UPSERT_BATCH',
+        'SCHEDULE_UPDATE',
+        'SCHEDULE_DELETE',
+        'SCHEDULE_CLEAR_ALL',
+        'SCHEDULE_RUN_NOW'
       ]);
 
       if (message?.type === 'WARMUP_START' && typeof window.chrome?.runtime?.sendToExtension === 'function') {
@@ -502,14 +508,26 @@
         return;
       }
 
+      const isScheduleCmd = Boolean(message?.type && message.type.startsWith('SCHEDULE_'));
+
       if (message?.type && EXT_PRIVILEGED.has(message.type) && typeof window.chrome?.runtime?.sendToExtension === 'function') {
         try {
           const extResp = await window.chrome.runtime.sendToExtension(message);
-          if (extResp && (extResp.ok || extResp.success)) {
+          if (extResp && (extResp.ok || extResp.success || isScheduleCmd)) {
             sendResponse(extResp);
             return;
           }
         } catch (_) {}
+      }
+
+      if (isScheduleCmd) {
+        sendResponse({
+          ok: false,
+          webFallback: true,
+          extensionUnsupported: true,
+          error: 'Web environment: Extension unavailable for background schedule sync'
+        });
+        return;
       }
 
       // Trên Web Platform: nếu Extension không cài đặt hoặc phiên bản Extension cũ chưa hỗ trợ GROUP_SEARCH_*,

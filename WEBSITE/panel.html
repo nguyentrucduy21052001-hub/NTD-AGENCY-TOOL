@@ -7,7 +7,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#070b14">
   <title>NTD Agency</title>
-  <script src="web_adapter.js?v=20261109_1430"></script>
+  <script src="web_adapter.js?v=20261112_1000"></script>
   <script>(function () { var t = localStorage.getItem('ntd_theme') || 'dark'; var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches); if (isDark) { document.documentElement.classList.add('ntd-dark-theme'); document.documentElement.style.backgroundColor = '#070b14'; document.documentElement.style.colorScheme = 'dark'; new MutationObserver(function (_, obs) { if (document.body) { document.body.classList.add('ntd-dark-theme'); document.body.style.backgroundColor = '#070b14'; obs.disconnect(); } }).observe(document.documentElement, { childList: true }); } else { document.documentElement.classList.remove('ntd-dark-theme'); document.documentElement.style.backgroundColor = '#f3f5fa'; document.documentElement.style.colorScheme = 'light'; new MutationObserver(function (_, obs) { if (document.body) { document.body.classList.remove('ntd-dark-theme'); obs.disconnect(); } }).observe(document.documentElement, { childList: true }); } })();</script>
   <style id="ntd-anti-flicker">
     html.ntd-dark-theme,
@@ -2864,6 +2864,556 @@
     font-weight: 500 !important;
     text-shadow: none !important;
   }
+
+  /* ── Multi-Milestone Auto Post Scheduler Card ── */
+  .multi-sched-card {
+    background: #f8fafc;
+    border: 1px solid #dbe3ee;
+    border-left: 4px solid #3b82f6;
+    border-radius: 12px;
+    margin: 16px 0;
+    overflow: hidden;
+    transition: all .2s ease;
+  }
+
+  .sched-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    background: #f1f5f9;
+    flex-wrap: wrap;
+  }
+
+  .sched-header:hover {
+    background: #e2e8f0;
+  }
+
+  .sched-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sched-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sched-title-text {
+    font-weight: 800;
+    font-size: 13.5px;
+    color: #0f172a;
+  }
+
+  .sched-count-pill {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #1d4ed8;
+    background: #dbeafe;
+    border: 1px solid #93c5fd;
+    border-radius: 20px;
+    padding: 2px 9px;
+  }
+
+  .sched-runner-pill {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 20px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #475569;
+  }
+
+  .sched-runner-pill.ext-on {
+    background: #ecfdf5;
+    border-color: #6ee7b7;
+    color: #047857;
+  }
+
+  .sched-runner-pill.web-only {
+    background: #fffbeb;
+    border-color: #fcd34d;
+    color: #b45309;
+  }
+
+  .sched-body {
+    padding: 14px 16px 16px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .multi-sched-card.collapsed .sched-body {
+    display: none;
+  }
+
+  .sched-mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  @media (max-width: 850px) {
+    .sched-mode-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .sched-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+
+  .sched-box-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .sched-radio-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sched-seg-btn {
+    flex: 1;
+    min-width: 140px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1.5px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    cursor: pointer;
+    transition: all .15s;
+  }
+
+  .sched-seg-btn.active {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.16);
+  }
+
+  .sched-sub-row {
+    margin-top: 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #475569;
+  }
+
+  .sched-sub-row input[type="date"],
+  .sched-sub-row input[type="number"] {
+    margin-top: 0;
+    padding: 5px 8px;
+    border-radius: 7px;
+    border: 1px solid #cbd5e1;
+    font-size: 12px;
+    width: auto;
+  }
+
+  .sched-times-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 11px 12px;
+    margin-bottom: 12px;
+  }
+
+  .sched-preset-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .sched-preset-btn {
+    padding: 4px 9px;
+    border-radius: 16px;
+    font-size: 11.5px;
+    font-weight: 700;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    cursor: pointer;
+    transition: all .12s;
+  }
+
+  .sched-preset-btn:hover {
+    background: #dbeafe;
+  }
+
+  .sched-preset-btn.selected {
+    background: #2563eb;
+    color: #ffffff;
+    border-color: #1d4ed8;
+  }
+
+  .sched-preset-btn.gold {
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #92400e;
+  }
+
+  .sched-preset-btn.clear {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+    color: #475569;
+  }
+
+  .sched-inputs-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 10px;
+  }
+
+  @media (max-width: 780px) {
+    .sched-inputs-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .sched-preview-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .sched-slot-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 9px;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e3a8a;
+  }
+
+  .sched-slot-chip select {
+    margin-top: 0;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    border: 1px solid #93c5fd;
+    background: #ffffff;
+    color: #0f172a;
+    width: auto;
+  }
+
+  .sched-chip-remove {
+    background: transparent;
+    border: none;
+    color: #ef4444;
+    font-weight: 800;
+    cursor: pointer;
+    padding: 0 3px;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .sched-builder-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .sched-preview-summary {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .sched-add-btn {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #ffffff;
+    border: none;
+    border-radius: 9px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+  }
+
+  .sched-add-btn:hover {
+    filter: brightness(1.06);
+  }
+
+  .sched-queue-panel {
+    margin-top: 12px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 11px 12px;
+  }
+
+  .sched-queue-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 9px;
+  }
+
+  .sched-filter-row {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+
+  .sched-filter-btn {
+    padding: 4px 10px;
+    border-radius: 14px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .sched-filter-btn.active {
+    background: #1e293b;
+    color: #ffffff;
+    border-color: #1e293b;
+  }
+
+  .sched-table-wrap {
+    max-height: 330px;
+    overflow-y: auto;
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    scrollbar-width: thin;
+  }
+
+  .sched-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .sched-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 700;
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #cbd5e1;
+    z-index: 2;
+    white-space: nowrap;
+  }
+
+  .sched-table tbody td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+
+  .sched-table tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .sched-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .sched-badge.waiting { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .sched-badge.deferred { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  .sched-badge.done { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .sched-badge.paused { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .sched-badge.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+  .sched-mini-btn {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    cursor: pointer;
+    margin-right: 4px;
+  }
+
+  .sched-mini-btn.run { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+  .sched-mini-btn.edit { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+  .sched-mini-btn.del { background: #fef2f2; border-color: #fecaca; color: #dc2626; margin-right: 0; }
+
+  /* Dark theme support for Multi-Milestone Auto Post Scheduler */
+  html.ntd-dark-theme .multi-sched-card,
+  body.ntd-dark-theme .multi-sched-card {
+    background: #0b111e !important;
+    border-color: rgba(59, 130, 246, 0.25) !important;
+    border-left-color: #3b82f6 !important;
+  }
+  html.ntd-dark-theme .sched-header,
+  body.ntd-dark-theme .sched-header {
+    background: #0f172a !important;
+  }
+  html.ntd-dark-theme .sched-header:hover,
+  body.ntd-dark-theme .sched-header:hover {
+    background: #172338 !important;
+  }
+  html.ntd-dark-theme .sched-title-text,
+  body.ntd-dark-theme .sched-title-text { color: #f8fafc !important; }
+  html.ntd-dark-theme .sched-body,
+  body.ntd-dark-theme .sched-body { border-top-color: rgba(255, 255, 255, 0.08) !important; }
+  html.ntd-dark-theme .sched-box,
+  html.ntd-dark-theme .sched-times-card,
+  html.ntd-dark-theme .sched-queue-panel,
+  body.ntd-dark-theme .sched-box,
+  body.ntd-dark-theme .sched-times-card,
+  body.ntd-dark-theme .sched-queue-panel {
+    background: #0f172a !important;
+    border-color: rgba(255, 255, 255, 0.09) !important;
+  }
+  html.ntd-dark-theme .sched-box-label,
+  html.ntd-dark-theme .sched-sub-row,
+  html.ntd-dark-theme .sched-preview-summary,
+  body.ntd-dark-theme .sched-box-label,
+  body.ntd-dark-theme .sched-sub-row,
+  body.ntd-dark-theme .sched-preview-summary {
+    color: #cbd5e1 !important;
+  }
+  html.ntd-dark-theme .sched-seg-btn,
+  body.ntd-dark-theme .sched-seg-btn {
+    background: #111c32 !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    color: #cbd5e1 !important;
+  }
+  html.ntd-dark-theme .sched-seg-btn.active,
+  body.ntd-dark-theme .sched-seg-btn.active {
+    background: rgba(59, 130, 246, 0.2) !important;
+    border-color: #3b82f6 !important;
+    color: #93c5fd !important;
+  }
+  html.ntd-dark-theme .sched-preset-btn,
+  body.ntd-dark-theme .sched-preset-btn {
+    background: rgba(59, 130, 246, 0.14) !important;
+    border-color: rgba(59, 130, 246, 0.35) !important;
+    color: #93c5fd !important;
+  }
+  html.ntd-dark-theme .sched-preset-btn.selected,
+  body.ntd-dark-theme .sched-preset-btn.selected {
+    background: #2563eb !important;
+    color: #ffffff !important;
+  }
+  html.ntd-dark-theme .sched-preset-btn.gold,
+  body.ntd-dark-theme .sched-preset-btn.gold {
+    background: rgba(245, 158, 11, 0.18) !important;
+    border-color: rgba(245, 158, 11, 0.4) !important;
+    color: #fcd34d !important;
+  }
+  html.ntd-dark-theme .sched-preset-btn.clear,
+  body.ntd-dark-theme .sched-preset-btn.clear {
+    background: rgba(148, 163, 184, 0.15) !important;
+    border-color: rgba(148, 163, 184, 0.3) !important;
+    color: #cbd5e1 !important;
+  }
+  html.ntd-dark-theme .sched-slot-chip,
+  body.ntd-dark-theme .sched-slot-chip {
+    background: rgba(37, 99, 235, 0.18) !important;
+    border-color: rgba(59, 130, 246, 0.45) !important;
+    color: #bfdbfe !important;
+  }
+  html.ntd-dark-theme .sched-slot-chip select,
+  body.ntd-dark-theme .sched-slot-chip select {
+    background: #0b111e !important;
+    border-color: rgba(59, 130, 246, 0.4) !important;
+    color: #f8fafc !important;
+  }
+  html.ntd-dark-theme .sched-table-wrap,
+  body.ntd-dark-theme .sched-table-wrap {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+  html.ntd-dark-theme .sched-table thead th,
+  body.ntd-dark-theme .sched-table thead th {
+    background: #162238 !important;
+    color: #e2e8f0 !important;
+    border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+  }
+  html.ntd-dark-theme .sched-table tbody td,
+  body.ntd-dark-theme .sched-table tbody td {
+    border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+    color: #e2e8f0 !important;
+  }
+  html.ntd-dark-theme .sched-table tbody tr:hover,
+  body.ntd-dark-theme .sched-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03) !important;
+  }
+  html.ntd-dark-theme .sched-filter-btn,
+  body.ntd-dark-theme .sched-filter-btn {
+    background: #111c32 !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    color: #cbd5e1 !important;
+  }
+  html.ntd-dark-theme .sched-filter-btn.active,
+  body.ntd-dark-theme .sched-filter-btn.active {
+    background: #2563eb !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+  }
+  html.ntd-dark-theme .sched-mini-btn,
+  body.ntd-dark-theme .sched-mini-btn {
+    background: #1e293b !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    color: #e2e8f0 !important;
+  }
+  html.ntd-dark-theme .sched-mini-btn.run,
+  body.ntd-dark-theme .sched-mini-btn.run {
+    background: rgba(16, 185, 129, 0.16) !important;
+    border-color: rgba(16, 185, 129, 0.4) !important;
+    color: #6ee7b7 !important;
+  }
+  html.ntd-dark-theme .sched-mini-btn.del,
+  body.ntd-dark-theme .sched-mini-btn.del {
+    background: rgba(239, 68, 68, 0.16) !important;
+    border-color: rgba(239, 68, 68, 0.4) !important;
+    color: #fca5a5 !important;
+  }
 </style>
 
 <body class="ntd-dark-theme">
@@ -3259,6 +3809,155 @@
                 <input id="maxPosts" type="number" min="1" placeholder="Để trống: đăng hết nhóm"
                   style="width:190px;margin-top:0;padding:7px 10px;font-size:12.5px">
               </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- ⏰ Tự động hẹn giờ đăng bài trước theo các mốc thời gian -->
+        <div class="multi-sched-card" id="multiScheduleCard">
+          <div class="sched-header" id="multiScheduleHeader">
+            <div class="sched-header-left">
+              <span style="font-size:16px">⏰</span>
+              <span class="sched-title-text">Tự động hẹn giờ đăng bài trước theo nhiều mốc thời gian</span>
+              <span class="sched-count-pill" id="schedQueueCountBadge">0 mốc đang chờ</span>
+            </div>
+            <div class="sched-header-right">
+              <span class="sched-runner-pill" id="schedRunnerModeBadge">Đang kiểm tra kết nối...</span>
+              <span class="as-chevron" id="multiSchedChevron" style="font-size:12px;opacity:0.75">▼</span>
+            </div>
+          </div>
+
+          <div class="sched-body" id="multiScheduleBody">
+            <div class="sched-mode-grid">
+              <!-- Cột trái: Kiểu lịch (1 lần vs Lặp lại hằng ngày) -->
+              <div class="sched-box">
+                <div class="sched-box-label">
+                  <span>1. Tần suất chạy lịch</span>
+                  <small style="opacity:0.75">Hẹn 1 ngày hoặc lặp hằng ngày</small>
+                </div>
+                <div class="sched-radio-row">
+                  <button type="button" class="sched-seg-btn active" data-sched-type="once" id="schedTypeOnceBtn">
+                    🗓️ Hẹn 1 lần (Ngày + Giờ)
+                  </button>
+                  <button type="button" class="sched-seg-btn" data-sched-type="daily" id="schedTypeDailyBtn">
+                    🔁 Lặp lại hằng ngày
+                  </button>
+                </div>
+                <div class="sched-sub-row" id="schedDateRow">
+                  <span>Chọn ngày chạy:</span>
+                  <input type="date" id="schedDateInput">
+                  <span style="font-size:11px;opacity:0.75">(Mỗi mốc sẽ tự động chạy đúng giờ trong ngày này)</span>
+                </div>
+                <div class="sched-sub-row" id="schedDailyHintRow" style="display:none">
+                  <span>🔁 Tự động kích hoạt mỗi ngày 1 lần tại đúng các khung giờ bên dưới (mốc đã qua hôm nay sẽ bắt đầu từ ngày mai).</span>
+                </div>
+              </div>
+
+              <!-- Cột phải: Cách phân bổ nhóm (Mỗi mốc 1 đợt vs Chia đều nhóm) -->
+              <div class="sched-box">
+                <div class="sched-box-label">
+                  <span>2. Cách phân bổ nhóm &amp; bài viết</span>
+                  <small style="opacity:0.75">Chạy trọn đợt hoặc chia nhỏ</small>
+                </div>
+                <div class="sched-radio-row">
+                  <button type="button" class="sched-seg-btn active" data-dispatch-mode="per_slot" id="schedDispatchPerSlotBtn">
+                    📦 Mỗi mốc chạy 1 đợt
+                  </button>
+                  <button type="button" class="sched-seg-btn" data-dispatch-mode="split_groups" id="schedDispatchSplitBtn">
+                    ⚖️ Chia đều nhóm ra các mốc
+                  </button>
+                </div>
+                <div class="sched-sub-row" id="schedPerSlotMaxRow">
+                  <span>Số nhóm tối đa mỗi mốc:</span>
+                  <input type="number" id="schedMaxGroupsPerSlot" min="1" placeholder="Trống = toàn bộ" style="width:140px">
+                  <span style="font-size:11px;opacity:0.75">(Có thể chọn Bài 1 / 2 / 3 riêng từng mốc)</span>
+                </div>
+                <div class="sched-sub-row" id="schedSplitHintRow" style="display:none">
+                  <span>⚖️ Tự chia danh sách nhóm đang chọn thành N phần đều nhau tương ứng với N mốc giờ — không đăng trùng giữa các mốc!</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Khung nhập và chọn nhanh các mốc giờ -->
+            <div class="sched-times-card">
+              <div class="sched-box-label" style="margin-bottom:6px">
+                <span>3. Chọn hoặc nhập các mốc giờ (HH:mm)</span>
+                <span style="font-size:11px;font-weight:600;opacity:0.8">Bấm chip giờ bên dưới để thêm/bớt nhanh</span>
+              </div>
+              <div class="sched-preset-row" id="schedPresetRow">
+                <button type="button" class="sched-preset-btn" data-preset-time="07:30">+ 07:30</button>
+                <button type="button" class="sched-preset-btn" data-preset-time="08:30">+ 08:30</button>
+                <button type="button" class="sched-preset-btn" data-preset-time="11:30">+ 11:30</button>
+                <button type="button" class="sched-preset-btn" data-preset-time="14:00">+ 14:00</button>
+                <button type="button" class="sched-preset-btn" data-preset-time="17:30">+ 17:30</button>
+                <button type="button" class="sched-preset-btn" data-preset-time="20:00">+ 20:00</button>
+                <button type="button" class="sched-preset-btn" data-preset-time="21:30">+ 21:30</button>
+                <button type="button" class="sched-preset-btn gold" id="schedGoldPresetBtn">⚡ Bộ giờ vàng (08:30, 11:30, 17:30, 20:00)</button>
+                <button type="button" class="sched-preset-btn clear" id="schedClearTimesBtn">🧹 Xóa mốc</button>
+              </div>
+              <div class="sched-inputs-grid">
+                <div>
+                  <input type="text" id="schedTimesInput" value="08:30, 11:30, 20:00"
+                    placeholder="Nhập các mốc giờ cách nhau bởi dấu phẩy hoặc khoảng trắng, vd: 08:00, 11:30, 15:00, 20:00"
+                    style="margin-top:0">
+                </div>
+                <div>
+                  <input type="text" id="schedLabelInput"
+                    placeholder="Tên gợi nhớ đợt lịch (tùy chọn, vd: Chiến dịch sáng-trưa-tối)"
+                    style="margin-top:0">
+                </div>
+              </div>
+
+              <!-- Preview chips kèm dropdown gán Bài 1/2/3 cho từng mốc -->
+              <div class="sched-preview-row" id="schedSlotPreviewRow"></div>
+
+              <div class="sched-builder-footer">
+                <div class="sched-preview-summary" id="schedPreviewSummary">Chưa có mốc giờ nào được chọn.</div>
+                <button type="button" class="sched-add-btn" id="addScheduleBatchBtn">
+                  ➕ Thêm vào hàng đợi lịch hẹn
+                </button>
+              </div>
+              <div id="schedBuilderStatus" style="margin-top:8px;font-size:12px;font-weight:700;display:none"></div>
+            </div>
+
+            <!-- Danh sách hàng đợi lịch hẹn -->
+            <div class="sched-queue-panel">
+              <div class="sched-queue-toolbar">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <span style="font-weight:800;font-size:13px">📅 Danh sách mốc lịch đăng sắp tới</span>
+                  <div class="sched-filter-row" id="schedFilterRow">
+                    <button type="button" class="sched-filter-btn active" data-sched-filter="all">Tất cả (<span id="schedCountAll">0</span>)</button>
+                    <button type="button" class="sched-filter-btn" data-sched-filter="waiting">Đang chờ (<span id="schedCountWaiting">0</span>)</button>
+                    <button type="button" class="sched-filter-btn" data-sched-filter="daily">Hằng ngày (<span id="schedCountDaily">0</span>)</button>
+                    <button type="button" class="sched-filter-btn" data-sched-filter="finished">Đã chạy / Tắt (<span id="schedCountFinished">0</span>)</button>
+                  </div>
+                </div>
+                <button type="button" id="clearAllSchedulesBtn" class="sched-mini-btn del" style="padding:5px 10px">
+                  🗑️ Xóa toàn bộ lịch
+                </button>
+              </div>
+
+              <div class="sched-table-wrap">
+                <table class="sched-table">
+                  <thead>
+                    <tr>
+                      <th style="width:36px;text-align:center">#</th>
+                      <th style="width:125px">Trạng thái</th>
+                      <th>Mốc thời gian &amp; Đếm ngược</th>
+                      <th>Chế độ &amp; Bài đăng</th>
+                      <th>Phạm vi &amp; Ghi chú</th>
+                      <th style="width:185px;text-align:right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody id="schedQueueTableBody">
+                    <tr>
+                      <td colspan="6" style="text-align:center;padding:18px;opacity:0.7">
+                        Chưa có mốc lịch đăng nào. Chọn giờ ở trên rồi bấm "Thêm vào hàng đợi lịch hẹn".
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -3678,8 +4377,8 @@
     </div>
 
   </main>
-  <script type="module" src="panel.js?v=20261109_1430"></script>
-  <script type="module" src="sidebar.js?v=20261112_0840"></script>
+  <script type="module" src="panel.js?v=20261112_1000"></script>
+  <script type="module" src="sidebar.js?v=20261112_1000"></script>
 </body>
 
 </html>

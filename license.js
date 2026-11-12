@@ -1,6 +1,6 @@
 // ─── license.js - NTD Agency Account & License Management ────────────────────
 // Quản lý xác thực tài khoản (Username + Password) và thời hạn bản quyền qua Supabase & Google Sheets
-import { isSupabaseConfigured, supabaseLogin, supabaseCheckLicense } from './supabase.js?v=20261112_0840';
+import { isSupabaseConfigured, supabaseLogin, supabaseCheckLicense } from './supabase.js?v=20261112_1000';
 
 // SECRET giữ nguyên để tương thích giải mã sync_helper.js
 export const SECRET = 'DuyPosterHmac@2025#ChangeThisSecret!';
@@ -152,10 +152,11 @@ export async function getMachineId() {
     try { localStorage.setItem('dg_machine_id', id); } catch (_) {}
     return id;
   } catch (e) {
-    let id = localStorage.getItem('dg_machine_id');
+    let id = '';
+    try { id = typeof localStorage !== 'undefined' ? (localStorage.getItem('dg_machine_id') || '') : ''; } catch (_) {}
     if (!id || id.length < 8) {
       id = _toHex(crypto.getRandomValues(new Uint8Array(16)));
-      try { localStorage.setItem('dg_machine_id', id); } catch (_) {}
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('dg_machine_id', id); } catch (_) {}
     }
     return id;
   }

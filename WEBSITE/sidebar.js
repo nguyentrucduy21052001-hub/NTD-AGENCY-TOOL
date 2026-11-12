@@ -818,7 +818,7 @@ if (!activeLicense) {
 
       // Gửi lên Supabase bằng dynamic import an toàn
       try {
-        const sb = await import('./supabase.js?v=20261112_0840');
+        const sb = await import('./supabase.js?v=20261112_1000');
         if (typeof sb.supabaseUpdateUserStats === 'function') {
           await sb.supabaseUpdateUserStats(username, {
             fb_count: fbCount,
@@ -855,7 +855,7 @@ if (!activeLicense) {
     const keys = Array.from(_pendingCloudSyncKeys);
     _pendingCloudSyncKeys.clear();
     try {
-      const sb = await import('./supabase.js?v=20261112_0840');
+      const sb = await import('./supabase.js?v=20261112_1000');
       if (typeof sb.pushLocalChangesToSupabase === 'function') {
         await sb.pushLocalChangesToSupabase(username, keys);
       }
@@ -868,7 +868,7 @@ if (!activeLicense) {
     const username = getActiveUsernameForSync();
     if (!username) return;
     try {
-      const sb = await import('./supabase.js?v=20261112_0840');
+      const sb = await import('./supabase.js?v=20261112_1000');
       if (typeof sb.hydrateLocalFromSupabase !== 'function') return;
 
       _applyingRemoteSupabaseSync = true;
@@ -910,6 +910,7 @@ if (!activeLicense) {
       'accounts',
       'groupCategories',
       'draft',
+      'scheduledPostJobs',
       'dailyPostStats',
       'warmupConfig',
       'warmupReports',

@@ -5,7 +5,7 @@
 import { enforceLicenseGate } from './license.js';
 await enforceLicenseGate();
 
-import { supabaseClearReportScope } from './supabase.js?v=20261112_0840';
+import { supabaseClearReportScope } from './supabase.js?v=20261112_1000';
 
 import { mapsExtract } from './maps_extract.js';
 import { splitItems, buildQueries } from './maps_batch.js';

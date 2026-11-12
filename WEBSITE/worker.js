@@ -2,6 +2,17 @@
 import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, recordPostedGroupUrl} from './core.js';
 import { checkCurrentLicense } from './license.js';
 import { mapsExtract } from './maps_extract.js';
+import {
+  SCHEDULE_ALARM_PREFIX,
+  SCHEDULE_SWEEP_ALARM,
+  formatLocalDateStr,
+  computeInitialNextRunAt,
+  computeNextDailyAfterRun,
+  normalizeScheduleJobState,
+  isScheduleJobDue,
+  resolvePicturesIntoPayload,
+  pruneUnreferencedScheduledPictures
+} from './post_schedule_helper.js';
 
 // ── Serial lock per account ─────────────────────────────────────────────────
 const locks = {};
@@ -50,6 +61,190 @@ const saveDailyStats = stats => chrome.storage.local.set({dailyPostStats: stats}
     }
   } catch (_) {}
 })();
+
+// ── Multi-Milestone Auto Post Scheduler helpers ──────────────────────────────
+let scheduleMutex = Promise.resolve();
+function withScheduleLock(fn) {
+  const p = scheduleMutex.then(fn);
+  scheduleMutex = p.catch(() => {});
+  return p;
+}
+
+const readScheduledJobs = async () => {
+  const r = await chrome.storage.local.get('scheduledPostJobs');
+  return Array.isArray(r.scheduledPostJobs) ? r.scheduledPostJobs : [];
+};
+const saveScheduledJobs = jobs => chrome.storage.local.set({ scheduledPostJobs: Array.isArray(jobs) ? jobs : [] });
+const readScheduledPictures = async () => {
+  const r = await chrome.storage.local.get('scheduledPictures');
+  return (r.scheduledPictures && typeof r.scheduledPictures === 'object') ? r.scheduledPictures : {};
+};
+const saveScheduledPictures = map => chrome.storage.local.set({ scheduledPictures: (map && typeof map === 'object') ? map : {} });
+
+async function syncScheduleAlarmsUnlocked() {
+  try {
+    const rawJobs = await readScheduledJobs();
+    const now = Date.now();
+    const normJobs = rawJobs.map(j => normalizeScheduleJobState(j, now)).filter(Boolean);
+    if (JSON.stringify(normJobs) !== JSON.stringify(rawJobs)) {
+      await saveScheduledJobs(normJobs);
+    }
+
+    const activePendingIds = new Set();
+    for (const job of normJobs) {
+      if (job.enabled && !job.completed && job.state !== 'done' && Number.isFinite(job.nextRunAt) && job.nextRunAt > 0) {
+        activePendingIds.add(SCHEDULE_ALARM_PREFIX + job.id);
+        const alarmWhen = (job.state === 'deferred' && Number(job.deferredUntil) > now)
+          ? Number(job.deferredUntil)
+          : Math.max(now + 1000, job.nextRunAt);
+        try {
+          chrome.alarms?.create?.(SCHEDULE_ALARM_PREFIX + job.id, { when: alarmWhen });
+        } catch (_) {}
+      }
+    }
+
+    const allAlarms = (await chrome.alarms?.getAll?.().catch(() => [])) || [];
+    for (const al of allAlarms) {
+      if (al.name?.startsWith(SCHEDULE_ALARM_PREFIX) && !activePendingIds.has(al.name)) {
+        try { await chrome.alarms?.clear?.(al.name); } catch (_) {}
+      }
+    }
+
+    if (activePendingIds.size > 0) {
+      try { chrome.alarms?.create?.(SCHEDULE_SWEEP_ALARM, { periodInMinutes: 1 }); } catch (_) {}
+    } else {
+      try { await chrome.alarms?.clear?.(SCHEDULE_SWEEP_ALARM); } catch (_) {}
+    }
+    return normJobs;
+  } catch (e) {
+    console.warn('[ScheduleAlarms] sync error:', e);
+    return [];
+  }
+}
+
+const syncScheduleAlarms = () => withScheduleLock(syncScheduleAlarmsUnlocked);
+
+async function executeScheduledJobUnlocked(jobId, { manual = false } = {}) {
+  const jobs = await readScheduledJobs();
+  const idx = jobs.findIndex(j => j.id === jobId);
+  if (idx < 0) throw new Error('Không tìm thấy mốc lịch hẹn.');
+  const job = jobs[idx];
+
+  const validLicense = await checkCurrentLicense(false).catch(() => false);
+  if (!validLicense) {
+    const errMsg = 'Tiện ích chưa kích hoạt bản quyền hợp lệ.';
+    job.lastError = errMsg;
+    job.lastStatusNote = '⚠️ ' + errMsg;
+    job.state = 'error';
+    if (job.scheduleType === 'once') {
+      job.enabled = false;
+      job.nextRunAt = 0;
+    }
+    await saveScheduledJobs(jobs);
+    await syncScheduleAlarmsUnlocked();
+    return { ok: false, error: errMsg, jobs };
+  }
+
+  const campaigns = await readCampaigns();
+  const anyActive = Object.values(campaigns || {}).some(c => c && (c.state === 'running' || c.state === 'waiting'));
+  if (!manual && anyActive) {
+    const retryAt = Date.now() + 90_000;
+    job.state = 'deferred';
+    job.deferredUntil = retryAt;
+    job.lastStatusNote = '⏳ Đang có chiến dịch khác chạy — tự động thử lại sau 90 giây';
+    await saveScheduledJobs(jobs);
+    try {
+      chrome.alarms?.create?.(SCHEDULE_ALARM_PREFIX + job.id, { when: retryAt });
+    } catch (_) {}
+    return { ok: true, deferred: true, jobs };
+  }
+
+  try {
+    const scheduledPictures = await readScheduledPictures();
+    const { draft: currentDraft } = await chrome.storage.local.get('draft');
+    const payload = resolvePicturesIntoPayload(
+      job.payloadSnapshot || {},
+      scheduledPictures,
+      currentDraft?.posts || []
+    );
+    payload.at = Date.now();
+    payload.when = '';
+
+    await executeStartAllCampaign(payload, { preserveDraft: true });
+
+    const doneNow = Date.now();
+    job.lastRunAt = doneNow;
+    job.lastRunDate = formatLocalDateStr(doneNow);
+    job.runCount = (Number(job.runCount) || 0) + 1;
+    job.deferredUntil = 0;
+    job.lastError = '';
+    job.lastStatusNote = manual
+      ? '▶ Đã kích hoạt chạy tay thành công'
+      : '🚀 Đã tự động kích hoạt đợt đăng bài';
+
+    if (job.scheduleType === 'daily') {
+      job.state = 'waiting';
+      job.nextRunAt = computeNextDailyAfterRun(job.timeHM, doneNow);
+    } else {
+      job.enabled = false;
+      job.completed = true;
+      job.state = 'done';
+      job.nextRunAt = 0;
+    }
+
+    await saveScheduledJobs(jobs);
+    await syncScheduleAlarmsUnlocked();
+    return { ok: true, executedJobId: job.id, jobs };
+  } catch (err) {
+    const failNow = Date.now();
+    job.lastRunAt = failNow;
+    job.lastRunDate = formatLocalDateStr(failNow);
+    job.lastError = err?.message || 'Lỗi kích hoạt lịch tự động';
+    job.lastStatusNote = '⚠️ ' + job.lastError;
+    job.state = 'error';
+    if (job.scheduleType === 'daily') {
+      job.nextRunAt = computeNextDailyAfterRun(job.timeHM, failNow);
+    } else {
+      job.enabled = false;
+      job.nextRunAt = 0;
+    }
+    await saveScheduledJobs(jobs);
+    await syncScheduleAlarmsUnlocked();
+    return { ok: false, error: job.lastError, jobs };
+  }
+}
+
+async function processDueScheduleJobs(specificJobId = null) {
+  return withScheduleLock(async () => {
+    const now = Date.now();
+    const rawJobs = await readScheduledJobs();
+    const normJobs = rawJobs.map(j => normalizeScheduleJobState(j, now)).filter(Boolean);
+    if (JSON.stringify(normJobs) !== JSON.stringify(rawJobs)) {
+      await saveScheduledJobs(normJobs);
+    }
+
+    const dueList = normJobs.filter(j => {
+      if (j.state === 'deferred') {
+        if (!j.enabled || j.completed) return false;
+        const waitUntil = Number(j.deferredUntil) || 0;
+        if (specificJobId && j.id === specificJobId && now + 2000 >= waitUntil) return true;
+        if (waitUntil > now) return false;
+      }
+      return isScheduleJobDue(j, now);
+    });
+
+    if (!dueList.length) {
+      await syncScheduleAlarmsUnlocked();
+      return { ok: true, executed: false };
+    }
+
+    dueList.sort((a, b) => (a.nextRunAt || 0) - (b.nextRunAt || 0));
+    const chosen = (specificJobId && dueList.find(j => j.id === specificJobId)) || dueList[0];
+    return await executeScheduledJobUnlocked(chosen.id, { manual: false });
+  });
+}
+
+syncScheduleAlarms().catch(() => {});
 
 // ── Daily Post Limit & Tracking helpers ───────────────────────────────────────
 let dailyStatsLock = Promise.resolve();
@@ -3943,6 +4138,17 @@ chrome.alarms.onAlarm.addListener(async a => {
     return;
   }
 
+  if (a.name === SCHEDULE_SWEEP_ALARM) {
+    await processDueScheduleJobs().catch(() => {});
+    return;
+  }
+
+  if (a.name.startsWith(SCHEDULE_ALARM_PREFIX)) {
+    const jobId = a.name.slice(SCHEDULE_ALARM_PREFIX.length);
+    await processDueScheduleJobs(jobId).catch(() => {});
+    return;
+  }
+
   if (a.name === 'rinRetry') {
     lockedMaps(flushMapsQueue);
     return;
@@ -4109,8 +4315,327 @@ if (chrome.runtime?.onStartup?.addListener) {
       }
       if (changed) await saveCampaigns(campaigns);
       try { await chrome.alarms.clear('queue'); } catch (_) {}
+      await syncScheduleAlarms();
+      await processDueScheduleJobs();
+    }).catch(() => {
+      syncScheduleAlarms().catch(() => {});
     });
   });
+}
+
+async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
+  const accounts = await readAccounts();
+  if (!accounts.length) throw new Error('Chưa có tài khoản nào. Hãy thêm tài khoản trước.');
+
+  const allPosts = (raw.posts && Array.isArray(raw.posts) && raw.posts.length > 0)
+    ? raw.posts
+    : [{ id: 1, text: raw.text, picture: raw.picture }];
+
+  const anyHasText = allPosts.some(p => p?.text?.trim()) || raw.text?.trim();
+  if (!anyHasText) throw new Error('Hãy nhập nội dung bài viết.');
+  const gapMin = Number(raw.gapMin ?? raw.gap ?? 180);
+  if (!Number.isFinite(gapMin) || gapMin < 60) throw new Error('Khoảng cách tối thiểu 60 giây.');
+  const gapMax = Number(raw.gapMax ?? gapMin);
+  if (!Number.isFinite(gapMax) || gapMax < gapMin) throw new Error('Khoảng cách tối đa phải lớn hơn hoặc bằng khoảng cách tối thiểu.');
+  if (!['preview', 'auto'].includes(raw.mode)) throw new Error('Chế độ không hợp lệ.');
+  const breakAfter = raw.breakAfter ? Math.max(1, Number(raw.breakAfter)) : 5;
+  const breakMinutes = raw.breakMinutes ? Math.max(1, Number(raw.breakMinutes)) : 10;
+  const maxPosts = raw.maxPosts ? Math.max(0, Number(raw.maxPosts)) : 0;
+  const enableDailyLimit = raw.enableDailyLimit !== undefined ? !!raw.enableDailyLimit : true;
+  const dailyLimit = raw.dailyLimit ? Math.max(1, Number(raw.dailyLimit)) : 20;
+  const randomTag = raw.randomTag !== undefined ? !!raw.randomTag : true;
+  const humanBehavior = raw.humanBehavior !== undefined ? !!raw.humanBehavior : true;
+  const enableBreak = raw.enableBreak !== undefined ? !!raw.enableBreak : true;
+  const autoSkipOnError = raw.autoSkipOnError !== undefined ? !!raw.autoSkipOnError : true;
+  const accountOrder = ['round_robin', 'sequential', 'parallel'].includes(raw.accountOrder) ? raw.accountOrder : 'round_robin';
+  const splitSharedGroups = !!raw.splitSharedGroups;
+
+  const d = {
+    ...raw,
+    gap: gapMin,
+    gapMin,
+    gapMax,
+    accountOrder,
+    splitSharedGroups,
+    randomTag,
+    humanBehavior,
+    autoSkipOnError,
+    enableBreak,
+    breakAfter,
+    breakMinutes,
+    maxPosts,
+    enableDailyLimit,
+    dailyLimit
+  };
+  if (!Number.isFinite(d.at)) throw new Error('Thời gian không hợp lệ.');
+
+  for (const a of accounts) {
+    try { await chrome.alarms.clear('tick_' + a.id); } catch (_) {}
+  }
+
+  let candidateAccounts = accounts;
+  if (Array.isArray(d.targetAccountIds) && d.targetAccountIds.length > 0) {
+    candidateAccounts = accounts.filter(a => d.targetAccountIds.includes(a.id));
+  } else if (d.groupSourceMode === 'categories') {
+    candidateAccounts = accounts.filter(a => !!(d.accountGroups && d.accountGroups[a.id]?.trim()));
+  } else if (Array.isArray(d.sharedSelectedAccounts) && d.sharedSelectedAccounts.length > 0) {
+    candidateAccounts = accounts.filter(a => d.sharedSelectedAccounts.includes(a.id));
+  }
+
+  let sharedUrls = [];
+  if (d.groupSourceMode !== 'categories' && d.links?.trim()) {
+    try { sharedUrls = groups(d.links); } catch (e) {
+      const anyNeedsShared = candidateAccounts.some(a => !a.groups?.trim() && !d.slotAccountGroups?.[a.id]?.trim());
+      if (anyNeedsShared) throw e;
+    }
+  }
+
+  const sharedAccs = (d.groupSourceMode === 'categories')
+    ? []
+    : candidateAccounts.filter(a => !a.groups?.trim() && !d.slotAccountGroups?.[a.id]?.trim());
+
+  const targets = [];
+  const skippedDueToLimit = [];
+  for (const acc of candidateAccounts) {
+    let urls = [];
+
+    if (d.slotAccountGroups && typeof d.slotAccountGroups === 'object' && d.slotAccountGroups[acc.id]?.trim()) {
+      try {
+        urls = groups(d.slotAccountGroups[acc.id]);
+      } catch (e) {
+        throw new Error(`Tài khoản "${acc.name}": ${e.message}`);
+      }
+    } else if (d.groupSourceMode === 'categories') {
+      if (d.accountGroups && d.accountGroups[acc.id]?.trim()) {
+        try {
+          urls = groups(d.accountGroups[acc.id]);
+        } catch (e) {
+          throw new Error(`Tài khoản "${acc.name}": ${e.message}`);
+        }
+      }
+    } else {
+      if (acc.groups?.trim()) {
+        try {
+          urls = groups(acc.groups);
+        } catch (e) {
+          throw new Error(`Tài khoản "${acc.name}": ${e.message}`);
+        }
+      } else if (sharedUrls.length > 0) {
+        if (splitSharedGroups && sharedAccs.length > 0) {
+          const sharedIdx = sharedAccs.findIndex(a => a.id === acc.id);
+          if (sharedIdx >= 0) {
+            urls = sharedUrls.filter((_, i) => i % sharedAccs.length === sharedIdx);
+          }
+        } else {
+          urls = [...sharedUrls];
+        }
+      }
+    }
+
+    if (urls.length > 0) {
+      if (d.enableDailyLimit !== false) {
+        const todayCount = await getDailyCount(acc.id);
+        const accountDailyLimit = getAccountDailyLimit(acc, d.dailyLimit);
+        if (todayCount >= accountDailyLimit) {
+          skippedDueToLimit.push({ acc, todayCount, limit: accountDailyLimit });
+          continue;
+        }
+        const remaining = accountDailyLimit - todayCount;
+        if (urls.length > remaining) {
+          urls = urls.slice(0, remaining);
+        }
+      }
+
+      if (d.maxPosts > 0 && urls.length > d.maxPosts) {
+        urls = urls.slice(0, d.maxPosts);
+      }
+
+      if (urls.length > 0) {
+        targets.push({ acc, urls });
+      }
+    }
+  }
+
+  if (!targets.length) {
+    if (skippedDueToLimit.length > 0) {
+      throw new Error(`Tất cả ${skippedDueToLimit.length} tài khoản / Fanpage đã chọn đều đã đạt giới hạn đăng bài group hôm nay (Fanpage tối đa 5 bài/ngày, Nick cá nhân tối đa ${d.dailyLimit} bài/ngày). Hệ thống sẽ mở lại vào ngày mai.`);
+    }
+    throw new Error('Không có tài khoản nào có nhóm để đăng. Vui lòng chọn danh mục nhóm hoặc nhập link nhóm.');
+  }
+
+  const campaignPictures = {};
+  if (Array.isArray(allPosts)) {
+    allPosts.forEach((p, pI) => {
+      if (p?.picture?.data && (!p.background || p.background === 'none')) {
+        campaignPictures[pI] = p.picture;
+      }
+    });
+  }
+  if (raw.picture?.data && !campaignPictures[0] && (!raw.background || raw.background === 'none')) {
+    campaignPictures[0] = raw.picture;
+  }
+  await chrome.storage.local.set({ campaignPictures });
+
+  const newCampaigns = {};
+  for (let idx = 0; idx < targets.length; idx++) {
+    const { acc } = targets[idx];
+    const { urls } = targets[idx];
+
+    let initState = 'running';
+    let initNextAt = d.at;
+    if (accountOrder === 'round_robin' || accountOrder === 'sequential') {
+      initState = idx === 0 ? 'running' : 'waiting';
+      initNextAt = idx === 0 ? d.at : 0;
+    }
+
+    const postIdx = (d.accountPostMap && d.accountPostMap[acc.id] !== undefined)
+      ? Number(d.accountPostMap[acc.id])
+      : 0;
+    const assignedPost = (allPosts && allPosts.find(p => (p.idx === postIdx || p.id === (postIdx + 1)) && p.text?.trim()))
+      || (allPosts && allPosts[postIdx] && allPosts[postIdx].text?.trim() ? allPosts[postIdx] : null)
+      || (allPosts && allPosts.find(p => p?.text?.trim()))
+      || (allPosts && allPosts[0])
+      || { text: d.text, picture: d.picture, background: d.background, postLinkMode: d.postLinkMode };
+
+    const postText = assignedPost?.text?.trim() ? assignedPost.text : (d.text || '');
+    const postBg = assignedPost?.background || null;
+    const postPic = (!postBg || postBg === 'none') ? ((assignedPost?.picture !== undefined) ? assignedPost.picture : d.picture) : null;
+
+    const hasUrlInPost = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(postText);
+    const postLinkMode = !postPic && (
+      !!assignedPost?.postLinkMode ||
+      !!d.postLinkMode ||
+      !!raw.postLinkMode ||
+      (Array.isArray(allPosts) && allPosts.some(p => p?.postLinkMode) && hasUrlInPost) ||
+      (hasUrlInPost && postText.trim().startsWith('http') && !postText.trim().includes('\n'))
+    );
+
+    if (!postText?.trim()) {
+      throw new Error(`Tài khoản "${acc.name}" được gán Bài ${postIdx + 1} nhưng bài này chưa có nội dung.`);
+    }
+    if (postText.length > 20000) {
+      throw new Error(`Nội dung Bài ${postIdx + 1} (gán cho "${acc.name}") vượt quá 20.000 ký tự.`);
+    }
+    const postViolations = findBannedWords(postText);
+    if (postViolations.length > 0) {
+      const uniqueBanned = [...new Set(postViolations.map(b => b.word))];
+      throw new Error(`Nội dung Bài ${postIdx + 1} (gán cho "${acc.name}") chứa từ cấm vi phạm chính sách: ${uniqueBanned.join(', ')}.`);
+    }
+
+    newCampaigns[acc.id] = {
+      id: crypto.randomUUID(),
+      accountId: acc.id,
+      accountName: acc.name,
+      text: postText,
+      picture: postPic?.name ? { name: postPic.name, type: postPic.type } : null,
+      background: postBg,
+      postLinkMode,
+      postIndex: postIdx,
+      postTitle: `Bài ${postIdx + 1}`,
+      mode: d.mode,
+      gap: d.gap,
+      gapMin: d.gapMin,
+      gapMax: d.gapMax,
+      accountOrder,
+      randomTag: d.randomTag,
+      humanBehavior: d.humanBehavior,
+      autoSkipOnError: d.autoSkipOnError,
+      enableBreak: d.enableBreak,
+      breakAfter: d.breakAfter,
+      breakMinutes: d.breakMinutes,
+      maxPosts: d.maxPosts,
+      enableDailyLimit: d.enableDailyLimit,
+      dailyLimit: getAccountDailyLimit(acc, d.dailyLimit),
+      accountType: acc.type || 'personal',
+      pageId: acc.pageId || null,
+      postedCount: 0,
+      breakNote: null,
+      index: 0,
+      state: initState,
+      nextAt: initNextAt,
+      active: null,
+      jobs: urls.map(url => ({ url, status: 'queued' })),
+    };
+  }
+
+  for (const item of skippedDueToLimit) {
+    const postIdx = (d.accountPostMap && d.accountPostMap[item.acc.id] !== undefined)
+      ? Number(d.accountPostMap[item.acc.id])
+      : 0;
+    const assignedPost = (allPosts && allPosts[postIdx]) || { text: d.text, picture: d.picture, background: d.background };
+    const postText = assignedPost?.text?.trim() ? assignedPost.text : (d.text || '');
+    const postBg = assignedPost?.background || null;
+    const postPic = (!postBg || postBg === 'none') ? ((assignedPost?.picture !== undefined) ? assignedPost.picture : d.picture) : null;
+
+    newCampaigns[item.acc.id] = {
+      id: crypto.randomUUID(),
+      accountId: item.acc.id,
+      accountName: item.acc.name,
+      text: postText,
+      picture: postPic?.name ? { name: postPic.name, type: postPic.type } : null,
+      background: postBg,
+      postIndex: postIdx,
+      postTitle: `Bài ${postIdx + 1}`,
+      mode: d.mode,
+      gap: d.gap,
+      gapMin: d.gapMin,
+      gapMax: d.gapMax,
+      accountOrder,
+      randomTag: d.randomTag,
+      humanBehavior: d.humanBehavior,
+      autoSkipOnError: d.autoSkipOnError,
+      enableBreak: d.enableBreak,
+      breakAfter: d.breakAfter,
+      breakMinutes: d.breakMinutes,
+      maxPosts: d.maxPosts,
+      enableDailyLimit: d.enableDailyLimit,
+      dailyLimit: getAccountDailyLimit(item.acc, d.dailyLimit),
+      accountType: item.acc.type || 'personal',
+      pageId: item.acc.pageId || null,
+      postedCount: 0,
+      breakNote: `🛑 Đã đăng ${item.todayCount}/${item.limit} bài hôm nay (Đạt giới hạn ngày). Tự động bỏ qua đợt này.`,
+      index: 0,
+      state: 'done',
+      nextAt: 0,
+      active: null,
+      jobs: [],
+    };
+  }
+
+  if (accountOrder === 'round_robin') {
+    await saveCoordinator({
+      mode: 'round_robin',
+      order: targets.map(t => t.acc.id),
+      currentTurn: 0,
+    });
+  } else if (accountOrder === 'sequential') {
+    await saveCoordinator({
+      mode: 'sequential',
+      order: targets.map(t => t.acc.id),
+      currentIndex: 0,
+    });
+  } else {
+    await chrome.storage.local.remove('coordinator');
+  }
+
+  if (!preserveDraft) {
+    await chrome.storage.local.set({ draft: d });
+  }
+  await saveCampaigns(newCampaigns);
+  await chrome.alarms.create('queue', { periodInMinutes: 0.5 });
+
+  if (accountOrder === 'parallel') {
+    let delay = 0;
+    for (const t of targets) {
+      await scheduleAccountTick(t.acc.id, Date.now() + delay);
+      delay += 3000;
+    }
+  } else {
+    const firstId = targets[0].acc.id;
+    const targetTime = Math.max(Date.now(), d.at);
+    await scheduleAccountTick(firstId, targetTime);
+  }
+  return { ok: true };
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -4126,7 +4651,8 @@ function handleRuntimeMessage(m, sender, reply) {
         const campaigns = await readCampaigns();
         const coordinator = (await chrome.storage.local.get('coordinator')).coordinator || null;
         const dailyPostStats = (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
-        reply({ ok: true, campaigns, coordinator, dailyPostStats });
+        const scheduledPostJobs = await readScheduledJobs();
+        reply({ ok: true, campaigns, coordinator, dailyPostStats, scheduledPostJobs });
       } catch (e) {
         reply({ ok: false, error: e.message });
       }
@@ -5228,330 +5754,130 @@ function handleRuntimeMessage(m, sender, reply) {
       return res;
     }
 
-    if (['START_ALL', 'START_ONE', 'STOP_ALL', 'STOP_ONE', 'NEXT', 'PAUSE_ALL', 'PAUSE_ONE', 'RESUME_ALL', 'RESUME_ONE'].includes(m.type) && !fromPanel) {
+    if (['START_ALL', 'START_ONE', 'STOP_ALL', 'STOP_ONE', 'NEXT', 'PAUSE_ALL', 'PAUSE_ONE', 'RESUME_ALL', 'RESUME_ONE', 'SCHEDULE_UPSERT_BATCH', 'SCHEDULE_UPDATE', 'SCHEDULE_DELETE', 'SCHEDULE_CLEAR_ALL', 'SCHEDULE_RUN_NOW'].includes(m.type) && !fromPanel) {
       throw new Error('Không được phép.');
     }
 
     // ── START_ALL: start campaigns for all accounts ──────────────────────────
     if (m.type === 'START_ALL') {
-      const accounts = await readAccounts();
-      if (!accounts.length) throw new Error('Chưa có tài khoản nào. Hãy thêm tài khoản trước.');
+      return await executeStartAllCampaign(m.data, { preserveDraft: false });
+    }
 
-      const raw = m.data;
-      const allPosts = (raw.posts && Array.isArray(raw.posts) && raw.posts.length > 0)
-        ? raw.posts
-        : [{ id: 1, text: raw.text, picture: raw.picture }];
+    // ── Multi-Milestone Auto Post Scheduler commands ─────────────────────────
+    if (m.type === 'SCHEDULE_GET_ALL') {
+      const jobs = await syncScheduleAlarms();
+      return { ok: true, jobs };
+    }
 
-      const anyHasText = allPosts.some(p => p?.text?.trim()) || raw.text?.trim();
-      if (!anyHasText) throw new Error('Hãy nhập nội dung bài viết.');
-      const gapMin = Number(raw.gapMin ?? raw.gap ?? 180);
-      if (!Number.isFinite(gapMin) || gapMin < 60) throw new Error('Khoảng cách tối thiểu 60 giây.');
-      const gapMax = Number(raw.gapMax ?? gapMin);
-      if (!Number.isFinite(gapMax) || gapMax < gapMin) throw new Error('Khoảng cách tối đa phải lớn hơn hoặc bằng khoảng cách tối thiểu.');
-      if (!['preview', 'auto'].includes(raw.mode)) throw new Error('Chế độ không hợp lệ.');
-      const breakAfter = raw.breakAfter ? Math.max(1, Number(raw.breakAfter)) : 5;
-      const breakMinutes = raw.breakMinutes ? Math.max(1, Number(raw.breakMinutes)) : 10;
-      const maxPosts = raw.maxPosts ? Math.max(0, Number(raw.maxPosts)) : 0;
-      const enableDailyLimit = raw.enableDailyLimit !== undefined ? !!raw.enableDailyLimit : true;
-      const dailyLimit = raw.dailyLimit ? Math.max(1, Number(raw.dailyLimit)) : 20;
-      const randomTag = raw.randomTag !== undefined ? !!raw.randomTag : true;
-      const humanBehavior = raw.humanBehavior !== undefined ? !!raw.humanBehavior : true;
-      const enableBreak = raw.enableBreak !== undefined ? !!raw.enableBreak : true;
-      const autoSkipOnError = raw.autoSkipOnError !== undefined ? !!raw.autoSkipOnError : true;
-      const accountOrder = ['round_robin', 'sequential', 'parallel'].includes(raw.accountOrder) ? raw.accountOrder : 'round_robin';
-      const splitSharedGroups = !!raw.splitSharedGroups;
-
-      const d = {
-        ...raw,
-        gap: gapMin,
-        gapMin,
-        gapMax,
-        accountOrder,
-        splitSharedGroups,
-        randomTag,
-        humanBehavior,
-        autoSkipOnError,
-        enableBreak,
-        breakAfter,
-        breakMinutes,
-        maxPosts,
-        enableDailyLimit,
-        dailyLimit
-      };
-      if (!Number.isFinite(d.at)) throw new Error('Thời gian không hợp lệ.');
-      const campaigns = await readCampaigns();
-
-      // Tự động dọn dẹp các lịch đếm ngược cũ để nạp chiến dịch mới
-      for (const a of accounts) {
-        try { await chrome.alarms.clear('tick_' + a.id); } catch (_) {}
-      }
-
-      // Lọc danh sách ứng viên tài khoản được chỉ định chạy
-      let candidateAccounts = accounts;
-      if (Array.isArray(d.targetAccountIds) && d.targetAccountIds.length > 0) {
-        candidateAccounts = accounts.filter(a => d.targetAccountIds.includes(a.id));
-      } else if (d.groupSourceMode === 'categories') {
-        candidateAccounts = accounts.filter(a => !!(d.accountGroups && d.accountGroups[a.id]?.trim()));
-      } else if (Array.isArray(d.sharedSelectedAccounts) && d.sharedSelectedAccounts.length > 0) {
-        candidateAccounts = accounts.filter(a => d.sharedSelectedAccounts.includes(a.id));
-      }
-
-      // Shared groups list (Chỉ dùng khi groupSourceMode !== 'categories')
-      let sharedUrls = [];
-      if (d.groupSourceMode !== 'categories' && d.links?.trim()) {
-        try { sharedUrls = groups(d.links); } catch (e) {
-          const anyNeedsShared = candidateAccounts.some(a => !a.groups?.trim());
-          if (anyNeedsShared) throw e;
+    if (m.type === 'SCHEDULE_UPSERT_BATCH') {
+      return await withScheduleLock(async () => {
+        const incomingJobs = Array.isArray(m.jobs) ? m.jobs : [];
+        if (!incomingJobs.length) throw new Error('Không có mốc lịch nào để lưu.');
+        const existingJobs = await readScheduledJobs();
+        const mapById = new Map(existingJobs.map(j => [j.id, j]));
+        for (const j of incomingJobs) {
+          if (j?.id) mapById.set(j.id, j);
         }
-      }
+        const mergedJobs = Array.from(mapById.values())
+          .sort((a, b) => {
+            const aDone = (!a.enabled || a.completed || a.state === 'done') ? 1 : 0;
+            const bDone = (!b.enabled || b.completed || b.state === 'done') ? 1 : 0;
+            if (aDone !== bDone) return aDone - bDone;
+            return (a.nextRunAt || a.lastRunAt || 0) - (b.nextRunAt || b.lastRunAt || 0);
+          })
+          .slice(0, 300);
 
-      // Accounts that use shared groups
-      const sharedAccs = (d.groupSourceMode === 'categories')
-        ? []
-        : candidateAccounts.filter(a => !a.groups?.trim());
+        const existingPics = await readScheduledPictures();
+        const combinedPics = { ...existingPics, ...(m.picturesMap && typeof m.picturesMap === 'object' ? m.picturesMap : {}) };
+        const prunedPics = pruneUnreferencedScheduledPictures(mergedJobs, combinedPics);
 
-      // 1. Identify which accounts have groups to post
-      const targets = [];
-      const skippedDueToLimit = [];
-      for (const acc of candidateAccounts) {
-        let urls = [];
+        await saveScheduledPictures(prunedPics);
+        await saveScheduledJobs(mergedJobs);
+        await syncScheduleAlarmsUnlocked();
+        return { ok: true, jobs: await readScheduledJobs() };
+      });
+    }
 
-        if (d.groupSourceMode === 'categories') {
-          if (d.accountGroups && d.accountGroups[acc.id]?.trim()) {
-            try {
-              urls = groups(d.accountGroups[acc.id]);
-            } catch (e) {
-              throw new Error(`Tài khoản "${acc.name}": ${e.message}`);
+    if (m.type === 'SCHEDULE_UPDATE') {
+      return await withScheduleLock(async () => {
+        const jobs = await readScheduledJobs();
+        const idx = jobs.findIndex(j => j.id === m.jobId);
+        if (idx < 0) throw new Error('Không tìm thấy mốc lịch hẹn.');
+        const job = { ...jobs[idx] };
+        const patch = (m.patch && typeof m.patch === 'object') ? m.patch : {};
+
+        if (typeof patch.label === 'string') job.label = patch.label.trim() || job.label;
+        if (typeof patch.timeHM === 'string') job.timeHM = patch.timeHM.trim();
+        if (typeof patch.dateStr === 'string') job.dateStr = patch.dateStr.trim();
+        if (patch.scheduleType === 'once' || patch.scheduleType === 'daily') {
+          job.scheduleType = patch.scheduleType;
+        }
+        if (typeof patch.enabled === 'boolean') {
+          job.enabled = patch.enabled;
+        }
+
+        const timeOrModeChanged = ['timeHM', 'dateStr', 'scheduleType'].some(k => k in patch);
+        if (job.enabled) {
+          if (timeOrModeChanged || patch.enabled === true || job.completed || !job.nextRunAt) {
+            const calc = computeInitialNextRunAt({
+              scheduleType: job.scheduleType,
+              dateStr: job.dateStr,
+              timeHM: job.timeHM,
+              nowMs: Date.now()
+            });
+            if (!calc.ok) throw new Error(calc.error);
+            job.timeHM = calc.timeHM;
+            job.dateStr = calc.dateStr;
+            job.nextRunAt = calc.nextRunAt;
+            job.runAt = job.scheduleType === 'once' ? calc.nextRunAt : 0;
+            job.completed = false;
+            job.deferredUntil = 0;
+            job.lastError = '';
+            job.state = 'waiting';
+            job.lastStatusNote = '';
+            if (job.scheduleType === 'once') {
+              job.runCount = 0;
             }
           }
         } else {
-          if (acc.groups?.trim()) {
-            try {
-              urls = groups(acc.groups);
-            } catch (e) {
-              throw new Error(`Tài khoản "${acc.name}": ${e.message}`);
-            }
-          } else if (sharedUrls.length > 0) {
-            if (splitSharedGroups && sharedAccs.length > 0) {
-              const sharedIdx = sharedAccs.findIndex(a => a.id === acc.id);
-              if (sharedIdx >= 0) {
-                urls = sharedUrls.filter((_, i) => i % sharedAccs.length === sharedIdx);
-              }
-            } else {
-              urls = [...sharedUrls];
-            }
-          }
+          job.state = job.completed ? 'done' : 'paused';
+          job.deferredUntil = 0;
         }
 
-        if (urls.length > 0) {
-          if (d.enableDailyLimit !== false) {
-            const todayCount = await getDailyCount(acc.id);
-            const accountDailyLimit = getAccountDailyLimit(acc, d.dailyLimit);
-            if (todayCount >= accountDailyLimit) {
-              skippedDueToLimit.push({ acc, todayCount, limit: accountDailyLimit });
-              continue;
-            }
-            const remaining = accountDailyLimit - todayCount;
-            if (urls.length > remaining) {
-              urls = urls.slice(0, remaining);
-            }
-          }
+        jobs[idx] = job;
+        await saveScheduledJobs(jobs);
+        await syncScheduleAlarmsUnlocked();
+        return { ok: true, jobs: await readScheduledJobs() };
+      });
+    }
 
-          if (d.maxPosts > 0 && urls.length > d.maxPosts) {
-            urls = urls.slice(0, d.maxPosts);
-          }
+    if (m.type === 'SCHEDULE_DELETE') {
+      return await withScheduleLock(async () => {
+        const jobs = await readScheduledJobs();
+        const nextJobs = jobs.filter(j => j.id !== m.jobId);
+        const pics = await readScheduledPictures();
+        await saveScheduledPictures(pruneUnreferencedScheduledPictures(nextJobs, pics));
+        await saveScheduledJobs(nextJobs);
+        await syncScheduleAlarmsUnlocked();
+        return { ok: true, jobs: await readScheduledJobs() };
+      });
+    }
 
-          if (urls.length > 0) {
-            targets.push({ acc, urls });
-          }
-        }
-      }
+    if (m.type === 'SCHEDULE_CLEAR_ALL') {
+      return await withScheduleLock(async () => {
+        await saveScheduledJobs([]);
+        await saveScheduledPictures({});
+        await syncScheduleAlarmsUnlocked();
+        return { ok: true, jobs: [] };
+      });
+    }
 
-      if (!targets.length) {
-        if (skippedDueToLimit.length > 0) {
-          throw new Error(`Tất cả ${skippedDueToLimit.length} tài khoản / Fanpage đã chọn đều đã đạt giới hạn đăng bài group hôm nay (Fanpage tối đa 5 bài/ngày, Nick cá nhân tối đa ${d.dailyLimit} bài/ngày). Hệ thống sẽ mở lại vào ngày mai.`);
-        }
-        throw new Error('Không có tài khoản nào có nhóm để đăng. Vui lòng chọn danh mục nhóm hoặc nhập link nhóm.');
-      }
-
-      // 2. Lưu tập trung ảnh đính kèm vào campaignPictures trong storage riêng
-      // Tránh nhân bản dữ liệu base64 (3-5 MB) cho từng tài khoản làm phình to campaigns
-      const campaignPictures = {};
-      if (Array.isArray(allPosts)) {
-        allPosts.forEach((p, pI) => {
-          if (p?.picture?.data && (!p.background || p.background === 'none')) {
-            campaignPictures[pI] = p.picture;
-          }
-        });
-      }
-      if (raw.picture?.data && !campaignPictures[0] && (!raw.background || raw.background === 'none')) {
-        campaignPictures[0] = raw.picture;
-      }
-      // LUÔN ghi đè campaignPictures để dọn sạch toàn bộ ảnh cũ từ các đợt chạy trước
-      await chrome.storage.local.set({ campaignPictures });
-
-      // Create a campaign per active target account (khởi tạo sạch danh sách chạy đợt này)
-      const newCampaigns = {};
-      for (let idx = 0; idx < targets.length; idx++) {
-        const { acc } = targets[idx];
-        let { urls } = targets[idx];
-
-        let initState = 'running';
-        let initNextAt = d.at;
-        if (accountOrder === 'round_robin' || accountOrder === 'sequential') {
-          initState = idx === 0 ? 'running' : 'waiting';
-          initNextAt = idx === 0 ? d.at : 0;
-        }
-
-        const postIdx = (d.accountPostMap && d.accountPostMap[acc.id] !== undefined)
-          ? Number(d.accountPostMap[acc.id])
-          : 0;
-        let assignedPost = (allPosts && allPosts.find(p => (p.idx === postIdx || p.id === (postIdx + 1)) && p.text?.trim()))
-          || (allPosts && allPosts[postIdx] && allPosts[postIdx].text?.trim() ? allPosts[postIdx] : null)
-          || (allPosts && allPosts.find(p => p?.text?.trim()))
-          || (allPosts && allPosts[0])
-          || { text: d.text, picture: d.picture, background: d.background, postLinkMode: d.postLinkMode };
-
-        const postText = assignedPost?.text?.trim() ? assignedPost.text : (d.text || '');
-        const postBg = assignedPost?.background || null;
-        const postPic = (!postBg || postBg === 'none') ? ((assignedPost?.picture !== undefined) ? assignedPost.picture : d.picture) : null;
-
-        const hasUrlInPost = /(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(postText);
-        const postLinkMode = !postPic && (
-          !!assignedPost?.postLinkMode ||
-          !!d.postLinkMode ||
-          !!raw.postLinkMode ||
-          (Array.isArray(allPosts) && allPosts.some(p => p?.postLinkMode) && hasUrlInPost) ||
-          (hasUrlInPost && postText.trim().startsWith('http') && !postText.trim().includes('\n'))
-        );
-
-        if (!postText?.trim()) {
-          throw new Error(`Tài khoản "${acc.name}" được gán Bài ${postIdx + 1} nhưng bài này chưa có nội dung.`);
-        }
-        if (postText.length > 20000) {
-          throw new Error(`Nội dung Bài ${postIdx + 1} (gán cho "${acc.name}") vượt quá 20.000 ký tự.`);
-        }
-        const postViolations = findBannedWords(postText);
-        if (postViolations.length > 0) {
-          const uniqueBanned = [...new Set(postViolations.map(b => b.word))];
-          throw new Error(`Nội dung Bài ${postIdx + 1} (gán cho "${acc.name}") chứa từ cấm vi phạm chính sách: ${uniqueBanned.join(', ')}.`);
-        }
-
-        newCampaigns[acc.id] = {
-          id: crypto.randomUUID(),
-          accountId: acc.id,
-          accountName: acc.name,
-          text: postText,
-          picture: postPic?.name ? { name: postPic.name, type: postPic.type } : null,
-          background: postBg,
-          postLinkMode,
-          postIndex: postIdx,
-          postTitle: `Bài ${postIdx + 1}`,
-          mode: d.mode,
-          gap: d.gap,
-          gapMin: d.gapMin,
-          gapMax: d.gapMax,
-          accountOrder,
-          randomTag: d.randomTag,
-          humanBehavior: d.humanBehavior,
-          autoSkipOnError: d.autoSkipOnError,
-          enableBreak: d.enableBreak,
-          breakAfter: d.breakAfter,
-          breakMinutes: d.breakMinutes,
-          maxPosts: d.maxPosts,
-          enableDailyLimit: d.enableDailyLimit,
-          dailyLimit: getAccountDailyLimit(acc, d.dailyLimit),
-          accountType: acc.type || 'personal',
-          pageId: acc.pageId || null,
-          postedCount: 0,
-          breakNote: null,
-          index: 0,
-          state: initState,
-          nextAt: initNextAt,
-          active: null,
-          jobs: urls.map(url => ({url, status: 'queued'})),
-        };
-      }
-
-      // Ghi nhận tài khoản đã đạt giới hạn ngày vào trạng thái đã hoàn thành
-      for (const item of skippedDueToLimit) {
-        const postIdx = (d.accountPostMap && d.accountPostMap[item.acc.id] !== undefined)
-          ? Number(d.accountPostMap[item.acc.id])
-          : 0;
-        const assignedPost = (allPosts && allPosts[postIdx]) || { text: d.text, picture: d.picture, background: d.background };
-        const postText = assignedPost?.text?.trim() ? assignedPost.text : (d.text || '');
-        const postBg = assignedPost?.background || null;
-        const postPic = (!postBg || postBg === 'none') ? ((assignedPost?.picture !== undefined) ? assignedPost.picture : d.picture) : null;
-
-        newCampaigns[item.acc.id] = {
-          id: crypto.randomUUID(),
-          accountId: item.acc.id,
-          accountName: item.acc.name,
-          text: postText,
-          picture: postPic?.name ? { name: postPic.name, type: postPic.type } : null,
-          background: postBg,
-          postIndex: postIdx,
-          postTitle: `Bài ${postIdx + 1}`,
-          mode: d.mode,
-          gap: d.gap,
-          gapMin: d.gapMin,
-          gapMax: d.gapMax,
-          accountOrder,
-          randomTag: d.randomTag,
-          humanBehavior: d.humanBehavior,
-          autoSkipOnError: d.autoSkipOnError,
-          enableBreak: d.enableBreak,
-          breakAfter: d.breakAfter,
-          breakMinutes: d.breakMinutes,
-          maxPosts: d.maxPosts,
-          enableDailyLimit: d.enableDailyLimit,
-          dailyLimit: getAccountDailyLimit(item.acc, d.dailyLimit),
-          accountType: item.acc.type || 'personal',
-          pageId: item.acc.pageId || null,
-          postedCount: 0,
-          breakNote: `🛑 Đã đăng ${item.todayCount}/${item.limit} bài hôm nay (Đạt giới hạn ngày). Tự động bỏ qua đợt này.`,
-          index: 0,
-          state: 'done',
-          nextAt: 0,
-          active: null,
-          jobs: [],
-        };
-      }
-
-      // Save coordinator for active target accounts
-      if (accountOrder === 'round_robin') {
-        await saveCoordinator({
-          mode: 'round_robin',
-          order: targets.map(t => t.acc.id),
-          currentTurn: 0,
-        });
-      } else if (accountOrder === 'sequential') {
-        await saveCoordinator({
-          mode: 'sequential',
-          order: targets.map(t => t.acc.id),
-          currentIndex: 0,
-        });
-      } else {
-        await chrome.storage.local.remove('coordinator');
-      }
-
-      await chrome.storage.local.set({draft: d});
-      await saveCampaigns(newCampaigns);
-      await chrome.alarms.create('queue', {periodInMinutes: 0.5});
-
-      if (accountOrder === 'parallel') {
-        let delay = 0;
-        for (const t of targets) {
-          const aid = t.acc.id;
-          await scheduleAccountTick(aid, Date.now() + delay);
-          delay += 3000;
-        }
-      } else {
-        const firstId = targets[0].acc.id;
-        const targetTime = Math.max(Date.now(), d.at);
-        await scheduleAccountTick(firstId, targetTime);
-      }
-      return {ok: true};
+    if (m.type === 'SCHEDULE_RUN_NOW') {
+      return await withScheduleLock(async () => {
+        const res = await executeScheduledJobUnlocked(m.jobId, { manual: true });
+        if (!res.ok) throw new Error(res.error || 'Không thể chạy lịch hẹn lúc này.');
+        return res;
+      });
     }
 
     // ── START_ONE: start campaign for single account ─────────────────────────
@@ -6255,7 +6581,8 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
         const campaigns = await readCampaigns();
         const coordinator = (await chrome.storage.local.get('coordinator')).coordinator || null;
         const dailyPostStats = (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
-        sendResponse({ ok: true, campaigns, coordinator, dailyPostStats });
+        const scheduledPostJobs = await readScheduledJobs();
+        sendResponse({ ok: true, campaigns, coordinator, dailyPostStats, scheduledPostJobs });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }
@@ -6321,12 +6648,15 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
     return true;
   }
 
-  // 5. Đồng bộ dữ liệu (tài khoản, nhóm, bản nháp, bản quyền) từ Web sang Extension storage
+  // 5. Đồng bộ dữ liệu (tài khoản, nhóm, bản nháp, bản quyền, lịch hẹn) từ Web sang Extension storage
   if (request?.type === 'SYNC_DATA_TO_EXTENSION') {
     (async () => {
       try {
         if (request.data && typeof request.data === 'object') {
           await chrome.storage.local.set(request.data);
+          if ('scheduledPostJobs' in request.data || 'scheduledPictures' in request.data) {
+            await syncScheduleAlarms();
+          }
         }
         sendResponse({ ok: true });
       } catch (e) {

@@ -20,7 +20,7 @@ import {
   pushLocalChangesToSupabase,
   hydrateLocalFromSupabase,
   SUPABASE_SETUP_SQL
-} from './supabase.js?v=20261112_0840';
+} from './supabase.js?v=20261112_1000';
 
 const $ = id => document.getElementById(id);
 const DEFAULT_PASS = 'DuyAdmin@2025';

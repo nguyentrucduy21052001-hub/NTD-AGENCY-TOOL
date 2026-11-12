@@ -1,6 +1,21 @@
-import {validate, spinText, getTodayDateStr, findBannedWords, highlightBannedWordsHtml, removeBannedWords, getGroupKey, getAllPostedGroupKeys} from './core.js';
+import {validate, groups, spinText, getTodayDateStr, findBannedWords, highlightBannedWordsHtml, removeBannedWords, getGroupKey, getAllPostedGroupKeys} from './core.js';
 import {validateKey, getMachineId, checkCurrentLicense, enforceLicenseGate} from './license.js';
 import {initSyncModal, parseJsonFile, applyRestoredData, exportJsonBackup} from './sync_helper.js';
+import {
+  parseTimeSlotsInput,
+  normalizeTimeHM,
+  formatLocalDateStr,
+  formatScheduleDatetimeLabel,
+  formatCountdownVi,
+  computeInitialNextRunAt,
+  computeNextDailyAfterRun,
+  normalizeScheduleJobState,
+  isScheduleJobDue,
+  buildScheduledJobBatch,
+  resolvePicturesIntoPayload,
+  pruneUnreferencedScheduledPictures
+} from './post_schedule_helper.js?v=20261112_1000';
+import { pushLocalChangesToSupabase, supabaseClearReportScope } from './supabase.js?v=20261112_1000';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -29,6 +44,12 @@ let allJobDetailsExpanded = false;
 const expandedJobAccs = new Set();
 let cachedCampaigns = {};
 let cachedAccounts = [];
+let cachedScheduleJobs = [];
+let schedType = 'once';
+let schedDispatchMode = 'per_slot';
+let schedSlotPostChoiceMap = {};
+let schedFilter = 'all';
+let _webSchedTicking = false;
 
 // ── State for Shared Groups Account Selector ──────────────────────────────────
 let sharedSelectedAccIds = new Set();
@@ -2594,6 +2615,10 @@ async function render() {
       const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
       if (extState && extState.ok) {
         window.__ntdExtensionActive = true;
+        if (Array.isArray(extState.scheduledPostJobs) && JSON.stringify(extState.scheduledPostJobs) !== JSON.stringify(cachedScheduleJobs)) {
+          cachedScheduleJobs = extState.scheduledPostJobs;
+          await chrome.storage.local.set({ scheduledPostJobs: extState.scheduledPostJobs });
+        }
         if (extState.campaigns && Object.keys(extState.campaigns).length > 0) {
           extCampaigns = extState.campaigns;
           await chrome.storage.local.set({
@@ -4047,6 +4072,13 @@ function updateCountdownTicks() {
     }
   }
 
+  document.querySelectorAll('.sched-countdown-tick[data-target-ts]').forEach(el => {
+    const targetTs = Number(el.dataset.targetTs || 0);
+    if (Number.isFinite(targetTs) && targetTs > 0) {
+      el.textContent = formatCountdownVi(targetTs, now);
+    }
+  });
+
   return anyCountdownActive;
 }
 
@@ -4107,6 +4139,10 @@ chrome.storage.onChanged.addListener(async (changes) => {
   if (relevantForCategories.some(k => k in changes)) {
     debouncedRenderCategories();
     renderSharedAccountsSelector();
+  }
+
+  if ('scheduledPostJobs' in changes) {
+    loadAndRenderScheduledJobs(false).catch(() => {});
   }
 });
 
@@ -4183,6 +4219,10 @@ if (continuePasteManualBtn) {
         '👉 <b>Cách 2:</b> Vào <code>chrome://extensions</code> ➔ Bật Developer mode ➔ Bấm "Tải tiện ích đã giải nén" (Load unpacked) chọn thư mục <code>C:\\Users\\T&Tcenter\\Downloads\\WEBSITE</code>.<br>' +
         '<i>(Sau khi làm xong, nhấn <b>Ctrl + F5</b> tải lại trang web này là hệ thống sẽ tự động chuyển sang màu xanh ✅)</i>';
     }
+    if (typeof syncScheduleUiConnBadge === 'function') syncScheduleUiConnBadge(isConnected);
+    if (isConnected && typeof loadAndRenderScheduledJobs === 'function') {
+      loadAndRenderScheduledJobs(true).catch(() => {});
+    }
   };
 
   // Kiểm tra ngay bằng ping tới extension runner
@@ -4196,5 +4236,697 @@ if (continuePasteManualBtn) {
   }
 
   window.addEventListener('NTD_EXTENSION_READY', () => updateConnUI(true));
+})();
+
+// ── Multi-Milestone Auto Post Scheduler UI & Controller ───────────────────────
+function escapeHtmlSched(val) {
+  return String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function isWebPlatformMode() {
+  return typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+}
+
+function isExtSchedulerBackendActive() {
+  if (!isWebPlatformMode()) return true;
+  return Boolean(window.__ntdExtensionActive && window.chrome?.runtime?.sendToExtension);
+}
+
+function syncScheduleUiConnBadge(isConnected) {
+  const badge = $('schedRunnerModeBadge');
+  if (!badge) return;
+  const active = !isWebPlatformMode() || Boolean(isConnected);
+  badge.classList.toggle('ext-on', active);
+  badge.classList.toggle('web-only', !active);
+  badge.textContent = active
+    ? '🟢 Chạy ngầm qua Extension (Tự động đúng giờ kể cả khi đóng tab)'
+    : '⚠️ Chế độ Web (Tự kích hoạt khi mở tab này — bật Extension để chạy ngầm)';
+}
+
+function setSchedBuilderStatus(text, isError = false) {
+  const el = $('schedBuilderStatus');
+  if (!el) return;
+  if (!text) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = 'block';
+  el.textContent = text;
+  el.style.color = isError ? '#dc2626' : '#059669';
+}
+
+async function syncScheduleJobsToCloud(jobs) {
+  try {
+    const username = licenseInfo?.username || (await chrome.storage.local.get('license'))?.license?.username || '';
+    if (!username) return;
+    if (!Array.isArray(jobs) || jobs.length === 0) {
+      await supabaseClearReportScope(username, 'scheduled_post_jobs');
+    } else {
+      await pushLocalChangesToSupabase(username, ['scheduledPostJobs']);
+    }
+  } catch (_) {}
+}
+
+async function syncWorkspaceContextToExtension() {
+  if (!isWebPlatformMode() || !window.__ntdExtensionActive || !window.chrome?.runtime?.sendToExtension) return;
+  try {
+    const { accounts = [], groupCategories = [], license = null } = await chrome.storage.local.get([
+      'accounts',
+      'groupCategories',
+      'license'
+    ]);
+    await window.chrome.runtime.sendToExtension({
+      type: 'SYNC_DATA_TO_EXTENSION',
+      data: { accounts, groupCategories, license }
+    });
+  } catch (_) {}
+}
+
+async function dispatchScheduleCommand(type, payload = {}) {
+  if (isExtSchedulerBackendActive()) {
+    const r = await sendDirect(type, payload);
+    if (r && Array.isArray(r.jobs)) {
+      cachedScheduleJobs = r.jobs;
+      await chrome.storage.local.set({ scheduledPostJobs: r.jobs });
+      syncScheduleJobsToCloud(r.jobs);
+    }
+    return r;
+  }
+  return { ok: false, webOnly: true };
+}
+
+async function loadAndRenderScheduledJobs(preferExtension = true) {
+  const now = Date.now();
+  if (preferExtension && isWebPlatformMode() && window.__ntdExtensionActive && window.chrome?.runtime?.sendToExtension) {
+    try {
+      const resp = await window.chrome.runtime.sendToExtension({ type: 'SCHEDULE_GET_ALL' });
+      if (resp?.ok && Array.isArray(resp.jobs)) {
+        cachedScheduleJobs = resp.jobs;
+        await chrome.storage.local.set({ scheduledPostJobs: resp.jobs });
+        renderScheduledJobsTable();
+        return;
+      }
+    } catch (_) {}
+  }
+
+  const { scheduledPostJobs = [] } = await chrome.storage.local.get('scheduledPostJobs');
+  const rawList = Array.isArray(scheduledPostJobs) ? scheduledPostJobs : [];
+  const normalized = rawList.map(j => normalizeScheduleJobState(j, now)).filter(Boolean);
+  if (JSON.stringify(normalized) !== JSON.stringify(rawList)) {
+    await chrome.storage.local.set({ scheduledPostJobs: normalized });
+  }
+  cachedScheduleJobs = normalized;
+  renderScheduledJobsTable();
+}
+
+function renderScheduleSlotPreview() {
+  const inputEl = $('schedTimesInput');
+  const previewRow = $('schedSlotPreviewRow');
+  const summaryEl = $('schedPreviewSummary');
+  const addBtn = $('addScheduleBatchBtn');
+  if (!inputEl || !previewRow) return;
+
+  const { times, invalidTokens } = parseTimeSlotsInput(inputEl.value);
+  const selectedSet = new Set(times);
+
+  document.querySelectorAll('#schedPresetRow .sched-preset-btn[data-preset-time]').forEach(btn => {
+    btn.classList.toggle('selected', selectedSet.has(btn.dataset.presetTime));
+  });
+
+  if (times.length === 0) {
+    previewRow.innerHTML = '';
+    if (summaryEl) {
+      summaryEl.textContent = invalidTokens.length > 0
+        ? `⚠️ Mốc giờ không hợp lệ: ${invalidTokens.join(', ')} (dùng HH:mm, vd 08:30).`
+        : 'Chưa có mốc giờ nào. Nhập giờ hoặc bấm nút preset bên trên.';
+    }
+    if (addBtn) addBtn.textContent = '➕ Thêm vào hàng đợi lịch hẹn';
+    return;
+  }
+
+  const now = Date.now();
+  const dateStr = $('schedDateInput')?.value || formatLocalDateStr(now);
+  let earliestRun = Infinity;
+  let pastCount = 0;
+
+  previewRow.innerHTML = times.map(t => {
+    const chosen = schedSlotPostChoiceMap[t] || 'auto';
+    const check = computeInitialNextRunAt({ scheduleType: schedType, dateStr, timeHM: t, nowMs: now });
+    if (check.ok && check.nextRunAt < earliestRun) earliestRun = check.nextRunAt;
+    if (!check.ok) pastCount++;
+    const tagHint = check.ok
+      ? (schedType === 'daily'
+        ? (formatLocalDateStr(check.nextRunAt) === formatLocalDateStr(now) ? 'Hôm nay' : 'Từ ngày mai')
+        : 'OK')
+      : 'Quá giờ';
+
+    return `
+      <span class="sched-slot-chip" data-chip-time="${escapeHtmlSched(t)}">
+        <span>🕒 ${escapeHtmlSched(t)}</span>
+        <small style="opacity:0.75;font-weight:600">(${escapeHtmlSched(tagHint)})</small>
+        <select data-slot-time="${escapeHtmlSched(t)}" title="Chọn bài viết cho mốc ${escapeHtmlSched(t)}">
+          <option value="auto" ${chosen === 'auto' ? 'selected' : ''}>Theo nick</option>
+          <option value="0" ${chosen === '0' ? 'selected' : ''}>Bài 1</option>
+          <option value="1" ${chosen === '1' ? 'selected' : ''}>Bài 2</option>
+          <option value="2" ${chosen === '2' ? 'selected' : ''}>Bài 3</option>
+        </select>
+        <button type="button" class="sched-chip-remove" data-remove-time="${escapeHtmlSched(t)}" title="Bỏ mốc ${escapeHtmlSched(t)}">×</button>
+      </span>
+    `;
+  }).join('');
+
+  if (addBtn) {
+    addBtn.textContent = `➕ Thêm ${times.length} mốc vào hàng đợi lịch hẹn`;
+  }
+
+  if (summaryEl) {
+    const modeDesc = schedDispatchMode === 'split_groups'
+      ? 'Chia đều danh sách nhóm ra ' + times.length + ' mốc'
+      : 'Mỗi mốc chạy 1 đợt';
+    const invalidNote = invalidTokens.length > 0 ? ` · ⚠️ Bỏ qua: ${invalidTokens.join(', ')}` : '';
+    const pastNote = pastCount > 0 ? ` · ⚠️ Có ${pastCount} mốc nằm trong quá khứ (hãy đổi ngày/giờ hoặc chọn Lặp hằng ngày)` : '';
+    const nextLabel = Number.isFinite(earliestRun) ? formatScheduleDatetimeLabel(earliestRun, now) : '—';
+    summaryEl.textContent = `${times.length} mốc · ${modeDesc} · Mốc gần nhất: ${nextLabel}${invalidNote}${pastNote}`;
+  }
+}
+
+function getSchedStateBadgeHtml(job) {
+  if (!job.enabled && job.completed) return '<span class="sched-badge done">✅ Hoàn tất</span>';
+  if (!job.enabled && job.state === 'error') return '<span class="sched-badge error">⚠️ Lỗi</span>';
+  if (!job.enabled) return '<span class="sched-badge paused">⏸ Tạm tắt</span>';
+  if (job.state === 'deferred') return '<span class="sched-badge deferred">⏳ Chờ đợt trước</span>';
+  if (job.state === 'error') return '<span class="sched-badge error">⚠️ Lỗi gần nhất</span>';
+  if (job.scheduleType === 'daily') return '<span class="sched-badge waiting">🔁 Hằng ngày</span>';
+  return '<span class="sched-badge waiting">⏳ Đang chờ</span>';
+}
+
+function renderScheduledJobsTable() {
+  const tbody = $('schedQueueTableBody');
+  if (!tbody) return;
+  const now = Date.now();
+  const list = Array.isArray(cachedScheduleJobs) ? cachedScheduleJobs : [];
+
+  const waitingList = list.filter(j => j.enabled && !j.completed && j.state !== 'done');
+  const dailyList = list.filter(j => j.scheduleType === 'daily');
+  const finishedList = list.filter(j => !j.enabled || j.completed || j.state === 'done' || j.state === 'error');
+
+  if ($('schedQueueCountBadge')) $('schedQueueCountBadge').textContent = `${waitingList.length} mốc đang chờ`;
+  if ($('schedCountAll')) $('schedCountAll').textContent = list.length;
+  if ($('schedCountWaiting')) $('schedCountWaiting').textContent = waitingList.length;
+  if ($('schedCountDaily')) $('schedCountDaily').textContent = dailyList.length;
+  if ($('schedCountFinished')) $('schedCountFinished').textContent = finishedList.length;
+
+  let filtered = list;
+  if (schedFilter === 'waiting') filtered = waitingList;
+  else if (schedFilter === 'daily') filtered = dailyList;
+  else if (schedFilter === 'finished') filtered = finishedList;
+
+  const sorted = [...filtered].sort((a, b) => {
+    const aPend = (a.enabled && !a.completed && a.state !== 'done') ? 0 : 1;
+    const bPend = (b.enabled && !b.completed && b.state !== 'done') ? 0 : 1;
+    if (aPend !== bPend) return aPend - bPend;
+    if (aPend === 0) return (a.nextRunAt || 0) - (b.nextRunAt || 0);
+    return (b.lastRunAt || b.createdAt || 0) - (a.lastRunAt || a.createdAt || 0);
+  });
+
+  if (sorted.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:18px;opacity:0.75">
+          Không có mốc lịch hẹn nào trong mục này.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = sorted.map((job, idx) => {
+    const isPending = job.enabled && !job.completed && job.nextRunAt > 0;
+    const nextLabel = isPending ? formatScheduleDatetimeLabel(job.nextRunAt, now) : (job.completed ? 'Đã xong 1 lần' : 'Đang tắt');
+    const countdownText = isPending ? formatCountdownVi(job.nextRunAt, now) : '—';
+    const freqText = job.scheduleType === 'daily' ? `Hằng ngày lúc ${job.timeHM}` : `${job.timeHM} · ${job.dateStr || formatLocalDateStr(job.nextRunAt || job.createdAt || now)}`;
+    const dispatchLabel = job.dispatchMode === 'split_groups' ? '⚖️ Chia đều nhóm' : '📦 Chạy 1 đợt';
+    const noteText = job.lastStatusNote || (job.runCount > 0 ? `Đã chạy ${job.runCount} lần` : 'Sẵn sàng chờ giờ');
+
+    return `
+      <tr data-sched-row="${escapeHtmlSched(job.id)}">
+        <td style="text-align:center;font-weight:700">${idx + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="checkbox" class="sched-toggle-chk" data-job-id="${escapeHtmlSched(job.id)}" ${job.enabled ? 'checked' : ''} style="width:auto;margin:0;cursor:pointer" title="Bật / Tắt mốc lịch này">
+            ${getSchedStateBadgeHtml(job)}
+          </div>
+        </td>
+        <td>
+          <div style="font-weight:800;font-size:12.5px">${escapeHtmlSched(freqText)}</div>
+          <div style="font-size:11px;opacity:0.85;margin-top:2px">
+            ${escapeHtmlSched(nextLabel)}
+            ${isPending ? `· <b class="sched-countdown-tick" data-target-ts="${job.nextRunAt}" style="color:#2563eb">${escapeHtmlSched(countdownText)}</b>` : ''}
+          </div>
+        </td>
+        <td>
+          <div style="font-weight:700">${escapeHtmlSched(dispatchLabel)} · <span style="color:#2563eb">${escapeHtmlSched(job.postSummary || 'Theo nick')}</span></div>
+          <div style="font-size:11px;opacity:0.78;margin-top:2px">${escapeHtmlSched(job.label || '')}</div>
+        </td>
+        <td>
+          <div style="font-weight:700">${job.accountCount || 0} nick · ${job.groupCount || 0} nhóm</div>
+          <div style="font-size:11px;opacity:0.85;margin-top:2px;color:${job.state === 'error' ? '#ef4444' : 'inherit'}" title="${escapeHtmlSched(noteText)}">
+            ${escapeHtmlSched(noteText.slice(0, 75))}${noteText.length > 75 ? '…' : ''}
+          </div>
+        </td>
+        <td style="text-align:right;white-space:nowrap">
+          <button type="button" class="sched-mini-btn run sched-run-now-btn" data-job-id="${escapeHtmlSched(job.id)}" title="Kích hoạt chạy ngay mốc này">▶ Chạy</button>
+          <button type="button" class="sched-mini-btn edit sched-edit-btn" data-job-id="${escapeHtmlSched(job.id)}" title="Đổi giờ / ngày chạy">✏️ Sửa</button>
+          <button type="button" class="sched-mini-btn del sched-del-btn" data-job-id="${escapeHtmlSched(job.id)}" title="Xóa mốc này">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function executeWebScheduleJobForeground(job, { manual = false } = {}) {
+  const nowMs = Date.now();
+  const { scheduledPostJobs = [], scheduledPictures = {}, draft: currentDraft = null } = await chrome.storage.local.get([
+    'scheduledPostJobs',
+    'scheduledPictures',
+    'draft'
+  ]);
+  const jobsList = Array.isArray(scheduledPostJobs) ? [...scheduledPostJobs] : [];
+  const idx = jobsList.findIndex(j => j.id === job.id);
+  const targetJob = idx >= 0 ? { ...jobsList[idx] } : { ...job };
+
+  const payload = resolvePicturesIntoPayload(
+    targetJob.payloadSnapshot || {},
+    scheduledPictures || {},
+    currentDraft?.posts || []
+  );
+  payload.at = nowMs;
+  payload.when = '';
+
+  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const activeAccs = accounts.filter(a => (payload.targetAccountIds || []).includes(a.id));
+  const firstUrl = getFirstTargetGroupUrl(payload, activeAccs.length ? activeAccs : accounts);
+  try {
+    if (navigator.clipboard && payload.text) {
+      navigator.clipboard.writeText(payload.text).catch(() => {});
+    }
+    const postTab = window.open(firstUrl, 'ntd_fb_posting_tab');
+    if (postTab && window.setWebPostingTab) window.setWebPostingTab(postTab);
+  } catch (_) {}
+
+  await sendDirect('START_ALL', { data: payload });
+
+  targetJob.lastRunAt = nowMs;
+  targetJob.lastRunDate = formatLocalDateStr(nowMs);
+  targetJob.runCount = (Number(targetJob.runCount) || 0) + 1;
+  targetJob.lastError = '';
+  targetJob.lastStatusNote = manual ? '▶ Đã chạy tay trên Web' : '🚀 Đã tự kích hoạt đúng giờ trên Web';
+  if (targetJob.scheduleType === 'daily') {
+    targetJob.state = 'waiting';
+    targetJob.nextRunAt = computeNextDailyAfterRun(targetJob.timeHM, nowMs);
+  } else {
+    targetJob.enabled = false;
+    targetJob.completed = true;
+    targetJob.state = 'done';
+    targetJob.nextRunAt = 0;
+  }
+
+  if (idx >= 0) jobsList[idx] = targetJob;
+  await chrome.storage.local.set({ scheduledPostJobs: jobsList });
+  cachedScheduleJobs = jobsList;
+  syncScheduleJobsToCloud(jobsList);
+  renderScheduledJobsTable();
+  msg(`🚀 Đã kích hoạt mốc lịch ${targetJob.timeHM}!`);
+  await render();
+  scheduleNextRender();
+}
+
+async function checkDueWebSchedules() {
+  if (_webSchedTicking || isExtSchedulerBackendActive()) return;
+  _webSchedTicking = true;
+  try {
+    const now = Date.now();
+    const { scheduledPostJobs = [], campaigns = {} } = await chrome.storage.local.get(['scheduledPostJobs', 'campaigns']);
+    const list = (Array.isArray(scheduledPostJobs) ? scheduledPostJobs : [])
+      .map(j => normalizeScheduleJobState(j, now))
+      .filter(Boolean);
+    const due = list.filter(j => isScheduleJobDue(j, now)).sort((a, b) => (a.nextRunAt || 0) - (b.nextRunAt || 0));
+    if (!due.length) return;
+
+    const anyActive = Object.values(campaigns || {}).some(c => c && (c.state === 'running' || c.state === 'waiting'));
+    if (anyActive) {
+      due[0].state = 'deferred';
+      due[0].lastStatusNote = '⏳ Đang có chiến dịch khác chạy — sẽ tự thử lại khi xong';
+      await chrome.storage.local.set({ scheduledPostJobs: list });
+      cachedScheduleJobs = list;
+      renderScheduledJobsTable();
+      return;
+    }
+
+    const validLic = await checkLicense();
+    if (!validLic) return;
+
+    await executeWebScheduleJobForeground(due[0], { manual: false });
+  } catch (err) {
+    console.warn('[WebScheduleCheck]', err);
+  } finally {
+    _webSchedTicking = false;
+  }
+}
+
+(function initMultiScheduleUi() {
+  const dateInput = $('schedDateInput');
+  if (dateInput && !dateInput.value) {
+    dateInput.value = formatLocalDateStr(Date.now());
+  }
+
+  $('multiScheduleHeader')?.addEventListener('click', () => {
+    const card = $('multiScheduleCard');
+    if (!card) return;
+    const isCollapsed = card.classList.toggle('collapsed');
+    const chev = $('multiSchedChevron');
+    if (chev) chev.textContent = isCollapsed ? '▶' : '▼';
+  });
+
+  const setSchedType = (nextType) => {
+    schedType = nextType === 'daily' ? 'daily' : 'once';
+    $('schedTypeOnceBtn')?.classList.toggle('active', schedType === 'once');
+    $('schedTypeDailyBtn')?.classList.toggle('active', schedType === 'daily');
+    if ($('schedDateRow')) $('schedDateRow').style.display = schedType === 'once' ? 'flex' : 'none';
+    if ($('schedDailyHintRow')) $('schedDailyHintRow').style.display = schedType === 'daily' ? 'flex' : 'none';
+    renderScheduleSlotPreview();
+  };
+
+  const setDispatchMode = (nextMode) => {
+    schedDispatchMode = nextMode === 'split_groups' ? 'split_groups' : 'per_slot';
+    $('schedDispatchPerSlotBtn')?.classList.toggle('active', schedDispatchMode === 'per_slot');
+    $('schedDispatchSplitBtn')?.classList.toggle('active', schedDispatchMode === 'split_groups');
+    if ($('schedPerSlotMaxRow')) $('schedPerSlotMaxRow').style.display = schedDispatchMode === 'per_slot' ? 'flex' : 'none';
+    if ($('schedSplitHintRow')) $('schedSplitHintRow').style.display = schedDispatchMode === 'split_groups' ? 'flex' : 'none';
+    renderScheduleSlotPreview();
+  };
+
+  $('schedTypeOnceBtn')?.addEventListener('click', () => setSchedType('once'));
+  $('schedTypeDailyBtn')?.addEventListener('click', () => setSchedType('daily'));
+  $('schedDispatchPerSlotBtn')?.addEventListener('click', () => setDispatchMode('per_slot'));
+  $('schedDispatchSplitBtn')?.addEventListener('click', () => setDispatchMode('split_groups'));
+  $('schedDateInput')?.addEventListener('change', renderScheduleSlotPreview);
+  $('schedTimesInput')?.addEventListener('input', renderScheduleSlotPreview);
+
+  $('schedPresetRow')?.addEventListener('click', (e) => {
+    const presetBtn = e.target.closest('.sched-preset-btn[data-preset-time]');
+    const timesEl = $('schedTimesInput');
+    if (!timesEl) return;
+    if (presetBtn) {
+      const target = presetBtn.dataset.presetTime;
+      const { times } = parseTimeSlotsInput(timesEl.value);
+      const set = new Set(times);
+      if (set.has(target)) set.delete(target);
+      else set.add(target);
+      timesEl.value = Array.from(set).sort((a, b) => a.localeCompare(b)).join(', ');
+      renderScheduleSlotPreview();
+      return;
+    }
+    if (e.target.id === 'schedGoldPresetBtn') {
+      timesEl.value = '08:30, 11:30, 17:30, 20:00';
+      renderScheduleSlotPreview();
+      return;
+    }
+    if (e.target.id === 'schedClearTimesBtn') {
+      timesEl.value = '';
+      renderScheduleSlotPreview();
+    }
+  });
+
+  $('schedSlotPreviewRow')?.addEventListener('change', (e) => {
+    const sel = e.target.closest('select[data-slot-time]');
+    if (!sel) return;
+    schedSlotPostChoiceMap[sel.dataset.slotTime] = sel.value || 'auto';
+  });
+
+  $('schedSlotPreviewRow')?.addEventListener('click', (e) => {
+    const rm = e.target.closest('.sched-chip-remove[data-remove-time]');
+    if (!rm || !$('schedTimesInput')) return;
+    const t = rm.dataset.removeTime;
+    const { times } = parseTimeSlotsInput($('schedTimesInput').value);
+    $('schedTimesInput').value = times.filter(x => x !== t).join(', ');
+    renderScheduleSlotPreview();
+  });
+
+  $('schedFilterRow')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.sched-filter-btn[data-sched-filter]');
+    if (!btn) return;
+    schedFilter = btn.dataset.schedFilter || 'all';
+    document.querySelectorAll('#schedFilterRow .sched-filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+    renderScheduledJobsTable();
+  });
+
+  $('addScheduleBatchBtn')?.addEventListener('click', async () => {
+    try {
+      setSchedBuilderStatus('');
+      licenseInfo = await checkLicense();
+      if (!licenseInfo) throw Error('Vui lòng kích hoạt bản quyền trước khi hẹn lịch.');
+
+      const { accounts = [] } = await chrome.storage.local.get('accounts');
+      if (!accounts.length) throw Error('Chưa có tài khoản nào. Hãy thêm tài khoản trước.');
+
+      const curDraft = draft();
+      const validatedDraft = validate({ ...curDraft, allowEmptyLinks: true });
+      const { times, invalidTokens } = parseTimeSlotsInput($('schedTimesInput')?.value || '');
+      if (invalidTokens.length > 0) {
+        throw Error(`Mốc giờ không hợp lệ: ${invalidTokens.join(', ')}. Hãy nhập theo định dạng HH:mm (vd: 08:30, 14:00).`);
+      }
+      if (!times.length) {
+        throw Error('Vui lòng chọn hoặc nhập ít nhất 1 mốc thời gian.');
+      }
+
+      const dateStr = $('schedDateInput')?.value || formatLocalDateStr(Date.now());
+      const maxGroupsPerSlot = Math.max(0, Number($('schedMaxGroupsPerSlot')?.value || 0));
+      const label = ($('schedLabelInput')?.value || '').trim();
+      const perSlotPostChoices = times.map(t => schedSlotPostChoiceMap[t] || 'auto');
+
+      const { jobs, picturesMap, skippedEmptySlots } = buildScheduledJobBatch({
+        label,
+        scheduleType: schedType,
+        dispatchMode: schedDispatchMode,
+        dateStr,
+        times,
+        perSlotPostChoices,
+        maxGroupsPerSlot,
+        draftData: validatedDraft,
+        accounts,
+        groupsParserFn: groups,
+        nowMs: Date.now(),
+        findBannedWordsFn: findBannedWords
+      });
+
+      if (isExtSchedulerBackendActive()) {
+        await syncWorkspaceContextToExtension();
+        await dispatchScheduleCommand('SCHEDULE_UPSERT_BATCH', { jobs, picturesMap });
+      } else {
+        const { scheduledPostJobs = [], scheduledPictures = {} } = await chrome.storage.local.get([
+          'scheduledPostJobs',
+          'scheduledPictures'
+        ]);
+        const mapById = new Map((Array.isArray(scheduledPostJobs) ? scheduledPostJobs : []).map(j => [j.id, j]));
+        for (const j of jobs) mapById.set(j.id, j);
+        const mergedJobs = Array.from(mapById.values());
+        const prunedPics = pruneUnreferencedScheduledPictures(mergedJobs, { ...scheduledPictures, ...picturesMap });
+        await chrome.storage.local.set({ scheduledPostJobs: mergedJobs });
+        try {
+          await chrome.storage.local.set({ scheduledPictures: prunedPics });
+        } catch (_) {
+          // Fallback an toàn nếu ảnh đính kèm vượt hạn mức localStorage trên Web
+        }
+        cachedScheduleJobs = mergedJobs;
+        await syncScheduleJobsToCloud(mergedJobs);
+      }
+
+      const skipNote = skippedEmptySlots > 0 ? ` (Bỏ qua ${skippedEmptySlots} mốc do số nhóm ít hơn số mốc)` : '';
+      const modeText = isExtSchedulerBackendActive() ? 'Đã kích hoạt hẹn giờ chạy nền qua Extension!' : 'Đã lưu vào hàng đợi trình duyệt Web!';
+      setSchedBuilderStatus(`✅ Đã thêm ${jobs.length} mốc lịch thành công! ${modeText}${skipNote}`);
+      msg(`✅ Đã hẹn ${jobs.length} mốc thời gian đăng bài tự động.${skipNote}`);
+      if ($('schedLabelInput')) $('schedLabelInput').value = '';
+      renderScheduleSlotPreview();
+      renderScheduledJobsTable();
+    } catch (err) {
+      setSchedBuilderStatus('⛔ ' + err.message, true);
+      msg(err.message, 'err');
+    }
+  });
+
+  $('clearAllSchedulesBtn')?.addEventListener('click', async () => {
+    if (!cachedScheduleJobs.length) return;
+    if (!confirm(`Xóa toàn bộ ${cachedScheduleJobs.length} mốc lịch đăng bài đã hẹn?`)) return;
+    try {
+      if (isExtSchedulerBackendActive()) {
+        await dispatchScheduleCommand('SCHEDULE_CLEAR_ALL');
+      } else {
+        await chrome.storage.local.set({ scheduledPostJobs: [], scheduledPictures: {} });
+        cachedScheduleJobs = [];
+        await syncScheduleJobsToCloud([]);
+      }
+      renderScheduledJobsTable();
+      setSchedBuilderStatus('🗑️ Đã xóa toàn bộ danh sách lịch hẹn.');
+      msg('✅ Đã xóa toàn bộ lịch hẹn đăng bài.');
+    } catch (err) {
+      msg(err.message, 'err');
+    }
+  });
+
+  $('schedQueueTableBody')?.addEventListener('change', async (e) => {
+    const chk = e.target.closest('.sched-toggle-chk');
+    if (!chk) return;
+    const jobId = chk.dataset.jobId;
+    const enabled = Boolean(chk.checked);
+    try {
+      if (isExtSchedulerBackendActive()) {
+        await dispatchScheduleCommand('SCHEDULE_UPDATE', { jobId, patch: { enabled } });
+      } else {
+        const nextJobs = cachedScheduleJobs.map(j => {
+          if (j.id !== jobId) return j;
+          const updated = { ...j, enabled };
+          if (enabled) {
+            const calc = computeInitialNextRunAt({ scheduleType: updated.scheduleType, dateStr: updated.dateStr, timeHM: updated.timeHM, nowMs: Date.now() });
+            if (!calc.ok) throw Error(calc.error);
+            updated.dateStr = calc.dateStr;
+            updated.nextRunAt = calc.nextRunAt;
+            updated.completed = false;
+            updated.state = 'waiting';
+          } else {
+            updated.state = updated.completed ? 'done' : 'paused';
+          }
+          return updated;
+        });
+        await chrome.storage.local.set({ scheduledPostJobs: nextJobs });
+        cachedScheduleJobs = nextJobs;
+        await syncScheduleJobsToCloud(nextJobs);
+      }
+      renderScheduledJobsTable();
+    } catch (err) {
+      chk.checked = !enabled;
+      msg(err.message, 'err');
+    }
+  });
+
+  $('schedQueueTableBody')?.addEventListener('click', async (e) => {
+    const runBtn = e.target.closest('.sched-run-now-btn');
+    const editBtn = e.target.closest('.sched-edit-btn');
+    const delBtn = e.target.closest('.sched-del-btn');
+    const jobId = (runBtn || editBtn || delBtn)?.dataset.jobId;
+    if (!jobId) return;
+    const job = cachedScheduleJobs.find(j => j.id === jobId);
+    if (!job) return;
+
+    try {
+      if (runBtn) {
+        if (!confirm(`Kích hoạt chạy ngay mốc "${job.timeHM}" (${job.postSummary})?`)) return;
+        if (isExtSchedulerBackendActive()) {
+          await syncWorkspaceContextToExtension();
+          await dispatchScheduleCommand('SCHEDULE_RUN_NOW', { jobId });
+          msg(`🚀 Đã kích hoạt chạy ngay mốc ${job.timeHM}!`);
+          await render();
+          scheduleNextRender();
+        } else {
+          await executeWebScheduleJobForeground(job, { manual: true });
+        }
+        renderScheduledJobsTable();
+        return;
+      }
+
+      if (editBtn) {
+        const patch = {};
+        if (job.scheduleType === 'once') {
+          const curStr = `${job.dateStr || formatLocalDateStr(job.nextRunAt || Date.now())} ${job.timeHM}`;
+          const input = prompt('Nhập ngày và giờ mới (định dạng YYYY-MM-DD HH:mm):', curStr);
+          if (input === null) return;
+          const m = input.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(.+)$/);
+          if (!m) throw Error('Sai định dạng. Hãy nhập dạng YYYY-MM-DD HH:mm (vd: 2026-11-13 08:30).');
+          const normT = normalizeTimeHM(m[2]);
+          if (!normT) throw Error('Giờ không hợp lệ (HH:mm).');
+          patch.dateStr = m[1];
+          patch.timeHM = normT;
+          patch.enabled = true;
+        } else {
+          const input = prompt('Nhập khung giờ lặp hằng ngày mới (định dạng HH:mm):', job.timeHM);
+          if (input === null) return;
+          const normT = normalizeTimeHM(input);
+          if (!normT) throw Error('Giờ không hợp lệ (HH:mm).');
+          patch.timeHM = normT;
+          patch.enabled = true;
+        }
+
+        if (isExtSchedulerBackendActive()) {
+          await dispatchScheduleCommand('SCHEDULE_UPDATE', { jobId, patch });
+        } else {
+          const calc = computeInitialNextRunAt({
+            scheduleType: job.scheduleType,
+            dateStr: patch.dateStr || job.dateStr,
+            timeHM: patch.timeHM,
+            nowMs: Date.now()
+          });
+          if (!calc.ok) throw Error(calc.error);
+          const nextJobs = cachedScheduleJobs.map(j => j.id === jobId ? {
+            ...j,
+            ...patch,
+            dateStr: calc.dateStr,
+            nextRunAt: calc.nextRunAt,
+            completed: false,
+            state: 'waiting',
+            lastError: '',
+            lastStatusNote: '✏️ Đã cập nhật mốc giờ'
+          } : j);
+          await chrome.storage.local.set({ scheduledPostJobs: nextJobs });
+          cachedScheduleJobs = nextJobs;
+          await syncScheduleJobsToCloud(nextJobs);
+        }
+        renderScheduledJobsTable();
+        msg(`✅ Đã cập nhật giờ mốc lịch thành ${patch.timeHM}.`);
+        return;
+      }
+
+      if (delBtn) {
+        if (!confirm(`Xóa mốc lịch ${job.timeHM}?`)) return;
+        if (isExtSchedulerBackendActive()) {
+          await dispatchScheduleCommand('SCHEDULE_DELETE', { jobId });
+        } else {
+          const nextJobs = cachedScheduleJobs.filter(j => j.id !== jobId);
+          const { scheduledPictures = {} } = await chrome.storage.local.get('scheduledPictures');
+          const prunedPics = pruneUnreferencedScheduledPictures(nextJobs, scheduledPictures);
+          await chrome.storage.local.set({ scheduledPostJobs: nextJobs, scheduledPictures: prunedPics });
+          cachedScheduleJobs = nextJobs;
+          await syncScheduleJobsToCloud(nextJobs);
+        }
+        renderScheduledJobsTable();
+      }
+    } catch (err) {
+      msg(err.message, 'err');
+    }
+  });
+
+  syncScheduleUiConnBadge(window.__ntdExtensionActive);
+  renderScheduleSlotPreview();
+  loadAndRenderScheduledJobs(true).catch(() => {});
+
+  setInterval(() => {
+    if (document.hidden) return;
+    const now = Date.now();
+    document.querySelectorAll('.sched-countdown-tick[data-target-ts]').forEach(el => {
+      const targetTs = Number(el.dataset.targetTs || 0);
+      if (Number.isFinite(targetTs) && targetTs > 0) {
+        el.textContent = formatCountdownVi(targetTs, now);
+      }
+    });
+  }, 1000);
+
+  setInterval(() => {
+    checkDueWebSchedules().catch(() => {});
+  }, 10000);
 })();
 

@@ -3,6 +3,8 @@
  * Quản lý kết nối cơ sở dữ liệu Supabase, phân quyền Admin/Member và xác thực người dùng.
  */
 
+import { sanitizeScheduledJobsForCloud } from './post_schedule_helper.js';
+
 // Key lưu trữ cấu hình trong chrome.storage.local
 export const STORAGE_SUPABASE_URL = 'ntd_supabase_url';
 export const STORAGE_SUPABASE_KEY = 'ntd_supabase_key';
@@ -513,6 +515,7 @@ export const SYNC_WORKSPACE_KEYS = [
   'accounts',
   'groupCategories',
   'draft',
+  'scheduledPostJobs',
   'dailyPostStats',
   'warmupConfig',
   'warmupReports',
@@ -562,13 +565,20 @@ const CLOUD_CLEAR_SPECS = {
     endpoints: (u) => [
       `ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.postedGroupHistory`
     ]
+  },
+  scheduled_post_jobs: {
+    localKey: 'scheduledPostJobs',
+    endpoints: (u) => [
+      `ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.scheduledPostJobs`
+    ]
   }
 };
 
 const SIMPLE_KEY_CLEAR_SCOPE = {
   warmupReports: 'warmup_reports',
   scannedGroupHistory: 'scanned_group_history',
-  postedGroupHistory: 'posted_group_history'
+  postedGroupHistory: 'posted_group_history',
+  scheduledPostJobs: 'scheduled_post_jobs'
 };
 
 async function resolveActiveSyncUsername(explicitUsername = '') {
@@ -754,6 +764,9 @@ function sanitizeWorkspacePayload(key, value) {
       }
     }
     return clone;
+  }
+  if (key === 'scheduledPostJobs' && Array.isArray(value)) {
+    return sanitizeScheduledJobsForCloud(value);
   }
   return value;
 }
@@ -1123,7 +1136,7 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   }
 
   // 3. Các key cấu hình / nhật ký đơn lẻ
-  const simpleKeys = ['draft', 'dailyPostStats', 'warmupConfig', 'warmupReports', 'rinZalo', 'postedGroupHistory', 'scannedGroupHistory', 'lastSelectedCategory'];
+  const simpleKeys = ['draft', 'scheduledPostJobs', 'dailyPostStats', 'warmupConfig', 'warmupReports', 'rinZalo', 'postedGroupHistory', 'scannedGroupHistory', 'lastSelectedCategory'];
   for (const k of simpleKeys) {
     const simpleScope = SIMPLE_KEY_CLEAR_SCOPE[k];
     if (simpleScope && pendingClearScopes.has(simpleScope)) continue;

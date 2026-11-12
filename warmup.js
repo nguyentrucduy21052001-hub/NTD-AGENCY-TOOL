@@ -1,7 +1,7 @@
 // warmup.js – Quản lý giao diện và điều phối tiến trình nuôi tài khoản Facebook
 import { getTodayDateStr } from './core.js';
 import { checkCurrentLicense } from './license.js';
-import { supabaseClearReportScope } from './supabase.js?v=20261112_0840';
+import { supabaseClearReportScope } from './supabase.js?v=20261112_1000';
 
 const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
