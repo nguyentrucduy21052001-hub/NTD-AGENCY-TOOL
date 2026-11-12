@@ -226,10 +226,11 @@
         if (typeof window !== 'undefined') {
           const requestId = 'req_' + Math.random().toString(36).slice(2);
           const isFastProbe = Boolean(message?.probe) && document.documentElement.dataset.ntdExtensionConnected !== 'true';
-          const timeoutMs = isFastProbe ? 450 : 4000;
+          const isLongCommand = message?.type === 'DO_LOGIN' || message?.type === 'ACTIVATE_ACCOUNT_SESSION';
+          const timeoutMs = Number(message?.timeoutMs) || (isFastProbe ? 450 : (isLongCommand ? 180000 : 15000));
           const timer = setTimeout(() => {
             window.removeEventListener('message', handler);
-            done({ ok: false, error: 'Extension Runner timeout' });
+            done({ ok: false, extensionUnavailable: document.documentElement.dataset.ntdExtensionConnected !== 'true', error: 'Extension Runner timeout' });
           }, timeoutMs);
 
           const handler = (e) => {
@@ -298,7 +299,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261111_0900')
+    _workerLoadPromise = import('./worker.js?v=20261112_1030')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
@@ -513,8 +514,24 @@
       if (message?.type && EXT_PRIVILEGED.has(message.type) && typeof window.chrome?.runtime?.sendToExtension === 'function') {
         try {
           const extResp = await window.chrome.runtime.sendToExtension(message);
-          if (extResp && (extResp.ok || extResp.success || isScheduleCmd)) {
+          const isAuthCmd = message.type === 'DO_LOGIN' || message.type === 'ACTIVATE_ACCOUNT_SESSION';
+          const hasExtAnswer = extResp && (
+            extResp.ok ||
+            extResp.success ||
+            isScheduleCmd ||
+            (isAuthCmd && !extResp.extensionUnavailable && extResp.error !== 'Extension Runner timeout' && extResp.error !== 'Chưa nạp Tiện ích Extension')
+          );
+          if (hasExtAnswer) {
             sendResponse(extResp);
+            return;
+          }
+          if (message.type === 'DO_LOGIN') {
+            sendResponse({
+              ok: false,
+              webFallback: true,
+              extensionUnsupported: true,
+              error: 'Tự động đăng nhập Facebook yêu cầu cài đặt và bật Extension NTD Agency trên Chrome.'
+            });
             return;
           }
         } catch (_) {}

@@ -6,6 +6,8 @@ import {
   getTodayDateStr,
   parseUniversalCookies,
   cookiesObjToStr,
+  hasCompleteFacebookCookies,
+  isTruncatedXsToken,
   activateAccountSessionDirectly,
   fetchTokenEAAG,
   fetchTokenEAAB,
@@ -60,6 +62,14 @@ async function saveAccounts(accounts) {
       });
     } catch (_) {}
   }
+}
+
+async function sendExtensionCommand(message) {
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    return await window.chrome.runtime.sendToExtension(message);
+  }
+  return await chrome.runtime.sendMessage(message);
 }
 
 // ── Kích hoạt session đăng nhập Facebook (có fallback trực tiếp) ─────────────
@@ -117,7 +127,7 @@ function validateCookies(cookieStr) {
   const xsVal = String(obj['xs'] || '');
   const hasSb = Boolean(obj['sb']);
   // Chuỗi xs chuẩn của Facebook luôn gồm 7 phần phân tách bằng : hoặc %3A và có chữ ký HMAC ở cuối
-  const isTruncatedXs = !xsVal.includes('%3A%3A') && !xsVal.includes('::') && (xsVal.endsWith('-1') || xsVal.split(/%3A|:/).length < 6);
+  const isTruncatedXs = isTruncatedXsToken(xsVal);
 
   if (!hasSb || isTruncatedXs) {
     const reasons = [];
@@ -185,26 +195,16 @@ $('loginBtn').onclick = async () => {
   setStep('step1', 'active');
 
   try {
-    const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
     let result = null;
     try {
-      if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
-        result = await window.chrome.runtime.sendToExtension({
-          type: 'DO_LOGIN',
-          email,
-          password: pass,
-          twoFactor,
-          keepSession: true
-        });
-      } else {
-        result = await chrome.runtime.sendMessage({
-          type: 'DO_LOGIN',
-          email,
-          password: pass,
-          twoFactor,
-          keepSession: true
-        });
-      }
+      result = await sendExtensionCommand({
+        type: 'DO_LOGIN',
+        email,
+        password: pass,
+        twoFactor,
+        keepSession: true,
+        openFacebookTab: true
+      });
     } catch (_) {}
 
     if (result && result.ok && result.cookies) {
@@ -437,9 +437,7 @@ if ($('accCookies')) {
 
     // 4. Nhận diện Cookies
     if (parsed.cookies) {
-      const hasSb = Boolean(parsed.cookieObj['sb']);
-      const hasXs = Boolean(parsed.cookieObj['xs']);
-      const ckStatus = (hasSb && hasXs)
+      const ckStatus = hasCompleteFacebookCookies(parsed.cookieObj)
         ? '<span style="color:#059669;font-weight:700">Đầy đủ (c_user, xs, sb)</span>'
         : '<span style="color:#d97706;font-weight:700">Thiếu sb/cũ (Hệ thống sẽ tự động dùng Pass+2FA để lấy Cookie chuẩn 100%)</span>';
       details.push(`<div><b>Cookies:</b> ${ckStatus}</div>`);
@@ -535,31 +533,38 @@ $('addCookieBtn').onclick = async () => {
       }
     }
 
-    const hasLiveCookies = Boolean(cookieObj['c_user'] && cookieObj['xs']);
+    const hasCompleteCookies = hasCompleteFacebookCookies(cookieObj);
+    const hasBasicAuthCookies = Boolean(cookieObj['c_user'] && cookieObj['xs']);
+    let didAutoLoginOk = false;
+    let autoLoginError = '';
 
-    // 2. Chỉ tự động đăng nhập bằng Pass + 2FA khi chuỗi VIA CHƯA có sẵn cookies hợp lệ
-    if (password && (cUser || parsed.email) && !hasLiveCookies) {
-      msg(`⏳ VIA chưa có Cookies sẵn. Đang tự động đăng nhập Facebook bằng mật khẩu & 2FA để lấy cookies...`);
+    // 2. Tự động đăng nhập bằng Pass + 2FA khi VIA chưa có Cookies hoặc Cookies thiếu sb / bị cắt cũ
+    if (password && (cUser || parsed.email) && !hasCompleteCookies && (autoLogin || !hasBasicAuthCookies)) {
+      msg(`⏳ VIA chưa có Cookies chuẩn (hoặc thiếu sb/cũ). Đang tự động đăng nhập Facebook bằng mật khẩu & 2FA...`);
       addBtn.textContent = '⏳ Đang đăng nhập Facebook...';
 
       try {
-        const loginRes = await chrome.runtime.sendMessage({
+        const loginRes = await sendExtensionCommand({
           type: 'DO_LOGIN',
           email: cUser || parsed.email,
           password: password,
           twoFactor: twoFactor,
-          keepSession: autoLogin
+          keepSession: autoLogin,
+          openFacebookTab: autoLogin
         });
 
-        if (loginRes?.ok) {
+        if (loginRes?.ok && loginRes.cookies) {
+          didAutoLoginOk = true;
           finalCookieStr = loginRes.cookies;
           cookieObj = parseUniversalCookies(finalCookieStr);
           cUser = loginRes.cUser || cUser;
           if (loginRes.token) token = loginRes.token;
         } else {
-          console.warn('[AddVIA] Auto login không thành công, tiếp tục lưu dữ liệu VIA:', loginRes?.error);
+          autoLoginError = loginRes?.error || 'Không thể tự động đăng nhập Facebook';
+          console.warn('[AddVIA] Auto login không thành công, tiếp tục lưu dữ liệu VIA:', autoLoginError);
         }
       } catch (loginErr) {
+        autoLoginError = loginErr?.message || 'Lỗi kết nối Extension';
         console.warn('[AddVIA] Lỗi gọi DO_LOGIN:', loginErr);
       }
     }
@@ -608,16 +613,30 @@ $('addCookieBtn').onclick = async () => {
 
     // 3. Tự động nạp cookies và đăng nhập Facebook trên Chrome nếu được chọn
     if (autoLogin) {
-      if (finalCookieStr) {
+      if (didAutoLoginOk) {
+        msg(`✅ Đã tự động đăng nhập Facebook bằng VIA/2FA và lưu "${name}" (FB ID: ${cUser || 'N/A'}) thành công!`);
+      } else if (autoLoginError && !hasCompleteFacebookCookies(cookieObj)) {
+        msg(`⚠️ Đã lưu tài khoản "${name}", nhưng tự động đăng nhập thất bại: ${autoLoginError}`, 'err');
+      } else if (finalCookieStr && (cookieObj['c_user'] && cookieObj['xs'])) {
         msg(`⏳ Đang nạp phiên đăng nhập Facebook cho "${name}"...`);
         const res = await activateSessionWithFallback(accId, true);
         if (res?.ok) {
+          if (res.autoRelogged && res.cookies) {
+            const refreshedAccs = await loadAccounts();
+            const targetAcc = refreshedAccs.find(a => a.id === accId);
+            if (targetAcc) {
+              targetAcc.cookies = res.cookies;
+              if (res.cUser && res.cUser !== 'N/A') targetAcc.fbId = res.cUser;
+              targetAcc.lastCookieSync = Date.now();
+              await saveAccounts(refreshedAccs);
+            }
+          }
           msg(`✅ Đã nạp và tự động đăng nhập Facebook thành công cho "${name}" (FB ID: ${res.cUser || cUser})!`);
         } else {
-          msg(`✅ Đã lưu tài khoản "${name}" (FB ID: ${cUser || 'N/A'})!`);
+          msg(`❌ Đã lưu tài khoản "${name}", nhưng đăng nhập Facebook thất bại: ${res?.error || 'Cookies không hợp lệ'}`, 'err');
         }
       } else {
-        msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${cUser || 'N/A'}) thành công!`);
+        msg(`⚠️ Đã thêm tài khoản "${name}", chưa đủ dữ liệu đăng nhập tự động (${autoLoginError || 'thiếu Cookies/Pass'}).`, 'err');
       }
     } else {
       msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${cUser || 'N/A'}) thành công!`);
@@ -854,14 +873,25 @@ async function render() {
         const accounts = await loadAccounts();
         const acc = accounts.find(a => a.id === id);
 
-        // 1. Thử kích hoạt phiên
+        // 1. Thử kích hoạt phiên (worker tự kiểm tra và fallback sang Pass+2FA nếu cookie thiếu sb/hết hạn)
         const res = await activateSessionWithFallback(id, true);
         if (res?.ok) {
+          if (res.autoRelogged && res.cookies) {
+            const refreshed = await loadAccounts();
+            const targetAcc = refreshed.find(a => a.id === id);
+            if (targetAcc) {
+              targetAcc.cookies = res.cookies;
+              if (res.cUser && res.cUser !== 'N/A') targetAcc.fbId = res.cUser;
+              targetAcc.lastCookieSync = Date.now();
+              await saveAccounts(refreshed);
+              render();
+            }
+          }
           msg(`✅ Đã chuyển đổi Facebook sang tài khoản "${name}" (FB ID: ${res.cUser})!`);
         } else if (acc?.password && (acc?.email || acc?.fbId)) {
           // 2. Nếu cookies hết hạn và có Mật khẩu -> Tự động đăng nhập lại bằng Pass + 2FA
           msg(`⏳ Cookies của "${name}" đã hết hạn. Đang tự động đăng nhập lại bằng mật khẩu & 2FA...`);
-          const loginRes = await chrome.runtime.sendMessage({
+          const loginRes = await sendExtensionCommand({
             type: 'DO_LOGIN',
             email: acc.email || acc.fbId,
             password: acc.password,
@@ -871,6 +901,17 @@ async function render() {
             keepSession: true
           });
           if (loginRes?.ok) {
+            if (loginRes.cookies) {
+              const refreshed = await loadAccounts();
+              const targetAcc = refreshed.find(a => a.id === id);
+              if (targetAcc) {
+                targetAcc.cookies = loginRes.cookies;
+                if (loginRes.token) targetAcc.token = loginRes.token;
+                if (loginRes.cUser) targetAcc.fbId = loginRes.cUser;
+                targetAcc.lastCookieSync = Date.now();
+                await saveAccounts(refreshed);
+              }
+            }
             msg(`✅ Đã tự động đăng nhập Facebook thành công cho "${name}"!`);
             render();
           } else {

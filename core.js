@@ -460,6 +460,27 @@ export function removeBannedWords(text) {
 }
 
 /**
+ * Kiểm tra token cookie `xs` có bị cắt ngắn (thiếu chữ ký bảo mật) hay không.
+ */
+export function isTruncatedXsToken(xsVal) {
+  const s = String(xsVal || '').trim();
+  if (!s) return true;
+  return !s.includes('%3A%3A') && !s.includes('::') && (s.endsWith('-1') || s.split(/%3A|:/).length < 6);
+}
+
+/**
+ * Kiểm tra chuỗi/object cookies Facebook có đủ bộ c_user, xs (nguyên vẹn), và sb hay không.
+ */
+export function hasCompleteFacebookCookies(cookieInput) {
+  if (!cookieInput) return false;
+  const obj = (typeof cookieInput === 'object' && !Array.isArray(cookieInput))
+    ? cookieInput
+    : parseUniversalCookies(cookieInput);
+  if (!obj['c_user'] || !obj['xs'] || !obj['sb']) return false;
+  return !isTruncatedXsToken(obj['xs']);
+}
+
+/**
  * Nạp cookies của tài khoản vào Facebook trên Chrome.
  */
 export async function injectCookies(cookieInput) {
@@ -777,23 +798,34 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
       }
     }
 
-    // 6. Tự động kiểm tra: Nếu nick có Mật khẩu và tab Facebook hiển thị màn hình đăng nhập (do cookie hết hạn / bị out)
+    // 6. Tự động kiểm tra: Nếu nick có Mật khẩu và tab Facebook hiển thị màn hình đăng nhập (do cookie hết hạn / thiếu sb / bị out)
     // -> Tự động đăng nhập lại bằng Mật khẩu + 2FA mà không để người dùng bơ vơ!
     if (acc.password && (acc.email || acc.fbId)) {
       setTimeout(async () => {
         try {
           const tab = await chrome.tabs.get(mainTab.id).catch(() => null);
-          if (tab && tab.url && (tab.url.includes('/login') || tab.url.includes('facebook.com/?_r=') || tab.url.includes('home.php'))) {
+          if (tab && tab.url && (tab.url.includes('/login') || tab.url.includes('facebook.com/?_r=') || tab.url.includes('facebook.com/') || tab.url.includes('home.php'))) {
             const currentCookies = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
-            const hasLiveCUser = currentCookies.some(c => c.name === 'c_user' && c.value);
-            if (!hasLiveCUser) {
-              console.log(`[AutoLogin] Cookies của "${acc.name}" đã hết hạn. Đang tự động đăng nhập lại bằng mật khẩu & 2FA...`);
+            const currentCookieObj = Object.fromEntries(currentCookies.map(c => [c.name, c.value]));
+            const hasLiveCUser = Boolean(currentCookieObj['c_user']);
+            let tabShowsLoginForm = false;
+            if (typeof chrome.scripting?.executeScript === 'function') {
+              tabShowsLoginForm = await chrome.scripting.executeScript({
+                target: { tabId: mainTab.id },
+                func: () => Boolean(document.querySelector('input[type="password"], #pass, input[name="pass"]'))
+              }).then(r => Boolean(r?.[0]?.result)).catch(() => false);
+            }
+            if (!hasLiveCUser || !hasCompleteFacebookCookies(currentCookieObj) || tabShowsLoginForm) {
+              console.log(`[AutoLogin] Cookies của "${acc.name}" đã hết hạn hoặc bị yêu cầu đăng nhập. Đang tự động đăng nhập lại bằng mật khẩu & 2FA...`);
               chrome.runtime.sendMessage({
                 type: 'DO_LOGIN',
                 email: acc.email || acc.fbId,
                 password: acc.password,
                 twoFactor: acc.twoFactor || null,
-                existingAccountId: acc.id
+                existingAccountId: acc.id,
+                targetTabId: mainTab.id,
+                openFacebookTab: true,
+                keepSession: true
               }).catch(() => {});
             }
           }
@@ -1073,8 +1105,8 @@ export function parseViaString(rawInput) {
     for (let i = 0; i < parts.length; i++) {
       let p = parts[i];
 
-      // A. Nếu phần này chứa cookie (c_user= hoặc xs=)
-      if (p.includes('c_user=') || p.includes('xs=')) {
+      // A. Nếu phần này chứa cookie (c_user=, xs=, hoặc cặp cookie phụ kèm dấu ;)
+      if (p.includes('c_user=') || p.includes('xs=') || (p.includes(';') && (p.includes('datr=') || p.includes('sb=') || p.includes('fr=')))) {
         // Loại bỏ token bị dính vào cookie nếu có (ví dụ: ; [EAAAU...)
         const cleaned = p.replace(/\[?EAA[a-zA-Z0-9]+\]?/g, '').trim().replace(/;\s*;+/g, ';').replace(/^[;\s]+|[;\s]+$/g, '');
         cookieStr = cleaned;

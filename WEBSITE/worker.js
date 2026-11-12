@@ -1,5 +1,5 @@
 // worker.js – Background service worker (multi-account parallel)
-import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, recordPostedGroupUrl} from './core.js';
+import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, hasCompleteFacebookCookies, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, recordPostedGroupUrl} from './core.js';
 import { checkCurrentLicense } from './license.js';
 import { mapsExtract } from './maps_extract.js';
 import {
@@ -5080,6 +5080,297 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
 
+async function waitForTabLoadComplete(tabId, timeoutMs = 20000) {
+  if (!tabId) return false;
+  const current = await chrome.tabs.get(tabId).catch(() => null);
+  if (!current) return false;
+  if (current.status === 'complete') return true;
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      chrome.tabs.onUpdated.removeListener(handler);
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const handler = (id, change) => {
+      if (id === tabId && change.status === 'complete') finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    chrome.tabs.onUpdated.addListener(handler);
+    chrome.tabs.get(tabId).then(t => {
+      if (t?.status === 'complete') finish(true);
+    }).catch(() => finish(false));
+  });
+}
+
+async function inspectTabFacebookAuthState(tabId) {
+  if (!tabId || typeof chrome.scripting?.executeScript !== 'function') {
+    return { url: '', hasPasswordInput: false, hasEmailInput: false, hasTwoFactorInput: false, hasSwitchAccountBtn: false };
+  }
+  return await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const hasPasswordInput = Boolean(
+        document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"]')
+      );
+      const hasEmailInput = Boolean(
+        document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[aria-label*="Email" i], input[aria-label*="di động" i]')
+      );
+      const hasTwoFactorInput = Boolean(
+        document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
+      );
+      const hasSwitchAccountBtn = [...document.querySelectorAll('a, button, [role="button"]')].some(el => {
+        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+        return t.includes('tài khoản khác') || t.includes('another account') || t.includes('dùng tài khoản khác');
+      });
+      return {
+        url: location.href,
+        hasPasswordInput,
+        hasEmailInput,
+        hasTwoFactorInput,
+        hasSwitchAccountBtn
+      };
+    }
+  }).then(r => r?.[0]?.result || null).catch(() => null) || {
+    url: '',
+    hasPasswordInput: false,
+    hasEmailInput: false,
+    hasTwoFactorInput: false,
+    hasSwitchAccountBtn: false
+  };
+}
+
+async function performFacebookLogin(m) {
+  let tabId = null;
+  let createdFreshTab = false;
+  try {
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step1' }).catch(() => {});
+
+    // Nếu truyền targetTabId hợp lệ, tái sử dụng tab đó để không mở dư nhiều tab
+    if (m.targetTabId) {
+      const targetTab = await chrome.tabs.get(m.targetTabId).catch(() => null);
+      if (targetTab) {
+        tabId = targetTab.id;
+        await chrome.tabs.update(tabId, { url: 'about:blank', active: !m.isBackground }).catch(() => {});
+      }
+    }
+
+    // ── 1. Xóa sạch session và cookies Facebook hiện có trên trình duyệt ─
+    await clearAllFacebookSession();
+    await new Promise(r => setTimeout(r, 700));
+
+    // ── 2. Mở hoặc điều hướng tab tới trang đăng nhập Facebook ─────────
+    const loginUrl = 'https://www.facebook.com/login.php';
+    if (tabId) {
+      await chrome.tabs.update(tabId, { url: loginUrl, active: !m.isBackground });
+    } else {
+      const tab = await chrome.tabs.create({ url: loginUrl, active: !m.isBackground });
+      tabId = tab.id;
+      createdFreshTab = true;
+    }
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step2' }).catch(() => {});
+
+    await waitForTabLoadComplete(tabId, 25000);
+    await new Promise(r => setTimeout(r, 1200));
+
+    // Kiểm tra DOM thực tế thay vì chỉ đoán theo URL (vì Facebook Comet mới thường render màn hình đăng nhập ngay tại facebook.com/ hoặc facebook.com/?_r=...)
+    const initialAuthState = await inspectTabFacebookAuthState(tabId);
+    const tabInfo = await chrome.tabs.get(tabId).catch(() => ({}));
+    const currentUrl = tabInfo.url || initialAuthState.url || '';
+    const alreadyHasLoginUi = initialAuthState.hasPasswordInput || initialAuthState.hasEmailInput || initialAuthState.hasSwitchAccountBtn || initialAuthState.hasTwoFactorInput;
+
+    if (!alreadyHasLoginUi && !currentUrl.includes('/login') && !currentUrl.includes('checkpoint') && currentUrl.includes('facebook.com/')) {
+      await chrome.tabs.update(tabId, { url: 'about:blank' }).catch(() => {});
+      await clearAllFacebookSession();
+      await new Promise(r => setTimeout(r, 600));
+      await chrome.tabs.update(tabId, {
+        url: 'https://www.facebook.com/login.php?login_attempt=1'
+      });
+      await waitForTabLoadComplete(tabId, 15000);
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    // Inject script hỗ trợ đăng nhập
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] });
+    await new Promise(r => setTimeout(r, 500));
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step3' }).catch(() => {});
+
+    const loginResult = await chrome.tabs.sendMessage(tabId, {
+      type: 'DO_LOGIN',
+      email: m.email,
+      password: m.password
+    }).catch(e => {
+      if (e.message && e.message.includes('message channel closed')) {
+        return { ok: true, submitted: true };
+      }
+      return { ok: false, error: 'Không thể gửi lệnh vào tab: ' + e.message };
+    });
+
+    if (!loginResult?.ok) {
+      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+      return { ok: false, error: loginResult?.error || 'Đăng nhập thất bại.' };
+    }
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step4' }).catch(() => {});
+
+    // Chờ cookies phiên đăng nhập (c_user) xuất hiện (tối đa 35s, hoặc 120s nếu có 2FA)
+    const startTime = Date.now();
+    let endWait = startTime + 35000;
+    let cUser = null;
+    let allNewCookies = [];
+    let cookieMap = new Map();
+    let notified2FA = false;
+    let submitted2FASucceeded = false;
+    let twoFaAttempts = 0;
+    let last2FaAttemptAt = 0;
+    let loopTick = 0;
+
+    while (Date.now() < endWait) {
+      await new Promise(r => setTimeout(r, 1000));
+      loopTick++;
+
+      const tabCheck = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tabCheck) break;
+
+      const is2FaUrl = Boolean(tabCheck.url && /checkpoint|two_step|two_factor|2fa|approvals|auth_platform/i.test(tabCheck.url));
+      let has2FaDom = false;
+      if (!is2FaUrl && !submitted2FASucceeded && loopTick >= 3 && loopTick % 2 === 1) {
+        const probeState = await inspectTabFacebookAuthState(tabId);
+        has2FaDom = Boolean(probeState.hasTwoFactorInput);
+      }
+
+      if (is2FaUrl || has2FaDom) {
+        if (!notified2FA) {
+          notified2FA = true;
+          endWait = Date.now() + 120000;
+          await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+        }
+
+        if (m.twoFactor && !submitted2FASucceeded && twoFaAttempts < 4 && (Date.now() - last2FaAttemptAt > 2500)) {
+          twoFaAttempts++;
+          last2FaAttemptAt = Date.now();
+          await waitForTabLoadComplete(tabId, 8000);
+          await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] }).catch(() => {});
+          await new Promise(r => setTimeout(r, 400));
+
+          const otp = await generate2FACode(m.twoFactor);
+          if (otp) {
+            chrome.runtime.sendMessage({
+              type: 'LOGIN_STEP',
+              step: 'step_2fa',
+              message: `⚡ Đang tự động giải mã 2FA (${otp})...`
+            }).catch(() => {});
+
+            const twoFaRes = await chrome.tabs.sendMessage(tabId, { type: 'SUBMIT_2FA', code: otp })
+              .catch(e => (e?.message?.includes('message channel closed') ? { ok: true } : { ok: false }));
+            if (twoFaRes?.ok) {
+              submitted2FASucceeded = true;
+            }
+          }
+        } else if (!m.twoFactor) {
+          chrome.runtime.sendMessage({
+            type: 'LOGIN_STEP',
+            step: 'step_2fa',
+            message: 'Vui lòng nhập mã 2FA trên tab Facebook...'
+          }).catch(() => {});
+        }
+      }
+
+      allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
+        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+      );
+
+      cookieMap = new Map();
+      for (const ck of allNewCookies) {
+        if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+          cookieMap.set(ck.name, ck);
+        }
+      }
+
+      cUser = cookieMap.get('c_user');
+      if (cUser && cUser.value && !is2FaUrl && !has2FaDom) {
+        break;
+      }
+
+      if (!notified2FA && Date.now() - startTime > 5500 && tabCheck?.url) {
+        if (tabCheck.url.includes('login_attempt') || tabCheck.url.includes('error') || tabCheck.url.includes('facebook.com')) {
+          const errMsg = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+              const el = document.querySelector('#error_box, [role="alert"], [data-testid="login_error"]');
+              return el ? el.innerText.trim() : '';
+            }
+          }).then(r => r?.[0]?.result).catch(() => '');
+
+          if (errMsg && errMsg.length > 5 && /mật khẩu|password|sai|incorrect|không đúng|tài khoản|account/i.test(errMsg)) {
+            if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+            return { ok: false, error: 'Facebook báo lỗi: ' + errMsg.slice(0, 200) };
+          }
+        }
+      }
+    }
+
+    if (!cUser) {
+      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+      if (notified2FA) {
+        return { ok: false, error: 'Hết thời gian chờ xác minh 2FA. Vui lòng kiểm tra lại mã 2FA của VIA.' };
+      }
+      return { ok: false, error: 'Đăng nhập quá thời gian — không lấy được cookies phiên. Vui lòng kiểm tra lại email/mật khẩu.' };
+    }
+
+    // Đợi thêm 1.5s để các cookie phiên (xs, fr, datr, sb...) ghi đầy đủ
+    await new Promise(r => setTimeout(r, 1500));
+    allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
+      c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+    );
+    cookieMap = new Map();
+    for (const ck of allNewCookies) {
+      if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+        cookieMap.set(ck.name, ck);
+      }
+    }
+    const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+
+    const [tokenEAAG, tokenEAAB] = await Promise.all([
+      fetchTokenEAAG().catch(() => null),
+      fetchTokenEAAB().catch(() => null)
+    ]);
+    const activeToken = tokenEAAG || tokenEAAB || null;
+
+    if (m.existingAccountId) {
+      const { accounts } = await chrome.storage.local.get('accounts');
+      const accList = accounts || [];
+      const targetAcc = accList.find(a => a.id === m.existingAccountId);
+      if (targetAcc) {
+        targetAcc.cookies = cookieStr;
+        if (activeToken) targetAcc.token = activeToken;
+        targetAcc.fbId = cUser.value;
+        targetAcc.lastCookieSync = Date.now();
+        await chrome.storage.local.set({ accounts: accList });
+      }
+    }
+
+    chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step5' }).catch(() => {});
+
+    if (m.keepSession || m.openFacebookTab) {
+      await chrome.tabs.update(tabId, { url: `https://www.facebook.com/?_r=${Date.now()}`, active: true }).catch(() => {});
+    } else if (tabId) {
+      await chrome.tabs.remove(tabId).catch(() => {});
+      tabId = null;
+    }
+
+    return { ok: true, cookies: cookieStr, cUser: cUser.value, token: activeToken, tabId };
+  } catch (e) {
+    if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+    return { ok: false, error: e.message };
+  }
+}
+
   // ACTIVATE_ACCOUNT_SESSION: Nạp cookies của tài khoản vào Chrome và tùy chọn mở/làm mới tab Facebook
   if (m.type === 'ACTIVATE_ACCOUNT_SESSION') {
     (async () => {
@@ -5098,6 +5389,8 @@ function handleRuntimeMessage(m, sender, reply) {
           const rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : '';
           const cookieObj = rawCookies ? parseUniversalCookies(rawCookies) : {};
           const hasCookies = Boolean(cookieObj['c_user'] && cookieObj['xs']);
+          const hasCompleteCookies = hasCompleteFacebookCookies(cookieObj);
+          const hasCredentials = Boolean(acc.password && (acc.email || acc.fbId));
           const hasDatrInAcc = Boolean(cookieObj['datr']);
 
           // 1. Nếu có tab Facebook đang mở, tạm chuyển sang about:blank để ngắt các kết nối nền của phiên cũ gây logout tự động
@@ -5113,6 +5406,50 @@ function handleRuntimeMessage(m, sender, reply) {
           }
           if (existingFbTabs.length > 0) {
             await new Promise(r => setTimeout(r, 200));
+          }
+
+          // Nếu có yêu cầu mở Facebook và nick chưa đủ cookies chuẩn (hoặc thiếu hoàn toàn) nhưng có Mật khẩu -> tự động đăng nhập luôn không để tab đứng yên
+          if (m.openFacebookTab && hasCredentials && !hasCompleteCookies && acc.type !== 'fanpage') {
+            let reuseTabId = null;
+            if (m.tabId) {
+              const targetedTab = await chrome.tabs.get(m.tabId).catch(() => null);
+              if (targetedTab) reuseTabId = targetedTab.id;
+            } else if (existingFbTabs.length > 0) {
+              reuseTabId = existingFbTabs[0].id;
+              for (let i = 1; i < existingFbTabs.length; i++) {
+                try { await chrome.tabs.remove(existingFbTabs[i].id); } catch (_) {}
+              }
+            }
+            const loginRes = await performFacebookLogin({
+              email: acc.email || acc.fbId,
+              password: acc.password,
+              twoFactor: acc.twoFactor || null,
+              existingAccountId: acc.id,
+              targetTabId: reuseTabId,
+              openFacebookTab: true,
+              keepSession: true,
+              isBackground: !!m.background || m.activeTab === false
+            });
+            if (loginRes?.ok) {
+              currentSessionAccountId = acc.id;
+              reply({
+                ok: true,
+                accountId: acc.id,
+                accountName: acc.name,
+                cUser: loginRes.cUser || acc.fbId || 'N/A',
+                injectedCount: 0,
+                tabId: loginRes.tabId || null,
+                hasCookies: true,
+                autoRelogged: true,
+                cookies: loginRes.cookies
+              });
+            } else {
+              reply({
+                ok: false,
+                error: loginRes?.error || 'Tự động đăng nhập Facebook thất bại.'
+              });
+            }
+            return;
           }
 
           // 2. Xóa sạch 100% cookies Facebook cũ để không bị dính nick cũ
@@ -5216,20 +5553,46 @@ function handleRuntimeMessage(m, sender, reply) {
               })();
             }
 
-            // Nếu không có cookies mà có mật khẩu & email/UID -> Tự động điền đăng nhập
-            if (!hasCookies && acc.password && (acc.email || acc.fbId) && mainTab?.id) {
-              setTimeout(async () => {
-                try {
-                  handleRuntimeMessage({
-                    type: 'DO_LOGIN',
-                    email: acc.email || acc.fbId,
-                    password: acc.password,
-                    twoFactor: acc.twoFactor || null,
-                    existingAccountId: acc.id,
-                    targetTabId: mainTab.id
-                  }, { id: chrome.runtime?.id }, () => {});
-                } catch (_) {}
-              }, 1500);
+            // Kiểm tra thực tế sau khi tab Facebook tải xong: nếu cookie đã chết và Facebook hiện form đăng nhập -> tự động điền Pass + 2FA ngay trên tab này
+            if (hasCredentials && acc.type !== 'fanpage' && mainTab?.id) {
+              await waitForTabLoadComplete(mainTab.id, 12000);
+              await new Promise(r => setTimeout(r, 900));
+              const tabAuth = await inspectTabFacebookAuthState(mainTab.id);
+              const liveCookiesAfterLoad = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
+              const liveCUserAfterLoad = liveCookiesAfterLoad.find(c => c.name === 'c_user')?.value;
+
+              if (!hasCookies || !liveCUserAfterLoad || tabAuth.hasPasswordInput || tabAuth.hasEmailInput || tabAuth.hasSwitchAccountBtn) {
+                const loginRes = await performFacebookLogin({
+                  email: acc.email || acc.fbId,
+                  password: acc.password,
+                  twoFactor: acc.twoFactor || null,
+                  existingAccountId: acc.id,
+                  targetTabId: mainTab.id,
+                  openFacebookTab: true,
+                  keepSession: true,
+                  isBackground: !!m.background || m.activeTab === false
+                });
+                if (loginRes?.ok) {
+                  currentSessionAccountId = acc.id;
+                  reply({
+                    ok: true,
+                    accountId: acc.id,
+                    accountName: acc.name,
+                    cUser: loginRes.cUser || cUser || acc.fbId || 'N/A',
+                    injectedCount: injected.length,
+                    tabId: loginRes.tabId || mainTab.id,
+                    hasCookies: true,
+                    autoRelogged: true,
+                    cookies: loginRes.cookies
+                  });
+                } else {
+                  reply({
+                    ok: false,
+                    error: loginRes?.error || 'Cookies đã hết hạn và không thể tự động đăng nhập lại.'
+                  });
+                }
+                return;
+              }
             }
           }
 
@@ -5497,236 +5860,9 @@ function handleRuntimeMessage(m, sender, reply) {
     const isAllowed = (sender.id === chrome.runtime.id) || !!sender.isExternal;
     if (!isAllowed) { reply({ ok: false, error: 'Không được phép.' }); return true; }
 
-    (async () => {
-      let tabId = null;
-      try {
-        // Thông báo step 1
-        chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step1' }).catch(() => {});
-
-        // ── 1. Xóa sạch session và cookies Facebook hiện có trên trình duyệt ─
-        await clearAllFacebookSession();
-        await new Promise(r => setTimeout(r, 800));
-
-        // ── 2. Mở tab trang đăng nhập Facebook ───────────────────────────
-        const tab = await chrome.tabs.create({
-          url: 'https://www.facebook.com/login.php',
-          active: true
-        });
-        tabId = tab.id;
-
-        // Thông báo step 2
-        chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step2' }).catch(() => {});
-
-        // Chờ tab load hoàn tất
-        await new Promise((res, rej) => {
-          const timeout = setTimeout(() => rej(new Error('Tải trang đăng nhập quá thời gian.')), 25000);
-          chrome.tabs.onUpdated.addListener(function handler(id, change) {
-            if (id !== tabId || change.status !== 'complete') return;
-            chrome.tabs.onUpdated.removeListener(handler);
-            clearTimeout(timeout);
-            res();
-          });
-        });
-
-        await new Promise(r => setTimeout(r, 1500));
-
-        // Kiểm tra xem tab có bị redirect về trang chủ/home.php do tài khoản cũ không
-        const tabInfo = await chrome.tabs.get(tabId).catch(() => ({}));
-        const currentUrl = tabInfo.url || '';
-
-        if (!currentUrl.includes('/login') && (
-          currentUrl.includes('home.php') ||
-          (currentUrl.includes('facebook.com/') && !currentUrl.includes('checkpoint'))
-        )) {
-          // Xóa session lại lần nữa và chuyển hướng cưỡng bức về login
-          await clearAllFacebookSession();
-          await new Promise(r => setTimeout(r, 600));
-          await chrome.tabs.update(tabId, {
-            url: 'https://www.facebook.com/login.php?login_attempt=1'
-          });
-          await new Promise((res) => {
-            const timeout = setTimeout(res, 15000);
-            chrome.tabs.onUpdated.addListener(function handler(id, change) {
-              if (id !== tabId || change.status !== 'complete') return;
-              chrome.tabs.onUpdated.removeListener(handler);
-              clearTimeout(timeout);
-              res();
-            });
-          });
-          await new Promise(r => setTimeout(r, 1500));
-        }
-
-        // Inject script hỗ trợ đăng nhập
-        await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] });
-        await new Promise(r => setTimeout(r, 600));
-
-        // Thông báo step 3: Điền thông tin đăng nhập
-        chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step3' }).catch(() => {});
-
-        // Gửi thông tin đăng nhập vào tab
-        const loginResult = await chrome.tabs.sendMessage(tabId, {
-          type: 'DO_LOGIN',
-          email: m.email,
-          password: m.password,
-        }).catch(e => {
-          // Nếu trang điều hướng ngay sau khi click, message channel có thể bị đóng nhưng form đã được gửi
-          if (e.message && e.message.includes('message channel closed')) {
-            return { ok: true, submitted: true };
-          }
-          return { ok: false, error: 'Không thể gửi lệnh vào tab: ' + e.message };
-        });
-
-        if (!loginResult?.ok) {
-          await chrome.tabs.remove(tabId).catch(() => {});
-          reply({ ok: false, error: loginResult?.error || 'Đăng nhập thất bại.' });
-          return;
-        }
-
-        // Thông báo step 4: Lấy cookies
-        chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step4' }).catch(() => {});
-
-        // Chờ cookies phiên đăng nhập (c_user) xuất hiện (tối đa 30 giây, hoặc 120 giây nếu có 2FA)
-        const startTime = Date.now();
-        let endWait = startTime + 30000;
-        let cUser = null;
-        let allNewCookies = [];
-        let cookieMap = new Map();
-        let notified2FA = false;
-        let submitted2FA = false;
-
-        while (Date.now() < endWait) {
-          await new Promise(r => setTimeout(r, 1000));
-
-          // 1. Kiểm tra URL tab xem có bị chuyển đến trang Checkpoint/2FA không
-          const tabCheck = await chrome.tabs.get(tabId).catch(() => null);
-          if (tabCheck?.url && /checkpoint|two_step|2fa|approvals/i.test(tabCheck.url)) {
-            if (!notified2FA) {
-              notified2FA = true;
-              endWait = Date.now() + 120000;
-              await chrome.tabs.update(tabId, { active: true }).catch(() => {});
-            }
-
-            // Nếu tài khoản có 2FA Secret Key -> Tự động tạo mã và điền ngay!
-            if (m.twoFactor && !submitted2FA) {
-              const otp = await generate2FACode(m.twoFactor);
-              if (otp) {
-                submitted2FA = true;
-                chrome.runtime.sendMessage({
-                  type: 'LOGIN_STEP',
-                  step: 'step_2fa',
-                  message: `⚡ Đang tự động giải mã 2FA (${otp})...`
-                }).catch(() => {});
-
-                // Gửi lệnh submit mã 2FA vào tab
-                chrome.tabs.sendMessage(tabId, { type: 'SUBMIT_2FA', code: otp }).catch(() => {});
-              }
-            } else if (!m.twoFactor) {
-              chrome.runtime.sendMessage({
-                type: 'LOGIN_STEP',
-                step: 'step_2fa',
-                message: 'Vui lòng nhập mã 2FA trên tab Facebook...'
-              }).catch(() => {});
-            }
-          }
-
-          // 2. Quét cookies facebook hiện tại
-          allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
-            c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
-          );
-
-          cookieMap = new Map();
-          for (const ck of allNewCookies) {
-            if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
-              cookieMap.set(ck.name, ck);
-            }
-          }
-
-          cUser = cookieMap.get('c_user');
-          if (cUser && cUser.value) {
-            // Đã có c_user -> Đăng nhập thành công!
-            break;
-          }
-
-          // 3. Nếu không phải 2FA và sau 6 giây mà tab chuyển về trang báo lỗi sai mật khẩu
-          if (!notified2FA && Date.now() - startTime > 6000 && tabCheck?.url) {
-            if (tabCheck.url.includes('login_attempt') || tabCheck.url.includes('error')) {
-              const errMsg = await chrome.scripting.executeScript({
-                target: { tabId },
-                func: () => {
-                  const el = document.querySelector('#error_box, [id*="error"], [role="alert"], [data-testid="login_error"]');
-                  return el ? el.innerText.trim() : '';
-                }
-              }).then(r => r?.[0]?.result).catch(() => '');
-
-              if (errMsg && errMsg.length > 5) {
-                await chrome.tabs.remove(tabId).catch(() => {});
-                reply({ ok: false, error: 'Facebook báo lỗi: ' + errMsg.slice(0, 200) });
-                return;
-              }
-            }
-          }
-        }
-
-        if (!cUser) {
-          await chrome.tabs.remove(tabId).catch(() => {});
-          if (notified2FA) {
-            reply({ ok: false, error: 'Hết thời gian chờ xác minh 2FA. Vui lòng kiểm tra lại mã 2FA của VIA.' });
-          } else {
-            reply({ ok: false, error: 'Đăng nhập quá thời gian — không lấy được cookies phiên. Vui lòng kiểm tra lại email/mật khẩu.' });
-          }
-          return;
-        }
-
-        // Đợi thêm 1.5s để các cookie phiên (xs, fr, datr, sb...) ghi đầy đủ
-        await new Promise(r => setTimeout(r, 1500));
-        allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
-          c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
-        );
-        cookieMap = new Map();
-        for (const ck of allNewCookies) {
-          if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
-            cookieMap.set(ck.name, ck);
-          }
-        }
-        const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
-
-        // 4. Tự động lấy Token EAAG & EAAB từ phiên đăng nhập mới
-        const [tokenEAAG, tokenEAAB] = await Promise.all([
-          fetchTokenEAAG().catch(() => null),
-          fetchTokenEAAB().catch(() => null)
-        ]);
-        const activeToken = tokenEAAG || tokenEAAB || null;
-
-        // 5. Nếu có ID tài khoản sẵn, tự động cập nhật cookies & token mới vào storage
-        if (m.existingAccountId) {
-          const { accounts } = await chrome.storage.local.get('accounts');
-          const accList = accounts || [];
-          const targetAcc = accList.find(a => a.id === m.existingAccountId);
-          if (targetAcc) {
-            targetAcc.cookies = cookieStr;
-            if (activeToken) targetAcc.token = activeToken;
-            targetAcc.fbId = cUser.value;
-            targetAcc.lastCookieSync = Date.now();
-            await chrome.storage.local.set({ accounts: accList });
-          }
-        }
-
-        // Thông báo step 5: Lưu tài khoản
-        chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step5' }).catch(() => {});
-
-        // Nếu người dùng yêu cầu giữ lại tab Facebook (hoặc mở Facebook sau khi thêm VIA)
-        if (m.keepSession || m.openFacebookTab) {
-          await chrome.tabs.update(tabId, { url: `https://www.facebook.com/?_r=${Date.now()}`, active: true }).catch(() => {});
-        } else {
-          await chrome.tabs.remove(tabId).catch(() => {});
-        }
-
-        reply({ ok: true, cookies: cookieStr, cUser: cUser.value, token: activeToken });
-      } catch (e) {
-        if (tabId) await chrome.tabs.remove(tabId).catch(() => {});
-        reply({ ok: false, error: e.message });
-      }
-    })();
+    performFacebookLogin(m).then(reply).catch(e => {
+      reply({ ok: false, error: e.message });
+    });
     return true;
   }
 
