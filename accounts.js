@@ -17,7 +17,10 @@ import {
   parseTokenOrCookieInput,
   parseViaString,
   generate2FACode,
-  injectCookies
+  injectCookies,
+  parseProxyString,
+  formatProxyDisplay,
+  normalizeProxyString
 } from './core.js';
 
 const $ = id => document.getElementById(id);
@@ -31,6 +34,91 @@ const msg = (text, type = 'ok') => {
   el.className = type === 'ok' ? 'msg-ok' : 'msg-err';
   if (type === 'ok') setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 4000);
 };
+
+// ── Proxy tester helper ───────────────────────────────────────────────────────
+async function testProxyViaWorker(proxyStr) {
+  if (!proxyStr || !proxyStr.trim()) {
+    return { ok: false, error: 'Chưa nhập địa chỉ Proxy để kiểm tra.' };
+  }
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      return await window.chrome.runtime.sendToExtension({
+        type: 'TEST_PROXY',
+        proxy: proxyStr.trim()
+      });
+    } catch (e) {
+      return { ok: false, error: e.message || 'Lỗi kết nối tới Extension' };
+    }
+  }
+
+  return new Promise((resolve) => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({
+        type: 'TEST_PROXY',
+        proxy: proxyStr.trim()
+      }, (res) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message });
+        } else {
+          resolve(res || { ok: false, error: 'Không nhận được phản hồi từ extension' });
+        }
+      });
+    } else {
+      resolve({ ok: false, error: 'Extension API không khả dụng.' });
+    }
+  });
+}
+
+function handleProxyTestUi(btnEl, inputEl, statusEl) {
+  if (!btnEl || !inputEl || !statusEl) return;
+  btnEl.onclick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const val = inputEl.value.trim();
+    if (!val) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = '#fffbeb';
+      statusEl.style.border = '1px solid #fde68a';
+      statusEl.style.color = '#b45309';
+      statusEl.textContent = '⚠️ Vui lòng nhập địa chỉ Proxy (IP:Port hoặc IP:Port:User:Pass) trước khi kiểm tra!';
+      return;
+    }
+
+    const origText = btnEl.textContent;
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Đang kiểm tra...';
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#eff6ff';
+    statusEl.style.border = '1px solid #bfdbfe';
+    statusEl.style.color = '#1d4ed8';
+    statusEl.textContent = '⏳ Đang kết nối thử và đo tốc độ phản hồi qua Proxy...';
+
+    try {
+      const res = await testProxyViaWorker(val);
+      if (res && res.ok) {
+        statusEl.style.background = '#f0fdf4';
+        statusEl.style.border = '1px solid #86efac';
+        statusEl.style.color = '#15803d';
+        statusEl.innerHTML = `✅ <b>Proxy hoạt động tốt!</b> IP thực tế: <code>${res.ip}</code> · Độ trễ: <b>${res.pingMs}ms</b>${res.hasAuth ? ' · Xác thực: OK' : ''}`;
+      } else {
+        statusEl.style.background = '#fef2f2';
+        statusEl.style.border = '1px solid #fca5a5';
+        statusEl.style.color = '#dc2626';
+        statusEl.innerHTML = `❌ <b>Kiểm tra thất bại:</b> ${res?.error || 'Không thể kết nối qua Proxy này.'}`;
+      }
+    } catch (err) {
+      statusEl.style.background = '#fef2f2';
+      statusEl.style.border = '1px solid #fca5a5';
+      statusEl.style.color = '#dc2626';
+      statusEl.innerHTML = `❌ <b>Lỗi:</b> ${err.message || 'Không thể kiểm tra Proxy'}`;
+    } finally {
+      btnEl.disabled = false;
+      btnEl.textContent = origText;
+    }
+  };
+}
 
 // ── Tab switcher ──────────────────────────────────────────────────────────────
 $('tabPass').onclick = () => {
@@ -169,6 +257,8 @@ $('loginBtn').onclick = async () => {
   const email  = $('fbEmail').value.trim();
   const pass   = $('fbPass').value;
   const twoFactor = $('fb2FA')?.value?.trim() || null;
+  const proxyRaw  = $('fbProxy')?.value?.trim() || null;
+  const normalizedProxy = proxyRaw ? normalizeProxyString(proxyRaw) : null;
   const groups = $('accGroups')?.value?.trim() || '';
 
   if (!name)  { msg('Hãy nhập tên hiển thị.', 'err'); return; }
@@ -202,6 +292,7 @@ $('loginBtn').onclick = async () => {
         email,
         password: pass,
         twoFactor,
+        proxy: normalizedProxy,
         keepSession: true,
         openFacebookTab: true
       });
@@ -218,6 +309,7 @@ $('loginBtn').onclick = async () => {
         email,
         password: pass,
         twoFactor: twoFactor || null,
+        proxy: normalizedProxy,
         cookies: result.cookies,
         token: result.token || null,
         groups,
@@ -241,6 +333,7 @@ $('loginBtn').onclick = async () => {
         email,
         password: pass,
         twoFactor: twoFactor || null,
+        proxy: normalizedProxy,
         cookies: '',
         token: null,
         groups,
@@ -269,6 +362,8 @@ $('loginBtn').onclick = async () => {
     $('fbEmail').value = '';
     $('fbPass').value  = '';
     if ($('fb2FA')) $('fb2FA').value = '';
+    if ($('fbProxy')) $('fbProxy').value = '';
+    if ($('passProxyStatus')) $('passProxyStatus').style.display = 'none';
     if ($('accGroups')) $('accGroups').value = '';
 
     setTimeout(() => {
@@ -290,6 +385,8 @@ $('loginBtn').onclick = async () => {
 $('clearPassFormBtn').onclick = () => {
   $('fbEmail').value = '';
   $('fbPass').value  = '';
+  if ($('fbProxy')) $('fbProxy').value = '';
+  if ($('passProxyStatus')) $('passProxyStatus').style.display = 'none';
   if ($('accGroups')) $('accGroups').value = '';
   $('msg').textContent = '';
   $('loginProgress').classList.remove('show');
@@ -464,6 +561,14 @@ if ($('accCookies')) {
       details.push(`<div><b>Email phụ:</b> <code>${parsed.email}</code></div>`);
     }
 
+    // 7. Nhận diện Proxy riêng nếu có trong chuỗi VIA
+    if (parsed.proxy) {
+      if ($('accProxy') && !$('accProxy').value) {
+        $('accProxy').value = parsed.proxy;
+      }
+      details.push(`<div><b>Proxy riêng:</b> <code>${formatProxyDisplay(parsed.proxy)}</code> &nbsp;<span style="color:#059669;font-weight:700">✓ Đã nhận diện</span></div>`);
+    }
+
     // Cập nhật Badge
     if (tokenBadge) {
       tokenBadge.style.display = 'inline-block';
@@ -517,6 +622,8 @@ $('addCookieBtn').onclick = async () => {
     let finalCookieStr = parsed.cookies || '';
     const password = parsed.password || null;
     const twoFactor = parsed.twoFactor || null;
+    const proxyRaw = $('accProxy')?.value?.trim() || parsed.proxy || null;
+    const normalizedProxy = proxyRaw ? normalizeProxyString(proxyRaw) : null;
 
     if (groups) {
       try { validateGroups(groups); } catch (e) { msg(e.message, 'err'); return; }
@@ -549,6 +656,7 @@ $('addCookieBtn').onclick = async () => {
           email: cUser || parsed.email,
           password: password,
           twoFactor: twoFactor,
+          proxy: normalizedProxy,
           keepSession: autoLogin,
           openFacebookTab: autoLogin
         });
@@ -586,6 +694,7 @@ $('addCookieBtn').onclick = async () => {
       if (token) accounts[existingIdx].token = token;
       if (password) accounts[existingIdx].password = password;
       if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
+      if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
       if (cUser) accounts[existingIdx].fbId = cUser;
       if (cUser || parsed.email) accounts[existingIdx].email = cUser || parsed.email || accounts[existingIdx].email;
       accounts[existingIdx].lastCookieSync = Date.now();
@@ -601,6 +710,7 @@ $('addCookieBtn').onclick = async () => {
         email: cUser || parsed.email || '',
         password: password,
         twoFactor: twoFactor,
+        proxy: normalizedProxy,
         cookies: finalCookieStr || '',
         token: token || null,
         groups,
@@ -644,6 +754,8 @@ $('addCookieBtn').onclick = async () => {
 
     $('accName').value = '';
     $('accCookies').value = '';
+    if ($('accProxy')) $('accProxy').value = '';
+    if ($('cookieProxyStatus')) $('cookieProxyStatus').style.display = 'none';
     if ($('accGroups')) $('accGroups').value = '';
     if ($('tokenBadge')) $('tokenBadge').style.display = 'none';
     if ($('tokenInfoBox')) $('tokenInfoBox').style.display = 'none';
@@ -658,6 +770,8 @@ $('addCookieBtn').onclick = async () => {
 
 $('clearCookieFormBtn').onclick = () => {
   $('accCookies').value = '';
+  if ($('accProxy')) $('accProxy').value = '';
+  if ($('cookieProxyStatus')) $('cookieProxyStatus').style.display = 'none';
   if ($('accGroups')) $('accGroups').value  = '';
   $('msg').textContent  = '';
   if ($('tokenBadge')) $('tokenBadge').style.display = 'none';
@@ -706,6 +820,10 @@ async function render() {
       statusBadge += ` <span class="badge" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1">Cookies</span>`;
     }
 
+    const proxyBadge = acc.proxy
+      ? `<span class="badge badge-proxy" title="Tài khoản này sử dụng Proxy riêng: ${acc.proxy}">🌐 Proxy: ${formatProxyDisplay(acc.proxy)}</span>`
+      : `<span class="badge badge-direct" title="Tài khoản này kết nối trực tiếp qua IP máy của bạn">🌐 IP máy</span>`;
+
     const groupLines = acc.groups?.trim().split('\n').filter(Boolean) || [];
     const groupInfo  = groupLines.length ? `${groupLines.length} nhóm riêng` : `<span style="color:#059669;font-weight:600">Dùng chung nhóm</span>`;
 
@@ -724,7 +842,7 @@ async function render() {
     card.id = `card_${acc.id}`;
     card.innerHTML = `
       <div>
-        <div class="acc-name">${acc.name} ${statusBadge}</div>
+        <div class="acc-name">${acc.name} ${statusBadge} ${proxyBadge}</div>
         <div class="acc-meta">
           FB ID: <code class="acc-id-code">${cUser || '???'}</code>${emailInfo}${syncTimeInfo}
           &nbsp;·&nbsp; Nhóm: ${groupInfo}
@@ -755,6 +873,14 @@ async function render() {
         <label style="margin-bottom:10px">
           <span style="font-size:12px;font-weight:600;color:var(--text)">Mã bảo mật 2FA Secret Key (để tự động giải mã không cần nhập tay):</span>
           <input type="text" class="edit-2fa" placeholder="Ví dụ: JBSWY3DPEHPK3PXP..." value="${acc.twoFactor || ''}" style="margin-top:4px">
+        </label>
+        <label style="margin-bottom:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:600;color:var(--text)">Proxy riêng cho nick (IP:Port hoặc IP:Port:User:Pass):</span>
+            <button type="button" class="btn btn-light test-edit-proxy-btn" data-id="${acc.id}" style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #cbd5e1;font-weight:600" title="Kiểm tra kết nối và độ trễ của Proxy">⚡ Kiểm tra Proxy</button>
+          </div>
+          <input type="text" class="edit-proxy" placeholder="VD: 103.149.28.15:8080 hoặc IP:Port:User:Pass (để trống = dùng IP máy)" value="${acc.proxy || ''}" style="margin-top:2px">
+          <div class="edit-proxy-status" id="editProxyStatus_${acc.id}" style="display:none;font-size:11.5px;margin-top:4px;padding:4px 8px;border-radius:6px"></div>
         </label>
         <label style="margin-bottom:8px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:4px">
@@ -831,6 +957,8 @@ async function render() {
       const newEmail = box.querySelector('.edit-email')?.value?.trim() || '';
       const newPass = box.querySelector('.edit-pass')?.value || '';
       const new2FA = box.querySelector('.edit-2fa')?.value?.trim() || '';
+      const newProxyRaw = box.querySelector('.edit-proxy')?.value?.trim() || '';
+      const newProxy = newProxyRaw ? normalizeProxyString(newProxyRaw) : null;
       const newGroups = box.querySelector('.edit-groups').value.trim();
 
       if (!newName) {
@@ -853,6 +981,7 @@ async function render() {
       if (newEmail) acc.email = newEmail;
       if (newPass) acc.password = newPass;
       acc.twoFactor = new2FA || null;
+      acc.proxy = newProxy;
       acc.groups = newGroups;
       await saveAccounts(accs);
 
@@ -988,6 +1117,17 @@ async function render() {
     };
   });
 
+  // Handle Proxy Test inside Account Edit Box
+  list.querySelectorAll('.test-edit-proxy-btn').forEach(btn => {
+    const id = btn.dataset.id;
+    const box = $(`editBox_${id}`);
+    const input = box?.querySelector('.edit-proxy');
+    const status = box?.querySelector('.edit-proxy-status');
+    if (btn && input && status) {
+      handleProxyTestUi(btn, input, status);
+    }
+  });
+
   // Delete Account
   list.querySelectorAll('.icon-btn.del').forEach(btn => {
     btn.onclick = async () => {
@@ -1003,6 +1143,10 @@ async function render() {
     };
   });
 }
+
+// Gắn sự kiện kiểm tra Proxy cho các form thêm tài khoản
+handleProxyTestUi($('testPassProxyBtn'), $('fbProxy'), $('passProxyStatus'));
+handleProxyTestUi($('testCookieProxyBtn'), $('accProxy'), $('cookieProxyStatus'));
 
 // ── Init (Tối ưu hiệu năng: Debounce & Lọc sự kiện thay đổi liên quan) ────────
 render();

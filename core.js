@@ -674,6 +674,20 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
     ? (cookieObj['c_user'] || parentAcc?.fbId || '')
     : (acc.fbId || cookieObj['c_user'] || '');
 
+  // Áp dụng cấu hình Proxy riêng cho tài khoản (nếu có) trước khi mở Facebook
+  const proxyToUse = acc.proxy || parentAcc?.proxy || null;
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({
+        type: proxyToUse ? 'APPLY_PROXY' : 'CLEAR_PROXY',
+        proxy: proxyToUse
+      }).catch(() => {});
+    }
+    if (typeof chrome !== 'undefined' && chrome.proxy) {
+      await applyExtensionProxyDirectly(proxyToUse);
+    }
+  } catch (_) {}
+
   const fbCookies = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
   const activeCUser = fbCookies.find(c => c.name === 'c_user')?.value;
   const pageId = (acc.type === 'fanpage') ? String(acc.pageId || acc.fbId || '') : null;
@@ -1121,6 +1135,7 @@ export function parseViaString(rawInput) {
     let email = null;
     let emailPassword = null;
     let token = extractedToken;
+    let proxy = null;
 
     for (let i = 0; i < parts.length; i++) {
       let p = parts[i];
@@ -1171,6 +1186,15 @@ export function parseViaString(rawInput) {
         twoFactor = p.replace(/\s+/g, '');
         continue;
       }
+
+      // H. Nhận diện Proxy nếu có trong chuỗi VIA (IP:Port, IP:Port:User:Pass, socks5, http...)
+      if (!proxy && (i >= 3 || p.includes('@') || /^(https?|socks[45]):\/\//i.test(p) || /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}/.test(p))) {
+        const parsedPrx = parseProxyString(p);
+        if (parsedPrx && !p.includes('c_user=') && !p.includes('xs=') && !p.startsWith('EAA')) {
+          proxy = normalizeProxyString(parsedPrx);
+          continue;
+        }
+      }
     }
 
     const cookieObj = cookieStr ? parseUniversalCookies(cookieStr) : {};
@@ -1185,7 +1209,8 @@ export function parseViaString(rawInput) {
       cookieObj,
       token,
       email,
-      emailPassword
+      emailPassword,
+      proxy
     };
   }
 
@@ -1200,7 +1225,8 @@ export function parseViaString(rawInput) {
       cookieObj: {},
       token: str,
       email: null,
-      emailPassword: null
+      emailPassword: null,
+      proxy: null
     };
   }
 
@@ -1217,7 +1243,8 @@ export function parseViaString(rawInput) {
       cookieObj,
       token: extractedToken,
       email: null,
-      emailPassword: null
+      emailPassword: null,
+      proxy: null
     };
   }
 
@@ -1230,7 +1257,8 @@ export function parseViaString(rawInput) {
     cookieObj: {},
     token: extractedToken,
     email: null,
-    emailPassword: null
+    emailPassword: null,
+    proxy: null
   };
 }
 
@@ -1248,7 +1276,8 @@ export function parseTokenOrCookieInput(rawInput) {
     password: via.password,
     twoFactor: via.twoFactor,
     email: via.email,
-    emailPassword: via.emailPassword
+    emailPassword: via.emailPassword,
+    proxy: via.proxy || null
   };
 }
 
@@ -1357,6 +1386,176 @@ export function shouldAttemptSessionRelogin({ cookieObj, hasCredentials, activeC
     needRelogin
   };
 }
+
+/**
+ * Phân tích chuỗi proxy (IP:Port, IP:Port:User:Pass, User:Pass@IP:Port, http/socks5)
+ * Trả về object { scheme, host, port, username, password, raw } hoặc null nếu không hợp lệ
+ */
+export function parseProxyString(rawInput) {
+  if (!rawInput || typeof rawInput !== 'string') return null;
+  let str = rawInput.trim();
+  if (!str) return null;
+
+  let scheme = 'http';
+  let host = '';
+  let port = 0;
+  let username = null;
+  let password = null;
+
+  // Bóc tách giao thức scheme (http://, https://, socks5://, socks4://)
+  const schemeMatch = str.match(/^(https?|socks5|socks4):\/\//i);
+  if (schemeMatch) {
+    scheme = schemeMatch[1].toLowerCase();
+    str = str.slice(schemeMatch[0].length);
+  }
+
+  // Cắt bỏ phần path sau dấu gạch chéo nếu có (ví dụ 1.2.3.4:8080/)
+  str = str.split('/')[0].trim();
+
+  // Trường hợp 1: username:password@host:port
+  if (str.includes('@')) {
+    const atIdx = str.lastIndexOf('@');
+    const authPart = str.slice(0, atIdx).trim();
+    const hostPart = str.slice(atIdx + 1).trim();
+
+    if (authPart.includes(':')) {
+      const colonIdx = authPart.indexOf(':');
+      username = authPart.slice(0, colonIdx).trim() || null;
+      password = authPart.slice(colonIdx + 1).trim() || null;
+    } else {
+      username = authPart || null;
+    }
+
+    if (hostPart.includes(':')) {
+      const [h, p] = hostPart.split(':');
+      host = h.trim();
+      port = parseInt(p, 10);
+    } else {
+      host = hostPart.trim();
+      port = scheme === 'https' ? 443 : (scheme.startsWith('socks') ? 1080 : 80);
+    }
+  } else if (str.includes(':')) {
+    // Trường hợp 2: Phân tách bằng dấu hai chấm
+    const parts = str.split(':').map(p => p.trim());
+    if (parts.length === 2) {
+      // host:port
+      host = parts[0];
+      port = parseInt(parts[1], 10);
+    } else if (parts.length === 4) {
+      // host:port:username:password (định dạng phổ biến nhất khi mua proxy)
+      host = parts[0];
+      port = parseInt(parts[1], 10);
+      username = parts[2] || null;
+      password = parts[3] || null;
+    } else if (parts.length === 3) {
+      host = parts[0];
+      port = parseInt(parts[1], 10);
+      username = parts[2] || null;
+    } else if (parts.length > 4) {
+      host = parts[0];
+      port = parseInt(parts[1], 10);
+      username = parts[2] || null;
+      password = parts.slice(3).join(':') || null;
+    }
+  } else {
+    return null;
+  }
+
+  if (!host || isNaN(port) || port <= 0 || port > 65535) {
+    return null;
+  }
+
+  // Host không được chứa ký tự c_user hay ký tự query
+  if (host.includes('=') || host.includes(';') || host.includes('?')) {
+    return null;
+  }
+
+  return {
+    scheme,
+    host,
+    port,
+    username,
+    password,
+    raw: rawInput.trim()
+  };
+}
+
+/**
+ * Định dạng chuỗi proxy hiển thị ngắn gọn trên giao diện (ẩn mật khẩu)
+ */
+export function formatProxyDisplay(proxyInput) {
+  if (!proxyInput) return '';
+  const parsed = typeof proxyInput === 'object' ? proxyInput : parseProxyString(proxyInput);
+  if (!parsed) return String(proxyInput);
+  const schemePrefix = (parsed.scheme && parsed.scheme !== 'http') ? `${parsed.scheme}://` : '';
+  const hostPort = `${parsed.host}:${parsed.port}`;
+  if (parsed.username) {
+    return `${schemePrefix}${hostPort} (Khóa xác thực: ${parsed.username})`;
+  }
+  return `${schemePrefix}${hostPort}`;
+}
+
+/**
+ * Chuẩn hóa chuỗi proxy thành chuỗi chuẩn host:port[:user:pass]
+ */
+export function normalizeProxyString(proxyInput) {
+  const parsed = typeof proxyInput === 'object' ? proxyInput : parseProxyString(proxyInput);
+  if (!parsed) return '';
+  let res = '';
+  if (parsed.scheme && parsed.scheme !== 'http') {
+    res += `${parsed.scheme}://`;
+  }
+  if (parsed.username && parsed.password) {
+    res += `${parsed.host}:${parsed.port}:${parsed.username}:${parsed.password}`;
+  } else if (parsed.username) {
+    res += `${parsed.username}@${parsed.host}:${parsed.port}`;
+  } else {
+    res += `${parsed.host}:${parsed.port}`;
+  }
+  return res;
+}
+
+/**
+ * Trực tiếp cấu hình proxy vào Chrome (nếu có quyền chrome.proxy)
+ */
+export async function applyExtensionProxyDirectly(proxyStr) {
+  if (typeof chrome === 'undefined' || !chrome.proxy) {
+    return { ok: false, reason: 'no_proxy_api' };
+  }
+  if (!proxyStr) {
+    return new Promise(resolve => {
+      chrome.proxy.settings.clear({ scope: 'regular' }, () => resolve({ ok: true, direct: true }));
+    });
+  }
+  const parsed = parseProxyString(proxyStr);
+  if (!parsed) return { ok: false, reason: 'invalid_proxy' };
+
+  const config = {
+    mode: 'fixed_servers',
+    rules: {
+      singleProxy: {
+        scheme: parsed.scheme || 'http',
+        host: parsed.host,
+        port: parsed.port
+      },
+      bypassList: [
+        '<local>',
+        '*.supabase.co',
+        '*.supabase.in',
+        '*.vercel.app',
+        'localhost',
+        '127.0.0.1'
+      ]
+    }
+  };
+
+  return new Promise(resolve => {
+    chrome.proxy.settings.set({ value: config, scope: 'regular' }, () => {
+      resolve({ ok: !chrome.runtime?.lastError, error: chrome.runtime?.lastError?.message });
+    });
+  });
+}
+
 
 
 

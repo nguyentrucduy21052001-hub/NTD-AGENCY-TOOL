@@ -1,5 +1,5 @@
 // worker.js – Background service worker (multi-account parallel)
-import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, hasCompleteFacebookCookies, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, recordPostedGroupUrl, resolveAssignedPostForAccount, shouldAttemptSessionRelogin} from './core.js';
+import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, hasCompleteFacebookCookies, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, recordPostedGroupUrl, resolveAssignedPostForAccount, shouldAttemptSessionRelogin, parseProxyString, formatProxyDisplay, normalizeProxyString} from './core.js';
 import { checkCurrentLicense } from './license.js';
 import { mapsExtract } from './maps_extract.js';
 import {
@@ -32,6 +32,128 @@ const readCoordinator = async () => (await chrome.storage.local.get('coordinator
 const saveCoordinator = c => chrome.storage.local.set({coordinator: c});
 const readDailyStats = async () => (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
 const saveDailyStats = stats => chrome.storage.local.set({dailyPostStats: stats});
+
+// ── Proxy Management & Auth Provider ──────────────────────────────────────────
+let activeProxyConfig = null;
+let activeProxyAuth = null;
+
+// Khởi tạo bộ chặn chứng thực mật khẩu Proxy tự động (chrome.webRequest.onAuthRequired)
+if (typeof chrome !== 'undefined' && chrome.webRequest && chrome.webRequest.onAuthRequired) {
+  try {
+    chrome.webRequest.onAuthRequired.addListener(
+      (details, callback) => {
+        if (details.isProxy && activeProxyAuth) {
+          const authCreds = {
+            authCredentials: {
+              username: activeProxyAuth.username,
+              password: activeProxyAuth.password
+            }
+          };
+          if (typeof callback === 'function') {
+            callback(authCreds);
+            return;
+          }
+          return authCreds;
+        }
+        if (typeof callback === 'function') callback({});
+        return {};
+      },
+      { urls: ['<all_urls>'] },
+      ['asyncBlocking']
+    );
+  } catch (_) {
+    try {
+      chrome.webRequest.onAuthRequired.addListener(
+        (details) => {
+          if (details.isProxy && activeProxyAuth) {
+            return {
+              authCredentials: {
+                username: activeProxyAuth.username,
+                password: activeProxyAuth.password
+              }
+            };
+          }
+          return {};
+        },
+        { urls: ['<all_urls>'] },
+        ['blocking']
+      );
+    } catch (e2) {
+      console.warn('[ProxyAuth] Không thể đăng ký onAuthRequired listener:', e2);
+    }
+  }
+}
+
+async function applyExtensionProxy(proxyStr) {
+  if (typeof chrome === 'undefined' || !chrome.proxy) {
+    activeProxyConfig = null;
+    activeProxyAuth = null;
+    return { ok: false, reason: 'no_proxy_api' };
+  }
+  if (!proxyStr || typeof proxyStr !== 'string' || !proxyStr.trim()) {
+    return clearExtensionProxy();
+  }
+  const parsed = parseProxyString(proxyStr);
+  if (!parsed) {
+    console.warn('[Proxy] Chuỗi proxy không hợp lệ:', proxyStr);
+    return clearExtensionProxy();
+  }
+
+  const config = {
+    mode: 'fixed_servers',
+    rules: {
+      singleProxy: {
+        scheme: parsed.scheme || 'http',
+        host: parsed.host,
+        port: parsed.port
+      },
+      bypassList: [
+        '<local>',
+        '*.supabase.co',
+        '*.supabase.in',
+        '*.vercel.app',
+        'localhost',
+        '127.0.0.1'
+      ]
+    }
+  };
+
+  activeProxyConfig = config;
+  if (parsed.username && parsed.password) {
+    activeProxyAuth = {
+      host: parsed.host,
+      port: parsed.port,
+      username: parsed.username,
+      password: parsed.password
+    };
+  } else {
+    activeProxyAuth = null;
+  }
+
+  return new Promise((resolve) => {
+    chrome.proxy.settings.set({ value: config, scope: 'regular' }, () => {
+      if (chrome.runtime?.lastError) {
+        console.warn('[Proxy] Lỗi thiết lập proxy:', chrome.runtime.lastError.message);
+        resolve({ ok: false, error: chrome.runtime.lastError.message });
+      } else {
+        console.log(`[Proxy] Đã kích hoạt Proxy cho phiên: ${parsed.host}:${parsed.port} (${parsed.scheme || 'http'})${parsed.username ? ' [Auth]' : ''}`);
+        resolve({ ok: true, host: parsed.host, port: parsed.port, scheme: parsed.scheme });
+      }
+    });
+  });
+}
+
+async function clearExtensionProxy() {
+  activeProxyConfig = null;
+  activeProxyAuth = null;
+  if (typeof chrome === 'undefined' || !chrome.proxy) return { ok: true, direct: true };
+  return new Promise((resolve) => {
+    chrome.proxy.settings.clear({ scope: 'regular' }, () => {
+      console.log('[Proxy] Đã khôi phục kết nối mạng trực tiếp (Direct IP).');
+      resolve({ ok: true, direct: true });
+    });
+  });
+}
 
 // Tự động dọn dẹp các bản ghi campaigns cũ nếu bị phình to do chứa base64 và dọn ảnh rác
 (async function cleanupBloatedCampaigns() {
@@ -1243,6 +1365,14 @@ async function prepareAccountSession(accountId, opts = {}) {
     let rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : (parentAcc?.cookies || '');
     let cookieObj = parseUniversalCookies(rawCookies);
 
+    // Áp dụng Proxy riêng của tài khoản (hoặc nick mẹ của Fanpage), nếu không có thì trở về Direct IP
+    const proxyToUse = acc.proxy || parentAcc?.proxy || null;
+    if (proxyToUse) {
+      await applyExtensionProxy(proxyToUse);
+    } else {
+      await clearExtensionProxy();
+    }
+
     // Lưu lại cookie vào chính Fanpage nếu chưa có để đảm bảo độc lập
     if (acc.type === 'fanpage' && !acc.cookies && rawCookies) {
       acc.cookies = rawCookies;
@@ -1286,7 +1416,8 @@ async function prepareAccountSession(accountId, opts = {}) {
         openFacebookTab: true,
         keepSession: true,
         isBackground: true,
-        failFastOnChallenge: true
+        failFastOnChallenge: true,
+        proxy: proxyToUse
       });
       if (!loginRes?.ok) {
         throw new Error(`Tài khoản "${acc.name}" hết hạn phiên và tự động đăng nhập lại thất bại: ${loginRes?.error || 'Không rõ lỗi.'}`);
@@ -4987,6 +5118,13 @@ async function performFacebookLogin(m) {
   let tabId = null;
   let createdFreshTab = false;
   try {
+    // Áp dụng proxy riêng nếu được cung cấp trong lệnh đăng nhập
+    if (m.proxy) {
+      await applyExtensionProxy(m.proxy);
+    } else if (m.proxy === '' || m.proxy === null) {
+      await clearExtensionProxy();
+    }
+
     chrome.runtime.sendMessage({ type: 'LOGIN_STEP', step: 'step1' }).catch(() => {});
 
     // Nếu truyền targetTabId hợp lệ, tái sử dụng tab đó để không mở dư nhiều tab
@@ -5224,6 +5362,108 @@ function handleRuntimeMessage(m, sender, reply) {
   const fromPanel = sender.id === chrome.runtime.id || !!sender.isExternal;
 
   if (sender.id !== chrome.runtime.id && !sender.isExternal) return;
+
+  // TEST_PROXY: Kiểm tra kết nối và độ trễ qua Proxy (IP, ping ms, authentication)
+  if (m.type === 'TEST_PROXY') {
+    (async () => {
+      const rawProxy = m.proxy;
+      if (!rawProxy || typeof rawProxy !== 'string' || !rawProxy.trim()) {
+        reply({ ok: false, error: 'Chưa nhập thông tin Proxy để kiểm tra.' });
+        return;
+      }
+      const parsed = parseProxyString(rawProxy);
+      if (!parsed) {
+        reply({ ok: false, error: 'Định dạng Proxy không hợp lệ. Hãy nhập dạng IP:Port hoặc IP:Port:User:Pass.' });
+        return;
+      }
+
+      const prevConfig = activeProxyConfig;
+      const prevAuth = activeProxyAuth;
+
+      try {
+        await applyExtensionProxy(rawProxy);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const startMs = Date.now();
+
+        const res = await fetch(`https://api.ipify.org?format=json&_t=${Date.now()}`, {
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        clearTimeout(timeoutId);
+        const endMs = Date.now();
+
+        if (!res.ok) {
+          throw new Error(`Máy chủ kiểm tra phản hồi HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        reply({
+          ok: true,
+          ip: data.ip || parsed.host,
+          pingMs: Math.max(1, endMs - startMs),
+          scheme: parsed.scheme || 'http',
+          hasAuth: Boolean(parsed.username)
+        });
+      } catch (err) {
+        const isTimeout = err.name === 'AbortError' || /abort/i.test(err.message || '');
+        reply({
+          ok: false,
+          error: isTimeout
+            ? 'Hết thời gian chờ (Timeout > 12s). Proxy có thể bị chết, sai Port hoặc chặn kết nối.'
+            : (err.message || 'Không thể kết nối qua Proxy này.')
+        });
+      } finally {
+        if (prevConfig) {
+          activeProxyConfig = prevConfig;
+          activeProxyAuth = prevAuth;
+          if (typeof chrome !== 'undefined' && chrome.proxy) {
+            chrome.proxy.settings.set({ value: prevConfig, scope: 'regular' }, () => {});
+          }
+        } else {
+          await clearExtensionProxy();
+        }
+      }
+    })();
+    return true;
+  }
+
+  // APPLY_PROXY: Áp dụng proxy thủ công từ giao diện
+  if (m.type === 'APPLY_PROXY') {
+    (async () => {
+      try {
+        const res = await applyExtensionProxy(m.proxy);
+        reply(res);
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // CLEAR_PROXY: Trở về mạng trực tiếp (Direct IP)
+  if (m.type === 'CLEAR_PROXY') {
+    (async () => {
+      try {
+        await clearExtensionProxy();
+        reply({ ok: true, direct: true });
+      } catch (e) {
+        reply({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // GET_CURRENT_PROXY: Lấy thông tin proxy đang được kích hoạt
+  if (m.type === 'GET_CURRENT_PROXY') {
+    reply({
+      ok: true,
+      active: Boolean(activeProxyConfig),
+      config: activeProxyConfig,
+      hasAuth: Boolean(activeProxyAuth)
+    });
+    return false;
+  }
 
   // Lấy trạng thái chiến dịch thời gian thực cho Web Platform & Content Scripts
   if (m.type === 'GET_STATE' || m.type === 'GET_CAMPAIGNS') {
@@ -5676,6 +5916,13 @@ function handleRuntimeMessage(m, sender, reply) {
 
         isSwitchingSession = true;
         try {
+          const proxyToUse = acc.proxy || null;
+          if (proxyToUse) {
+            await applyExtensionProxy(proxyToUse);
+          } else {
+            await clearExtensionProxy();
+          }
+
           const rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : '';
           const cookieObj = rawCookies ? parseUniversalCookies(rawCookies) : {};
           const hasCookies = Boolean(cookieObj['c_user'] && cookieObj['xs']);
@@ -6159,9 +6406,18 @@ function handleRuntimeMessage(m, sender, reply) {
   // Privileged commands
   const run = async () => {
     if (m.type === 'ACTIVATE_ACCOUNT_SESSION') {
-      const res = await activateAccountSessionDirectly(m.accountId, m.openFacebookTab);
       const accounts = await readAccounts();
       const acc = accounts.find(a => a.id === m.accountId);
+      const parentAcc = (acc?.type === 'fanpage' && acc.parentAccountId)
+        ? accounts.find(a => a.id === acc.parentAccountId)
+        : null;
+      const proxyToUse = acc?.proxy || parentAcc?.proxy || null;
+      if (proxyToUse) {
+        await applyExtensionProxy(proxyToUse);
+      } else {
+        await clearExtensionProxy();
+      }
+      const res = await activateAccountSessionDirectly(m.accountId, m.openFacebookTab);
       const pageId = (acc?.type === 'fanpage') ? String(acc.pageId || acc.fbId || '') : null;
       if (acc?.type === 'fanpage' && pageId && res?.tabId) {
         currentActiveFacebookProfileId = pageId;
