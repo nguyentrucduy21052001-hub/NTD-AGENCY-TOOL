@@ -814,7 +814,24 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
             if (typeof chrome.scripting?.executeScript === 'function') {
               tabShowsLoginForm = await chrome.scripting.executeScript({
                 target: { tabId: mainTab.id },
-                func: () => Boolean(document.querySelector('input[type="password"], #pass, input[name="pass"]'))
+                func: () => {
+                  const hasPass = Boolean(document.querySelector('input[type="password"], #pass, input[name="pass"]'));
+                  const hasEmail = Boolean(document.querySelector('input[type="email"], #email, input[name="email"]'));
+                  const allBtns = [...document.querySelectorAll('a, button, [role="button"]')];
+                  const hasSwitchOrSaved = allBtns.some(el => {
+                    const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+                    return (
+                      t.includes('trang cá nhân khác') ||
+                      t.includes('tài khoản khác') ||
+                      t.includes('another profile') ||
+                      t.includes('another account') ||
+                      /^(tiếp tục|continue|tạo tài khoản mới|create new account)$/i.test(t)
+                    );
+                  });
+                  const pageText = (document.body ? document.body.innerText : '') || '';
+                  const hasLoggedOutBanner = /Khám phá những điều bạn yêu thích|Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Log in or sign up/i.test(pageText);
+                  return hasPass || hasEmail || hasSwitchOrSaved || hasLoggedOutBanner || /\/login|login\.php/i.test(location.href);
+                }
               }).then(r => Boolean(r?.[0]?.result)).catch(() => false);
             }
             if (!hasLiveCUser || !hasCompleteFacebookCookies(currentCookieObj) || tabShowsLoginForm) {
@@ -825,6 +842,7 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
                 password: acc.password,
                 twoFactor: acc.twoFactor || null,
                 existingAccountId: acc.id,
+                accountName: acc.name,
                 targetTabId: mainTab.id,
                 openFacebookTab: true,
                 keepSession: true

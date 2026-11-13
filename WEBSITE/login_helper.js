@@ -169,7 +169,7 @@
 
       const textMatches = [...scope.querySelectorAll('button, [role="button"], input[type="button"], a[role="button"]')].filter(b => {
         const text = (b.innerText || b.textContent || b.getAttribute('aria-label') || b.value || '').trim();
-        return /^(Đăng\s*nhập|Log\s*In|Log\s*in|Sign\s*In)$/i.test(text);
+        return /^(Đăng\s*nhập|Log\s*In|Log\s*in|Sign\s*In|Tiếp\s*tục|Continue)$/i.test(text);
       });
       const textBtn = pickPreferredElement(textMatches);
       if (textBtn) return textBtn;
@@ -226,7 +226,7 @@
     return true;
   }
 
-  async function doLogin(email, password) {
+  async function doLogin(email, password, accountName = '') {
     try {
       dismissModals();
 
@@ -237,29 +237,77 @@
         await delay(2000);
       }
 
-      // 2. Chờ form đăng nhập hoặc nút "Đăng nhập bằng tài khoản khác"
+      // 2. Chờ form đăng nhập, nút "Dùng trang cá nhân khác" hoặc nút "Tiếp tục"
       const endWaitForm = Date.now() + 15000;
       let emailInput = null;
       let passInput = null;
+      let attemptedContinue = false;
 
       while (Date.now() < endWaitForm) {
         dismissModals();
 
         ({ emailInput, passInput } = findLoginFields());
-        if (!emailInput || !passInput) {
-          const switchBtn = [...document.querySelectorAll('a, button, [role="button"]')].find(el => {
-            if (!isVisibleElement(el)) return false;
-            const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
-            return t.includes('tài khoản khác') || t.includes('another account') || t.includes('dùng tài khoản khác') || t.includes('thêm tài khoản') || t.includes('switch account');
-          });
-          if (switchBtn) {
-            switchBtn.click();
-            await delay(1000);
-            ({ emailInput, passInput } = findLoginFields());
-          }
+
+        // Nếu đã có cả 2 ô hoặc ít nhất ô mật khẩu
+        if (emailInput && passInput) break;
+        if (passInput && !emailInput) break;
+
+        const allButtons = [...document.querySelectorAll('a, button, [role="button"]')].filter(isVisibleElement);
+
+        // Nút chuyển tài khoản / đổi trang cá nhân
+        const switchBtn = allButtons.find(el => {
+          const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+          return (
+            t.includes('tài khoản khác') ||
+            t.includes('trang cá nhân khác') ||
+            t.includes('another account') ||
+            t.includes('another profile') ||
+            t.includes('dùng tài khoản khác') ||
+            t.includes('dùng trang cá nhân khác') ||
+            t.includes('dùng trang khác') ||
+            t.includes('thêm tài khoản') ||
+            t.includes('switch account') ||
+            t.includes('switch profile') ||
+            t.includes('log into another') ||
+            t.includes('use another profile')
+          );
+        });
+
+        // Nút Tiếp tục của tài khoản lưu sẵn
+        const continueBtn = allButtons.find(el => {
+          const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim();
+          return /^(Tiếp tục|Continue|Tiếp tục với tư cách|Continue as)/i.test(t);
+        });
+
+        const pageText = (document.body ? document.body.innerText : '') || '';
+        const normAccountName = (accountName || '').trim().toLowerCase();
+        const normEmail = (email || '').trim().toLowerCase();
+        const isTargetUserDisplayed = Boolean(
+          (normAccountName && normAccountName.length >= 2 && pageText.toLowerCase().includes(normAccountName)) ||
+          (normEmail && normEmail.length >= 3 && pageText.toLowerCase().includes(normEmail))
+        );
+
+        if (!attemptedContinue && continueBtn && isTargetUserDisplayed && !passInput && !emailInput) {
+          attemptedContinue = true;
+          continueBtn.click();
+          await delay(1200);
+          ({ emailInput, passInput } = findLoginFields());
+          if (passInput) break;
+        } else if (switchBtn) {
+          switchBtn.click();
+          await delay(1000);
+          ({ emailInput, passInput } = findLoginFields());
+          if (emailInput && passInput) break;
+        } else if (!attemptedContinue && continueBtn && !switchBtn && !passInput && !emailInput) {
+          attemptedContinue = true;
+          continueBtn.click();
+          await delay(1200);
+          ({ emailInput, passInput } = findLoginFields());
+          if (passInput) break;
         }
 
         if (emailInput && passInput) break;
+        if (passInput) break;
 
         // Nếu phát hiện vẫn đang ở giao diện cũ đã đăng nhập, thử đăng xuất lại
         if (isOldAccountLoggedIn()) {
@@ -269,19 +317,23 @@
         await delay(500);
       }
 
-      if (!emailInput || !passInput) {
+      if (!passInput && !emailInput) {
         return {
           ok: false,
           error: `Không tìm thấy form đăng nhập (${location.hostname}${location.pathname}, inputs=${document.querySelectorAll('input').length}). Vui lòng kiểm tra lại tab Facebook hoặc dùng tab Paste Cookies.`
         };
       }
 
-      // 3. Điền email & password
-      await typeInto(emailInput, email);
-      await delay(250 + Math.random() * 150);
+      // 3. Điền email (nếu có ô email) & password
+      if (emailInput) {
+        await typeInto(emailInput, email);
+        await delay(250 + Math.random() * 150);
+      }
 
-      await typeInto(passInput, password);
-      await delay(250 + Math.random() * 150);
+      if (passInput) {
+        await typeInto(passInput, password);
+        await delay(250 + Math.random() * 150);
+      }
 
       // 4. Tìm và chờ nút Đăng nhập sẵn sàng (React Comet có thể bật aria-disabled trong tích tắc)
       let loginBtn = findLoginButton(passInput);
@@ -291,7 +343,7 @@
         loginBtn = findLoginButton(passInput) || loginBtn;
       }
 
-      const form = passInput.closest?.('form') || emailInput.closest?.('form') || null;
+      const form = passInput?.closest?.('form') || emailInput?.closest?.('form') || null;
       if (!loginBtn && !form) {
         return { ok: false, error: 'Không tìm thấy nút Đăng nhập.' };
       }
@@ -378,7 +430,7 @@
 
   chrome.runtime.onMessage.addListener((m, s, reply) => {
     if (m.type === 'DO_LOGIN') {
-      doLogin(m.email, m.password).then(reply);
+      doLogin(m.email, m.password, m.accountName || '').then(reply);
       return true;
     }
     if (m.type === 'SUBMIT_2FA') {

@@ -4895,7 +4895,16 @@ async function waitForTabLoadComplete(tabId, timeoutMs = 20000) {
 
 async function inspectTabFacebookAuthState(tabId) {
   if (!tabId || typeof chrome.scripting?.executeScript !== 'function') {
-    return { url: '', hasPasswordInput: false, hasEmailInput: false, hasTwoFactorInput: false, hasSwitchAccountBtn: false };
+    return {
+      url: '',
+      hasPasswordInput: false,
+      hasEmailInput: false,
+      hasTwoFactorInput: false,
+      hasSwitchAccountBtn: false,
+      hasContinueBtn: false,
+      hasSavedProfile: false,
+      isLoggedOut: false
+    };
   }
   return await chrome.scripting.executeScript({
     target: { tabId },
@@ -4909,16 +4918,57 @@ async function inspectTabFacebookAuthState(tabId) {
       const hasTwoFactorInput = Boolean(
         document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
       );
-      const hasSwitchAccountBtn = [...document.querySelectorAll('a, button, [role="button"]')].some(el => {
-        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
-        return t.includes('tài khoản khác') || t.includes('another account') || t.includes('dùng tài khoản khác');
+      const allButtons = [...document.querySelectorAll('a, button, [role="button"]')];
+      const hasSwitchAccountBtn = allButtons.some(el => {
+        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+        return (
+          t.includes('tài khoản khác') ||
+          t.includes('trang cá nhân khác') ||
+          t.includes('another account') ||
+          t.includes('another profile') ||
+          t.includes('dùng tài khoản khác') ||
+          t.includes('dùng trang cá nhân khác') ||
+          t.includes('dùng trang khác') ||
+          t.includes('switch account') ||
+          t.includes('switch profile') ||
+          t.includes('use another profile') ||
+          t.includes('log into another')
+        );
       });
+      const hasContinueBtn = allButtons.some(el => {
+        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+        return /^(tiếp tục|continue|tiếp tục với tư cách|continue as)/i.test(t);
+      });
+      const hasCreateAccountBtn = allButtons.some(el => {
+        const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+        return /^(tạo tài khoản mới|create new account|tạo tài khoản|sign up)/i.test(t);
+      });
+      const pageText = (document.body ? document.body.innerText : '') || '';
+      const hasLoggedOutBanner = /Khám phá những điều bạn yêu thích|Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Đăng nhập hoặc đăng ký|Log in or sign up|You must log in to continue|Log into Facebook|Connect with friends/i.test(pageText);
+
+      const hasSavedProfile = (hasContinueBtn || hasSwitchAccountBtn) && (hasCreateAccountBtn || hasLoggedOutBanner || !document.querySelector('[role="feed"]'));
+
+      const isLoginUrl = /\/login|\/checkpoint|login\.php|\/auth/i.test(location.pathname || '') || location.href.includes('login_attempt');
+
+      const isLoggedOut = Boolean(
+        isLoginUrl ||
+        hasPasswordInput ||
+        hasEmailInput ||
+        hasTwoFactorInput ||
+        hasSwitchAccountBtn ||
+        hasSavedProfile ||
+        hasLoggedOutBanner
+      );
+
       return {
         url: location.href,
         hasPasswordInput,
         hasEmailInput,
         hasTwoFactorInput,
-        hasSwitchAccountBtn
+        hasSwitchAccountBtn,
+        hasContinueBtn,
+        hasSavedProfile,
+        isLoggedOut
       };
     }
   }).then(r => r?.[0]?.result || null).catch(() => null) || {
@@ -4926,7 +4976,10 @@ async function inspectTabFacebookAuthState(tabId) {
     hasPasswordInput: false,
     hasEmailInput: false,
     hasTwoFactorInput: false,
-    hasSwitchAccountBtn: false
+    hasSwitchAccountBtn: false,
+    hasContinueBtn: false,
+    hasSavedProfile: false,
+    isLoggedOut: false
   };
 }
 
@@ -4968,7 +5021,7 @@ async function performFacebookLogin(m) {
     const initialAuthState = await inspectTabFacebookAuthState(tabId);
     const tabInfo = await chrome.tabs.get(tabId).catch(() => ({}));
     const currentUrl = tabInfo.url || initialAuthState.url || '';
-    const alreadyHasLoginUi = initialAuthState.hasPasswordInput || initialAuthState.hasEmailInput || initialAuthState.hasSwitchAccountBtn || initialAuthState.hasTwoFactorInput;
+    const alreadyHasLoginUi = initialAuthState.hasPasswordInput || initialAuthState.hasEmailInput || initialAuthState.hasSwitchAccountBtn || initialAuthState.hasTwoFactorInput || initialAuthState.hasSavedProfile || initialAuthState.isLoggedOut;
 
     if (!alreadyHasLoginUi && !currentUrl.includes('/login') && !currentUrl.includes('checkpoint') && currentUrl.includes('facebook.com/')) {
       await chrome.tabs.update(tabId, { url: 'about:blank' }).catch(() => {});
@@ -4990,7 +5043,8 @@ async function performFacebookLogin(m) {
     const loginResult = await chrome.tabs.sendMessage(tabId, {
       type: 'DO_LOGIN',
       email: m.email,
-      password: m.password
+      password: m.password,
+      accountName: m.accountName || ''
     }).catch(e => {
       if (e.message && e.message.includes('message channel closed')) {
         return { ok: true, submitted: true };
@@ -5649,6 +5703,7 @@ function handleRuntimeMessage(m, sender, reply) {
               password: acc.password,
               twoFactor: acc.twoFactor || null,
               existingAccountId: acc.id,
+              accountName: acc.name,
               targetTabId: reuseTabId,
               openFacebookTab: true,
               keepSession: true,
@@ -5785,12 +5840,22 @@ function handleRuntimeMessage(m, sender, reply) {
               const liveCookiesAfterLoad = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
               const liveCUserAfterLoad = liveCookiesAfterLoad.find(c => c.name === 'c_user')?.value;
 
-              if (!hasCookies || !liveCUserAfterLoad || tabAuth.hasPasswordInput || tabAuth.hasEmailInput || tabAuth.hasSwitchAccountBtn) {
+              const shouldAutoLogin =
+                !hasCookies ||
+                !liveCUserAfterLoad ||
+                tabAuth.isLoggedOut ||
+                tabAuth.hasSavedProfile ||
+                tabAuth.hasPasswordInput ||
+                tabAuth.hasEmailInput ||
+                tabAuth.hasSwitchAccountBtn;
+
+              if (shouldAutoLogin) {
                 const loginRes = await performFacebookLogin({
                   email: acc.email || acc.fbId,
                   password: acc.password,
                   twoFactor: acc.twoFactor || null,
                   existingAccountId: acc.id,
+                  accountName: acc.name,
                   targetTabId: mainTab.id,
                   openFacebookTab: true,
                   keepSession: true,
