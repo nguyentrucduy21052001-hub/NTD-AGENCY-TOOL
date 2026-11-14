@@ -90,6 +90,7 @@ function setupZaloAndPowerEvents() {
       const token = $('zaloToken').value;
       const chat = $('zaloChat').value;
       const notifyFbDone = $('zaloNotifyFbDone').checked;
+      const notifyFbStopped = $('zaloNotifyFbStopped') ? $('zaloNotifyFbStopped').checked : true;
       const notifyFbError = $('zaloNotifyFbError').checked;
       const notifyMaps = $('zaloNotifyMaps').checked;
       const keepAwake = $('keepAwake').checked;
@@ -99,6 +100,7 @@ function setupZaloAndPowerEvents() {
         token,
         chat,
         notifyFbDone,
+        notifyFbStopped,
         notifyFbError,
         notifyMaps,
         keepAwake
@@ -140,6 +142,7 @@ function setupZaloAndPowerEvents() {
         token: $('zaloToken').value,
         chat: $('zaloChat').value,
         notifyFbDone: $('zaloNotifyFbDone').checked,
+        notifyFbStopped: $('zaloNotifyFbStopped') ? $('zaloNotifyFbStopped').checked : true,
         notifyFbError: $('zaloNotifyFbError').checked,
         notifyMaps: $('zaloNotifyMaps').checked,
         keepAwake: $('keepAwake').checked
@@ -316,6 +319,7 @@ function initBackupAndRestore() {
     const z = await loadZaloSettings();
     $('zaloEnabled').checked = z.enabled;
     $('zaloNotifyFbDone').checked = z.notifyFbDone !== false;
+    if ($('zaloNotifyFbStopped')) $('zaloNotifyFbStopped').checked = z.notifyFbStopped !== false;
     $('zaloNotifyFbError').checked = z.notifyFbError !== false;
     $('zaloNotifyMaps').checked = z.notifyMaps !== false;
     $('zaloToken').value = z.token;

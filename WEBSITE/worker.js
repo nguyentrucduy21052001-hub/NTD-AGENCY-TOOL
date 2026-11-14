@@ -1740,7 +1740,7 @@ const ACTIVE_JOB_TIMEOUT_MS = 95000;
 /** Pause a campaign and wake the next eligible account in round_robin/sequential order. */
 async function pauseCampaignAndWakeNext(accountId, campaigns, {
   breakNote,
-  zaloKind = 'error',
+  zaloKind = 'stopped',
   zaloNote,
   groupUrl,
   postedCount,
@@ -1759,9 +1759,10 @@ async function pauseCampaignAndWakeNext(accountId, campaigns, {
     accountName: c.accountName || accountId,
     accountType: c.accountType,
     groupUrl: groupUrl ?? c.jobs?.[c.index]?.url,
-    note: zaloNote || breakNote || 'Chiến dịch đã tạm dừng.',
+    note: zaloNote || breakNote || 'Chiến dịch đã tạm dừng và không thể tiếp tục.',
     postedCount: postedCount ?? c.postedCount ?? 0,
-    totalJobs: totalJobs ?? c.jobs?.length ?? 0
+    totalJobs: totalJobs ?? c.jobs?.length ?? 0,
+    currentIndex: (typeof c.index === 'number') ? c.index : 0
   }).catch(() => {});
 }
 
@@ -1778,7 +1779,7 @@ async function failOrSkipTurnOnError(accountId, {
   pauseWhenAutoSkipDisabled = true,
   breakNote = null,
   advanceIndex = true,
-  zaloKind = 'error',
+  zaloKind = 'stopped',
   zaloNote = null
 } = {}) {
   const campaigns = await readCampaigns();
@@ -2359,14 +2360,16 @@ async function sendZaloNotification(text) {
   });
 }
 
-async function sendFacebookZaloNotify({ kind, accountName, accountType, postedCount = 0, totalJobs = 0, groupUrl = '', postUrl = '', note = '', reason = '' }) {
+async function sendFacebookZaloNotify({ kind, accountName, accountType, postedCount = 0, totalJobs = 0, currentIndex = null, groupUrl = '', postUrl = '', note = '', reason = '' }) {
   try {
     const { rinZalo: c = {} } = await chrome.storage.local.get('rinZalo');
     if (!c?.enabled || !c.token || !c.chat) return { ok: true, disabled: true };
 
+    const isStopped = kind === 'stopped' || kind === 'stop';
     const isErrorOrBlocked = kind === 'blocked' || kind === 'error';
     const isDoneOrLimit = kind === 'done' || kind === 'daily_limit';
 
+    if (isStopped && c.notifyFbStopped === false) return { ok: true, muted: true };
     if (isErrorOrBlocked && c.notifyFbError === false) return { ok: true, muted: true };
     if (isDoneOrLimit && c.notifyFbDone === false) return { ok: true, muted: true };
 
@@ -2375,32 +2378,50 @@ async function sendFacebookZaloNotify({ kind, accountName, accountType, postedCo
       daily_limit: '🛑 ĐẠT GIỚI HẠN BÀI ĐĂNG HÔM NAY',
       blocked: '🛑 CẢNH BÁO FACEBOOK HẠN CHẾ / SPAM',
       error: '⚠️ LỖI ĐĂNG BÀI FACEBOOK',
-      stop: '⏸ CHIẾN DỊCH ĐĂNG BÀI ĐÃ DỪNG'
+      stopped: '🛑 CHIẾN DỊCH ĐĂNG BÀI BỊ DỪNG / KHÔNG THỂ TIẾP TỤC',
+      stop: '⏸ CHIẾN DỊCH ĐĂNG BÀI ĐÃ TẠM DỪNG'
     };
     const title = titleMap[kind] || 'THÔNG BÁO ĐĂNG BÀI FACEBOOK';
 
     const typeDesc = accountType === 'fanpage' ? 'Fanpage Pro5' : 'Trang cá nhân';
     const lines = [
       'NTD AGENCY — ' + title,
-      '👤 Tài khoản: ' + (accountName || 'Facebook Account') + ` (${typeDesc})`,
-      '📊 Tiến độ: ' + postedCount + '/' + totalJobs + ' nhóm thành công'
+      '👤 Tài khoản: ' + (accountName || 'Facebook Account') + ` (${typeDesc})`
     ];
 
-    if (postUrl) {
-      lines.push('🔗 Bài viết đã đăng: ' + String(postUrl).slice(0, 300));
-    }
-    if (groupUrl) {
-      lines.push('🔗 Nhóm: ' + String(groupUrl).slice(0, 300));
+    if (isStopped) {
+      const groupNum = (typeof currentIndex === 'number' && currentIndex >= 0)
+        ? (currentIndex + 1)
+        : (postedCount > 0 ? (postedCount + 1) : 1);
+      const remainingCount = Math.max(0, totalJobs - postedCount);
+      lines.push(`📍 Vị trí bị dừng: Nhóm thứ ${groupNum}/${totalJobs || '?'}`);
+      if (groupUrl) {
+        lines.push('🔗 Link nhóm đang dừng: ' + String(groupUrl).slice(0, 300));
+      }
+      lines.push(`📊 Đã đăng thành công: ${postedCount}/${totalJobs || '?'} nhóm`);
+      if (remainingCount > 0) {
+        lines.push(`⏳ Còn lại chưa đăng: ${remainingCount} nhóm`);
+      }
+    } else {
+      lines.push('📊 Tiến độ: ' + postedCount + '/' + totalJobs + ' nhóm thành công');
+      if (postUrl) {
+        lines.push('🔗 Bài viết đã đăng: ' + String(postUrl).slice(0, 300));
+      }
+      if (groupUrl) {
+        lines.push('🔗 Nhóm: ' + String(groupUrl).slice(0, 300));
+      }
     }
 
     if (note || reason) {
       const detail = String(note || reason).trim();
-      lines.push('⚠️ Chi tiết: ' + detail.slice(0, 400));
+      lines.push('⚠️ Lý do dừng: ' + detail.slice(0, 400));
     }
 
     lines.push('⏰ Thời gian: ' + new Date().toLocaleString('vi-VN'));
 
-    if (kind === 'done') {
+    if (isStopped) {
+      lines.push('💡 Hướng dẫn: Mở tiện ích NTD Agency kiểm tra tài khoản, rồi bấm "Tiếp tục" hoặc "Bắt đầu lại" để đăng các nhóm còn lại.');
+    } else if (kind === 'done') {
       lines.push('📝 Tất cả nhóm trong danh sách đã hoàn thành. Mở tiện ích NTD Agency để kiểm tra kết quả.');
     } else if (kind === 'daily_limit') {
       lines.push('📝 Đã đạt giới hạn bài đăng hôm nay. Tự động dừng chiến dịch để bảo vệ an toàn cho nick.');
@@ -5806,7 +5827,7 @@ function handleRuntimeMessage(m, sender, reply) {
         if (!c?.token || !c.chat) throw Error('Nhập Token và ghép Zalo trước.');
         await mapsZaloApi(c.token, 'sendMessage', {
           chat_id: c.chat,
-          text: '✅ NTD Agency: Kết nối thử thành công!\nTiện ích sẽ tự động gửi thông báo khi có lỗi hoặc khi hoàn thành chiến dịch Đăng bài Facebook & Quét Google Maps.'
+          text: '✅ NTD Agency: Kết nối thử thành công!\nTiện ích sẽ tự động gửi thông báo khi hoàn tất chiến dịch, khi bị dừng/lỗi giữa chừng hoặc khi quét Google Maps xong.'
         });
         reply({ ok: true });
       } catch (e) {
@@ -6709,6 +6730,18 @@ function handleRuntimeMessage(m, sender, reply) {
         if (c.active?.tabId) {
           try { await chrome.tabs.remove(c.active.tabId); } catch (_) {}
         }
+        if (c?.state === 'running' && Array.isArray(c.jobs) && (c.postedCount || 0) < c.jobs.length) {
+          sendFacebookZaloNotify({
+            kind: 'stop',
+            accountName: c.accountName || id,
+            accountType: c.accountType,
+            postedCount: c.postedCount || 0,
+            totalJobs: c.jobs?.length || 0,
+            currentIndex: (typeof c.index === 'number') ? c.index : 0,
+            groupUrl: c.jobs?.[c.index]?.url,
+            note: 'Tất cả chiến dịch đã dừng theo yêu cầu.'
+          }).catch(() => {});
+        }
       }
       await chrome.storage.local.remove('coordinator');
       currentSessionAccountId = null;
@@ -6730,10 +6763,25 @@ function handleRuntimeMessage(m, sender, reply) {
       const c = campaigns[m.accountId];
       if (c) {
         const wasRunning = c.state === 'running';
+        const hadJobsRemaining = Array.isArray(c.jobs) && (c.postedCount || 0) < c.jobs.length;
+        const currentGroupUrl = c.jobs?.[c.index]?.url;
         c.state = 'stopped';
         if (c.active) { c.jobs[c.index].status = 'unknown'; c.jobs[c.index].note = 'Dừng theo yêu cầu.'; }
         c.active = null;
         c.breakNote = null;
+
+        if (wasRunning && hadJobsRemaining) {
+          sendFacebookZaloNotify({
+            kind: 'stop',
+            accountName: c.accountName || m.accountId,
+            accountType: c.accountType,
+            postedCount: c.postedCount || 0,
+            totalJobs: c.jobs?.length || 0,
+            currentIndex: (typeof c.index === 'number') ? c.index : 0,
+            groupUrl: currentGroupUrl,
+            note: 'Chiến dịch đã tạm dừng theo yêu cầu của bạn.'
+          }).catch(() => {});
+        }
 
         // If stopped account was running in coordinated mode, pass turn to next account
         const coord = await readCoordinator();
@@ -7138,13 +7186,14 @@ function handleRuntimeMessage(m, sender, reply) {
             await saveCampaigns({ ...errCampaigns, [accountId]: ec });
             await wakeNextCoordinatorAccountAfterPause(accountId);
             sendFacebookZaloNotify({
-              kind: 'error',
+              kind: 'stopped',
               accountName: ec.accountName || accountId,
               accountType: ec.accountType,
               groupUrl: ec.jobs?.[ec.index]?.url,
               note: ec.breakNote,
               postedCount: ec.postedCount || 0,
-              totalJobs: ec.jobs?.length || 0
+              totalJobs: ec.jobs?.length || 0,
+              currentIndex: (typeof ec.index === 'number') ? ec.index : 0
             }).catch(() => {});
             return { ok: true };
           }
@@ -7164,13 +7213,14 @@ function handleRuntimeMessage(m, sender, reply) {
         await saveCampaigns(campaigns);
         await wakeNextCoordinatorAccountAfterPause(accountId);
         sendFacebookZaloNotify({
-          kind: 'error',
+          kind: 'stopped',
           accountName: c.accountName || accountId,
           accountType: c.accountType,
           groupUrl: currentJob?.url,
           note: c.breakNote,
           postedCount: c.postedCount || 0,
-          totalJobs: c.jobs?.length || 0
+          totalJobs: c.jobs?.length || 0,
+          currentIndex: (typeof c.index === 'number') ? c.index : 0
         }).catch(() => {});
         return { ok: true };
       }
@@ -7218,7 +7268,7 @@ function handleRuntimeMessage(m, sender, reply) {
         } else {
           await pauseCampaignAndWakeNext(accountId, campaigns, {
             breakNote: '🛑 Đã tạm dừng do Facebook cảnh báo spam/hạn chế tính năng.',
-            zaloKind: 'blocked',
+            zaloKind: 'stopped',
             groupUrl,
             zaloNote: m.note || 'Facebook cảnh báo spam hoặc hạn chế tính năng! Chiến dịch đã tạm dừng để bảo vệ tài khoản.'
           });
@@ -7237,7 +7287,7 @@ function handleRuntimeMessage(m, sender, reply) {
       if ((status === 'error' || status === 'unknown') && c.autoSkipOnError === false) {
         await pauseCampaignAndWakeNext(accountId, campaigns, {
           breakNote: 'Tạm dừng do nhóm bị lỗi (Bỏ chọn Tự động bỏ qua). Bấm Tiếp tục để chạy lại.',
-          zaloKind: 'error',
+          zaloKind: 'stopped',
           groupUrl: c.jobs[c.index]?.url,
           zaloNote: m.note || 'Đăng bài vào nhóm thất bại. Chiến dịch đã tạm dừng do tắt Tự động bỏ qua lỗi.'
         });
@@ -7256,7 +7306,7 @@ function handleRuntimeMessage(m, sender, reply) {
           c.index++;
           await pauseCampaignAndWakeNext(accountId, campaigns, {
             breakNote: '🛑 Đã tự động tạm dừng sau 5 lỗi liên tiếp để bảo vệ tài khoản Facebook.',
-            zaloKind: 'error',
+            zaloKind: 'stopped',
             groupUrl: failedGroupUrl,
             zaloNote: 'Chiến dịch gặp 5 lỗi liên tiếp (có thể do mất mạng hoặc tài khoản bị hạn chế). Hệ thống đã tự động tạm dừng nick này và chuyển lượt sang nick tiếp theo.'
           });

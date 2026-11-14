@@ -16,18 +16,20 @@ export async function loadZaloSettings() {
     token: c.token || '',
     chat: c.chat || '',
     notifyFbDone: c.notifyFbDone !== undefined ? !!c.notifyFbDone : true,
+    notifyFbStopped: c.notifyFbStopped !== undefined ? !!c.notifyFbStopped : true,
     notifyFbError: c.notifyFbError !== undefined ? !!c.notifyFbError : true,
     notifyMaps: c.notifyMaps !== undefined ? !!c.notifyMaps : true,
     keepAwake: k
   };
 }
 
-export async function saveZaloSettings({ enabled, token, chat, notifyFbDone = true, notifyFbError = true, notifyMaps = true, keepAwake }) {
+export async function saveZaloSettings({ enabled, token, chat, notifyFbDone = true, notifyFbStopped = true, notifyFbError = true, notifyMaps = true, keepAwake }) {
   const c = {
     enabled: Boolean(enabled),
     token: String(token || '').trim(),
     chat: String(chat || '').trim(),
     notifyFbDone: Boolean(notifyFbDone),
+    notifyFbStopped: Boolean(notifyFbStopped),
     notifyFbError: Boolean(notifyFbError),
     notifyMaps: Boolean(notifyMaps)
   };
