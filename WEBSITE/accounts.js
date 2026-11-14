@@ -778,6 +778,141 @@ $('clearCookieFormBtn').onclick = () => {
   if ($('tokenInfoBox')) $('tokenInfoBox').style.display = 'none';
 };
 
+// ── Hộp thoại Đổi tên tài khoản Facebook chuyên nghiệp ──────────────────────────
+function openRenameModal({ id, currentName, fbId = '', type = 'personal' }) {
+  let overlay = document.getElementById('renameAccountModal');
+  if (overlay) overlay.remove();
+
+  const isPage = type === 'fanpage';
+  const labelType = isPage ? 'Fanpage' : 'tài khoản Facebook';
+
+  overlay = document.createElement('div');
+  overlay.id = 'renameAccountModal';
+  overlay.className = 'rename-modal-overlay';
+  overlay.innerHTML = `
+    <div class="rename-modal-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0">
+        <div style="font-weight:700;font-size:16px;color:#0f172a;display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">✏️</span>
+          <span>Đổi tên ${labelType}</span>
+        </div>
+        <button type="button" class="rename-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b;line-height:1;padding:4px" title="Đóng">✕</button>
+      </div>
+      <div style="padding:20px">
+        <div style="font-size:12.5px;color:#64748b;margin-bottom:14px;background:#f8fafc;padding:10px 14px;border-radius:10px;border:1px solid #e2e8f0;line-height:1.6">
+          <div><b>Tên hiện tại:</b> <span style="color:#0f172a;font-weight:700">${currentName}</span></div>
+          ${fbId ? `<div><b>${isPage ? 'Page ID' : 'Facebook ID'}:</b> <code style="font-size:11.5px;padding:2px 6px;background:#e2e8f0;border-radius:4px;color:#0f172a;font-weight:600">${fbId}</code></div>` : ''}
+        </div>
+        <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:700;color:#0f172a">
+          Tên gợi nhớ mới (theo khách hàng / dự án):
+        </label>
+        <input type="text" id="renameModalInput" value="${currentName.replace(/"/g, '&quot;')}" placeholder="VD: [Khách BĐS] Anh Tú, Nick 01 - Chị Lan Spa..." style="width:100%;box-sizing:border-box;padding:10px 14px;font-size:14px;border:1.5px solid #cbd5e1;border-radius:8px;outline:none;background:#ffffff;color:#0f172a;font-family:inherit;font-weight:600">
+        
+        <div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-size:11.5px;color:#64748b;font-weight:600">Gợi ý mẫu tiền tố:</span>
+          <button type="button" class="rename-tag-chip" data-prefix="[Khách BĐS] " style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-weight:600;color:#334155">+ [Khách BĐS]</button>
+          <button type="button" class="rename-tag-chip" data-prefix="[Khách Spa] " style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-weight:600;color:#334155">+ [Khách Spa]</button>
+          <button type="button" class="rename-tag-chip" data-prefix="[Dự án] " style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-weight:600;color:#334155">+ [Dự án]</button>
+          <button type="button" class="rename-tag-chip" data-prefix="[Nick chính] " style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-weight:600;color:#334155">+ [Nick chính]</button>
+          <button type="button" class="rename-tag-chip" data-prefix="[Nick phụ] " style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-weight:600;color:#334155">+ [Nick phụ]</button>
+        </div>
+
+        <div style="font-size:12px;color:#64748b;margin-top:14px;line-height:1.5;background:#eff6ff;padding:10px 12px;border-radius:8px;border:1px solid #bfdbfe">
+          💡 <b>Tác dụng:</b> Tên mới sẽ hiển thị ngay trên bảng quản lý, thanh chọn tài khoản, tiến độ đăng bài và cả tin nhắn báo cáo Zalo giúp bạn quản lý bài đăng cho từng khách hàng thuận tiện nhất.
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid #e2e8f0;background:#f8fafc">
+        <button type="button" class="btn btn-light rename-modal-cancel" style="padding:8px 16px;font-size:13px;font-weight:600">Hủy (Esc)</button>
+        <button type="button" class="btn btn-primary rename-modal-save" style="padding:8px 22px;font-size:13px;font-weight:700">💾 Lưu tên mới (Enter)</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const input = overlay.querySelector('#renameModalInput');
+  const closeBtn = overlay.querySelector('.rename-modal-close');
+  const cancelBtn = overlay.querySelector('.rename-modal-cancel');
+  const saveBtn = overlay.querySelector('.rename-modal-save');
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', handleKey);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter') doSave();
+  };
+  document.addEventListener('keydown', handleKey);
+
+  closeBtn.onclick = close;
+  cancelBtn.onclick = close;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+
+  overlay.querySelectorAll('.rename-tag-chip').forEach(chip => {
+    chip.onclick = () => {
+      const p = chip.dataset.prefix;
+      if (!input.value.startsWith(p)) {
+        input.value = p + input.value.replace(/^\[[^\]]+\]\s*/, '');
+      }
+      input.focus();
+    };
+  });
+
+  const doSave = async () => {
+    const newName = input.value.trim();
+    if (!newName) {
+      alert('Vui lòng nhập tên tài khoản.');
+      input.focus();
+      return;
+    }
+
+    try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ Đang lưu...';
+
+      const accounts = await loadAccounts();
+      const targetAcc = accounts.find(a => a.id === id);
+      if (!targetAcc) throw new Error('Không tìm thấy tài khoản.');
+
+      targetAcc.name = newName;
+
+      // Cập nhật parentAccountName cho Fanpage con (nếu có)
+      for (const a of accounts) {
+        if (a.type === 'fanpage' && a.parentAccountId === id) {
+          a.parentAccountName = newName;
+        }
+      }
+      await saveAccounts(accounts);
+
+      // Cập nhật tên trong chiến dịch đang chạy/chờ (nếu có)
+      const { campaigns = {} } = await chrome.storage.local.get('campaigns');
+      if (campaigns[id]) {
+        campaigns[id].accountName = newName;
+        await chrome.storage.local.set({ campaigns });
+      }
+
+      close();
+      msg(`✅ Đã đổi tên ${labelType} thành "${newName}"!`);
+      render();
+    } catch (err) {
+      alert('Lỗi lưu tên: ' + err.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = '💾 Lưu tên mới (Enter)';
+    }
+  };
+
+  saveBtn.onclick = doSave;
+
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 50);
+}
+
 // ── Render account list (Chỉ tài khoản cá nhân / VIA) ─────────────────────────
 async function render() {
   const accounts = await loadAccounts();
@@ -842,7 +977,13 @@ async function render() {
     card.id = `card_${acc.id}`;
     card.innerHTML = `
       <div>
-        <div class="acc-name">${acc.name} ${statusBadge} ${proxyBadge}</div>
+        <div class="acc-name">
+          <span class="acc-name-text" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" data-fbid="${cUser || ''}" data-type="personal" title="Bấm vào tên để đổi tên tài khoản nhanh">
+            <span>${acc.name}</span>
+            <span class="acc-rename-hint" title="Đổi tên">✏️</span>
+          </span>
+          ${statusBadge} ${proxyBadge}
+        </div>
         <div class="acc-meta">
           FB ID: <code class="acc-id-code">${cUser || '???'}</code>${emailInfo}${syncTimeInfo}
           &nbsp;·&nbsp; Nhóm: ${groupInfo}
@@ -853,8 +994,9 @@ async function render() {
       <div class="acc-actions" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <button type="button" class="btn btn-primary login-fb-btn" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" style="font-size:11px;padding:4px 10px;font-weight:700" title="Chuyển trình duyệt sang đăng nhập tài khoản này và mở Facebook">Đăng nhập FB</button>
         <button type="button" class="btn btn-light refresh-cookie-btn" data-id="${acc.id}" title="Lấy cookie mới nhất từ tab Facebook đang mở trên Chrome và lưu vào nick này" style="font-size:11px;padding:4px 8px;border:1px solid #059669;color:#059669;font-weight:700">Đồng bộ cookie</button>
+        <button type="button" class="btn btn-light rename-acc-btn" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" data-fbid="${cUser || ''}" data-type="personal" style="font-size:11px;padding:4px 8px;border:1px solid #cbd5e1;color:var(--text);font-weight:700;display:flex;align-items:center;gap:4px" title="Đổi tên gợi nhớ cho tài khoản theo yêu cầu khách hàng / dự án">✏️ Đổi tên</button>
         ${todayCount > 0 ? `<button type="button" class="btn btn-light reset-daily-btn" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" style="font-size:11px;padding:4px 8px;border:1px solid #d97706;color:#d97706;font-weight:700" title="Đặt lại số bài đã đăng hôm nay của tài khoản này về 0">Đặt lại (${todayCount})</button>` : ''}
-        <button class="icon-btn edit-btn" data-id="${acc.id}" title="Chỉnh sửa danh sách nhóm &amp; thông tin">✏️</button>
+        <button class="icon-btn edit-btn" data-id="${acc.id}" title="Chỉnh sửa danh sách nhóm &amp; thông tin chi tiết">⚙️</button>
         <button class="icon-btn del" data-id="${acc.id}" title="Xóa tài khoản này">🗑</button>
       </div>
       <div class="acc-edit-box" id="editBox_${acc.id}" style="display:none">
@@ -921,6 +1063,18 @@ async function render() {
     };
   });
 
+  // Handle Rename Account Modal (Cả nút "Đổi tên" và bấm trực tiếp vào Tên tài khoản)
+  list.querySelectorAll('.rename-acc-btn, .acc-name-text').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const id = el.dataset.id;
+      const currentName = el.dataset.name;
+      const fbId = el.dataset.fbid || '';
+      const type = el.dataset.type || 'personal';
+      openRenameModal({ id, currentName, fbId, type });
+    };
+  });
+
   // Toggle Edit Box
   list.querySelectorAll('.icon-btn.edit-btn').forEach(btn => {
     btn.onclick = () => {
@@ -983,7 +1137,19 @@ async function render() {
       acc.twoFactor = new2FA || null;
       acc.proxy = newProxy;
       acc.groups = newGroups;
+
+      for (const a of accs) {
+        if (a.type === 'fanpage' && a.parentAccountId === id) {
+          a.parentAccountName = newName;
+        }
+      }
       await saveAccounts(accs);
+
+      const { campaigns = {} } = await chrome.storage.local.get('campaigns');
+      if (campaigns[id]) {
+        campaigns[id].accountName = newName;
+        await chrome.storage.local.set({ campaigns });
+      }
 
       msg(`✅ Đã cập nhật tài khoản "${newName}".`);
       render();
