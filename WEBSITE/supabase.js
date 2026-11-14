@@ -507,6 +507,86 @@ export async function supabaseDeleteUser(username) {
   return { ok: true };
 }
 
+/**
+ * [ADMIN] Đổi tên tài khoản đăng nhập (Username) trên hệ thống Supabase
+ * Tự động di chuyển dữ liệu (workspaces, SĐT quét, nhóm quét) sang username mới
+ */
+export async function supabaseRenameUser(oldUsername, newUsername) {
+  const oldU = (oldUsername || '').trim().toLowerCase();
+  const newU = (newUsername || '').trim().toLowerCase();
+
+  if (!oldU) throw new Error('Tài khoản cũ không hợp lệ.');
+  if (!newU) throw new Error('Vui lòng nhập tên tài khoản mới.');
+  if (oldU === newU) throw new Error('Tên tài khoản mới phải khác tên tài khoản cũ.');
+
+  if (!/^[a-zA-Z0-9._-]+$/.test(newU)) {
+    throw new Error('Tên tài khoản mới chỉ được chứa chữ cái, số, gạch dưới (_), gạch ngang (-) hoặc chấm (.). Không dùng khoảng trắng hoặc tiếng Việt có dấu.');
+  }
+
+  // 1. Kiểm tra xem newUsername đã tồn tại trong ntd_users chưa
+  const existing = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(newU)}&select=id,username`);
+  if (Array.isArray(existing) && existing.length > 0) {
+    throw new Error(`Tên tài khoản "${newU}" đã tồn tại trên hệ thống! Vui lòng chọn tên khác.`);
+  }
+
+  // 2. Cập nhật bảng ntd_users
+  await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(oldU)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      username: newU,
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  // 3. Cập nhật các bảng dữ liệu liên kết nếu có
+  await Promise.allSettled([
+    supabaseRequest(`ntd_workspaces?owner_username=eq.${encodeURIComponent(oldU)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        owner_username: newU,
+        updated_at: new Date().toISOString()
+      })
+    }),
+    supabaseRequest(`ntd_scanned_phones?owner_username=eq.${encodeURIComponent(oldU)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        owner_username: newU,
+        updated_at: new Date().toISOString()
+      })
+    }),
+    supabaseRequest(`ntd_scanned_groups?owner_username=eq.${encodeURIComponent(oldU)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        owner_username: newU,
+        updated_at: new Date().toISOString()
+      })
+    })
+  ]);
+
+  // 4. Cập nhật license lưu cục bộ nếu nick đang đăng nhập chính là nick này
+  try {
+    let lic = null;
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      const stored = await chrome.storage.local.get('license');
+      lic = stored.license;
+    } else if (typeof localStorage !== 'undefined') {
+      lic = JSON.parse(localStorage.getItem('license') || 'null');
+    }
+
+    if (lic && lic.username && lic.username.toLowerCase() === oldU) {
+      lic.username = newU;
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.set({ license: lic });
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('license', JSON.stringify(lic));
+      }
+    }
+  } catch (_) {}
+
+  return { ok: true, oldUsername: oldU, newUsername: newU };
+}
+
 // ====================================================================
 // ĐỒNG BỘ DỮ LIỆU TOÀN DIỆN (WORKSPACES + SĐT + NHÓM FACEBOOK)
 // ====================================================================

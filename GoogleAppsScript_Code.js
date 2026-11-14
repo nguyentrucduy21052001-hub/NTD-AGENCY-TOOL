@@ -175,6 +175,11 @@ function handleRequest(e) {
       return handleListUsers(params);
     }
 
+    // 8. Đổi tên tài khoản đăng nhập (dành cho Admin)
+    if (action === 'rename_user') {
+      return handleRenameUser(params);
+    }
+
     return jsonResponse({ ok: false, error: 'Hành động không hợp lệ: ' + action });
   } catch (error) {
     return jsonResponse({ ok: false, error: 'Lỗi máy chủ Google Apps Script: ' + error.toString() });
@@ -565,4 +570,42 @@ function handleListUsers(params) {
   }
 
   return jsonResponse({ ok: true, users: users });
+}
+
+/**
+ * Đổi tên tài khoản đăng nhập (Username)
+ */
+function handleRenameUser(params) {
+  if (params.admin_pass !== ADMIN_PASSWORD) {
+    return jsonResponse({ ok: false, error: 'Sai mật khẩu quản trị Admin.' });
+  }
+
+  const oldUsername = (params.username || '').trim();
+  const newUsername = (params.new_username || '').trim();
+
+  if (!oldUsername) return jsonResponse({ ok: false, error: 'Chưa nhập Tên tài khoản cũ.' });
+  if (!newUsername) return jsonResponse({ ok: false, error: 'Chưa nhập Tên tài khoản mới.' });
+
+  const sheet = initSheet();
+  const data = sheet.getDataRange().getValues();
+
+  // Kiểm tra newUsername đã tồn tại chưa
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim().toLowerCase() === newUsername.toLowerCase()) {
+      return jsonResponse({ ok: false, error: `Tên tài khoản mới "${newUsername}" đã tồn tại trên hệ thống.` });
+    }
+  }
+
+  // Tìm oldUsername và đổi tên
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim().toLowerCase() === oldUsername.toLowerCase()) {
+      sheet.getRange(i + 1, 1).setValue(newUsername);
+      return jsonResponse({
+        ok: true,
+        message: `Đã đổi tên tài khoản từ "${oldUsername}" sang "${newUsername}" thành công!`
+      });
+    }
+  }
+
+  return jsonResponse({ ok: false, error: `Không tìm thấy tài khoản "${oldUsername}".` });
 }

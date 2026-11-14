@@ -17,6 +17,7 @@ import {
   supabaseRenewUser,
   supabaseResetMachine,
   supabaseDeleteUser,
+  supabaseRenameUser,
   pushLocalChangesToSupabase,
   hydrateLocalFromSupabase,
   SUPABASE_SETUP_SQL
@@ -477,6 +478,132 @@ async function loadUserList() {
   }
 }
 
+// ── Hộp thoại Đổi tên tài khoản đăng nhập (Username) ──────────────────────────
+function openRenameUserModal(oldUsername) {
+  let overlay = document.getElementById('renameUserModalOverlay');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'renameUserModalOverlay';
+  overlay.className = 'rename-modal-overlay';
+  overlay.innerHTML = `
+    <div class="rename-modal-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--card-border, #334155)">
+        <div style="font-weight:700;font-size:16px;color:var(--text-main,#f8fafc);display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">✏️</span>
+          <span>Đổi tên tài khoản đăng nhập</span>
+        </div>
+        <button type="button" class="rename-user-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-sub,#94a3b8);line-height:1;padding:4px" title="Đóng">✕</button>
+      </div>
+      <div style="padding:20px">
+        <div style="font-size:12.5px;color:var(--text-sub,#94a3b8);margin-bottom:16px;background:rgba(255,255,255,0.03);padding:12px 14px;border-radius:10px;border:1px solid var(--card-border,#334155);line-height:1.6">
+          <div><b>Tài khoản hiện tại:</b> <span style="color:#60a5fa;font-weight:700;font-size:13.5px">${escapeHtml(oldUsername)}</span></div>
+          <div style="font-size:11.5px;color:var(--text-sub,#94a3b8);margin-top:2px">Nguồn dữ liệu: Supabase PostgreSQL (ntd_users)</div>
+        </div>
+
+        <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:700;color:var(--text-main,#f8fafc)">
+          Tên tài khoản đăng nhập mới (theo yêu cầu khách hàng):
+        </label>
+        <input type="text" id="renameUserModalInput" value="${escapeHtml(oldUsername)}" placeholder="VD: nam_marketing, anh_tu_bds, spa_linh..." style="width:100%;box-sizing:border-box;padding:11px 14px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-family:monospace;font-weight:600">
+        
+        <div style="font-size:11.5px;color:var(--text-sub,#94a3b8);margin-top:8px;line-height:1.4">
+          ⚠️ <b>Quy tắc:</b> Tên tài khoản viết thường, liền không dấu (hỗ trợ chữ cái, số, gạch dưới <code>_</code> hoặc gạch ngang <code>-</code>). Không dùng khoảng trắng hoặc ký tự có dấu.
+        </div>
+
+        <div style="font-size:12px;color:#93c5fd;margin-top:14px;line-height:1.5;background:rgba(59,130,246,0.1);padding:10px 12px;border-radius:8px;border:1px solid rgba(59,130,246,0.25)">
+          💡 <b>Tự động di chuyển dữ liệu:</b> Khi đổi tên, toàn bộ dữ liệu của khách (Hạn sử dụng, Mật khẩu, Trạng thái, Mã máy, Nick Facebook & Nhóm quét) sẽ tự động được giữ nguyên và liên kết sang Tên đăng nhập mới!
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--card-border,#334155);background:rgba(0,0,0,0.15)">
+        <button type="button" class="btn-secondary rename-user-modal-cancel" style="padding:8px 16px;font-size:13px;font-weight:600">Hủy (Esc)</button>
+        <button type="button" class="btn-primary rename-user-modal-save" style="padding:8px 22px;font-size:13px;font-weight:700">💾 Xác nhận Đổi tên (Enter)</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const input = overlay.querySelector('#renameUserModalInput');
+  const closeBtn = overlay.querySelector('.rename-user-modal-close');
+  const cancelBtn = overlay.querySelector('.rename-user-modal-cancel');
+  const saveBtn = overlay.querySelector('.rename-user-modal-save');
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', handleKey);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter') doSave();
+  };
+  document.addEventListener('keydown', handleKey);
+
+  closeBtn.onclick = close;
+  cancelBtn.onclick = close;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+
+  const doSave = async () => {
+    const rawVal = input.value.trim().toLowerCase();
+    if (!rawVal) {
+      alert('Vui lòng nhập tên tài khoản mới.');
+      input.focus();
+      return;
+    }
+    if (rawVal === oldUsername.toLowerCase()) {
+      alert('Tên tài khoản mới trùng với tên hiện tại. Vui lòng nhập tên khác.');
+      input.focus();
+      return;
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(rawVal)) {
+      alert('Tên tài khoản chỉ được chứa chữ cái, chữ số, gạch dưới (_), gạch ngang (-) hoặc chấm (.). Không dùng khoảng trắng hoặc tiếng Việt có dấu.');
+      input.focus();
+      return;
+    }
+
+    if (!confirm(`Xác nhận đổi tên tài khoản đăng nhập từ "${oldUsername}" sang "${rawVal}" theo yêu cầu khách hàng?`)) {
+      return;
+    }
+
+    try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ Đang đổi tên…';
+
+      if (await isSupabaseConfigured()) {
+        await supabaseRenameUser(oldUsername, rawVal);
+      } else {
+        const scriptUrl = await getGoogleScriptUrl();
+        if (!scriptUrl) throw new Error('Chưa cấu hình Supabase hoặc Google Sheets.');
+        const targetUrl = new URL(scriptUrl);
+        targetUrl.searchParams.set('action', 'rename_user');
+        targetUrl.searchParams.set('admin_pass', DEFAULT_PASS);
+        targetUrl.searchParams.set('username', oldUsername);
+        targetUrl.searchParams.set('new_username', rawVal);
+        const res = await fetch(targetUrl.toString(), { method: 'GET', redirect: 'follow' });
+        const json = await res.json().catch(() => ({}));
+        if (!json.ok) throw new Error(json.error || 'Lỗi đổi tên trên Google Sheets');
+      }
+
+      close();
+      alert(`🎉 Đã đổi tên tài khoản thành công!\nTên đăng nhập mới của khách: ${rawVal}`);
+      loadUserList();
+    } catch (err) {
+      alert('Lỗi đổi tên tài khoản: ' + err.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = '💾 Xác nhận Đổi tên (Enter)';
+    }
+  };
+
+  saveBtn.onclick = doSave;
+
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 50);
+}
+
 function renderUserTable() {
   const container = $('userListContainer');
   if (!container) return;
@@ -572,7 +699,12 @@ function renderUserTable() {
 
     html += `
       <tr>
-        <td><b style="color:var(--text-main)">${escapeHtml(u.username)}</b></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <b style="color:var(--text-main)">${escapeHtml(u.username)}</b>
+            <button type="button" class="btn-rename-user-icon" data-user="${escapeHtml(u.username)}" title="Đổi tên đăng nhập tài khoản này" style="background:none;border:none;cursor:pointer;font-size:12px;opacity:0.75;padding:2px 4px;border-radius:4px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
         <td style="font-family:monospace;color:var(--text-sub)">${escapeHtml(u.password)}</td>
         <td>${roleBadge}</td>
         <td style="text-align:center">${fbBadge}</td>
@@ -590,6 +722,7 @@ function renderUserTable() {
         <td style="color:var(--text-sub);max-width:150px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(u.note)}">${escapeHtml(u.note || '-')}</td>
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button type="button" class="action-btn-sm btn-rename-user" data-user="${escapeHtml(u.username)}" style="background:#059669;color:#fff" title="Đổi tên tài khoản đăng nhập (Username) theo yêu cầu khách hàng">✏️ Đổi tên</button>
             ${roleToggleBtn}
             ${lockBtn}
             <button type="button" class="action-btn-sm btn-renew-user" data-user="${escapeHtml(u.username)}" style="background:#2563eb;color:#fff" title="Gia hạn thêm 30 ngày">+30N</button>
@@ -610,6 +743,15 @@ function renderUserTable() {
 
 // Gắn sự kiện các nút tương tác trong bảng
 function attachTableEventListeners(container) {
+  // 0. Đổi tên tài khoản đăng nhập (Username)
+  container.querySelectorAll('.btn-rename-user, .btn-rename-user-icon').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const u = btn.getAttribute('data-user');
+      openRenameUserModal(u);
+    });
+  });
+
   // 1. Đổi vai trò (Phân quyền Admin/Member)
   container.querySelectorAll('.btn-role-toggle').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -892,6 +1034,7 @@ function renderDashboardTable() {
             <div>
               <div style="font-weight:700;color:var(--text-main);display:flex;align-items:center;gap:6px">
                 <span>${escapeHtml(u.username)}</span>
+                <button type="button" class="btn-rename-user-icon" data-user="${escapeHtml(u.username)}" title="Đổi tên đăng nhập tài khoản này" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.75;padding:1px 3px;color:var(--text-sub)">✏️</button>
                 ${isAdmin ? '<span class="badge-role-admin" style="font-size:9.5px;padding:1px 5px">👑 Admin</span>' : '<span class="badge-role-member" style="font-size:9.5px;padding:1px 5px">👤 Member</span>'}
               </div>
               <div style="font-size:11.5px;color:var(--text-sub);margin-top:2px" title="${escapeHtml(u.note)}">${escapeHtml(u.note || 'Không có ghi chú')}</div>
@@ -919,6 +1062,15 @@ function renderDashboardTable() {
       </tr>
     `;
   }).join('');
+
+  // Gắn sự kiện nút Đổi tên tài khoản đăng nhập
+  tbody.querySelectorAll('.btn-rename-user-icon').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const u = btn.getAttribute('data-user');
+      openRenameUserModal(u);
+    });
+  });
 
   // Gắn sự kiện nút Quản trị từng dòng để chuyển ngay sang tab Phân quyền
   tbody.querySelectorAll('.btn-quick-manage').forEach(btn => {
