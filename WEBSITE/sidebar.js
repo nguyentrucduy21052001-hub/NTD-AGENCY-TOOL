@@ -762,6 +762,7 @@ if (!activeLicense) {
         data = await chrome.storage.local.get([
           'accounts',
           'dailyPostStats',
+          'dailyScanStats',
           'rinFbGroup',
           'rinMaps'
         ]);
@@ -770,6 +771,7 @@ if (!activeLicense) {
           data = {
             accounts: JSON.parse(localStorage.getItem('accounts') || '[]'),
             dailyPostStats: JSON.parse(localStorage.getItem('dailyPostStats') || '{}'),
+            dailyScanStats: JSON.parse(localStorage.getItem('dailyScanStats') || 'null'),
             rinFbGroup: JSON.parse(localStorage.getItem('rinFbGroup') || '{}'),
             rinMaps: JSON.parse(localStorage.getItem('rinMaps') || '{}')
           };
@@ -795,13 +797,16 @@ if (!activeLicense) {
         }
       }
 
-      // Quét số nhóm hôm nay (tính theo số điện thoại / bài viết quét được trong ngày hôm nay)
+      // Quét số nhóm hôm nay (cộng dồn các lượt trong ngày, không bị mất khi xóa bảng)
       let todayGroupScans = 0;
+      if (data.dailyScanStats && data.dailyScanStats.date === todayStr) {
+        todayGroupScans = Number(data.dailyScanStats.groupScans) || 0;
+      }
       const groupRows = Array.isArray(data.rinFbGroup?.rows) ? data.rinFbGroup.rows : [];
       if (groupRows.length > 0) {
         const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
         const todayVi = todayDate.toLocaleDateString('vi-VN');
-        todayGroupScans = groupRows.filter(r => {
+        const inTable = groupRows.filter(r => {
           if (r.id && r.id.startsWith('fg_')) {
             const ts = Number(r.id.split('_')[1]);
             if (!isNaN(ts) && ts >= startOfDay) return true;
@@ -813,15 +818,19 @@ if (!activeLicense) {
           }
           return false;
         }).length;
+        todayGroupScans = Math.max(todayGroupScans, inTable);
       }
 
-      // Quét Google Maps hôm nay (tính theo số cơ sở quét được trong ngày hôm nay)
+      // Quét Google Maps hôm nay (cộng dồn các lượt trong ngày, không bị mất khi xóa bảng)
       let todayMapsScans = 0;
+      if (data.dailyScanStats && data.dailyScanStats.date === todayStr) {
+        todayMapsScans = Number(data.dailyScanStats.mapsScans) || 0;
+      }
       const mapRows = Array.isArray(data.rinMaps?.rows) ? data.rinMaps.rows : [];
       if (mapRows.length > 0) {
         const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
         const todayVi = todayDate.toLocaleDateString('vi-VN');
-        todayMapsScans = mapRows.filter(r => {
+        const inTable = mapRows.filter(r => {
           if (r.id && r.id.startsWith('mp_')) {
             const ts = Number(r.id.split('_')[1]);
             if (!isNaN(ts) && ts >= startOfDay) return true;
@@ -833,6 +842,7 @@ if (!activeLicense) {
           }
           return false;
         }).length;
+        todayMapsScans = Math.max(todayMapsScans, inTable);
       }
 
       // Gửi lên Supabase bằng dynamic import an toàn
@@ -931,6 +941,7 @@ if (!activeLicense) {
       'draft',
       'scheduledPostJobs',
       'dailyPostStats',
+      'dailyScanStats',
       'warmupConfig',
       'warmupReports',
       'rinZalo',
@@ -954,7 +965,7 @@ if (!activeLicense) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
 
-      if (changes.accounts || changes.dailyPostStats || changes.rinFbGroup || changes.rinMaps) {
+      if (changes.accounts || changes.dailyPostStats || changes.dailyScanStats || changes.rinFbGroup || changes.rinMaps) {
         const newAccs = Array.isArray(changes.accounts?.newValue) ? changes.accounts.newValue : null;
         const oldAccs = Array.isArray(changes.accounts?.oldValue) ? changes.accounts.oldValue : null;
         // Nếu số lượng tài khoản giảm về 0 hoặc ít hơn trước, gửi telemetry ngay lập tức (không delay)

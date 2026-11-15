@@ -53,6 +53,33 @@ function nextClientRowId(prefix = 'row') {
   return `${prefix}_${Date.now()}_${++_clientRowSeq}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/**
+ * Ghi nhận số lượng quét Maps / Nhóm tích lũy trong ngày (không bị mất khi xóa bảng)
+ */
+async function recordDailyScanCount(type, delta = 1) {
+  if (delta <= 0) return;
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const store = (typeof chrome !== 'undefined' && chrome.storage?.local)
+      ? await chrome.storage.local.get('dailyScanStats')
+      : { dailyScanStats: JSON.parse(localStorage.getItem('dailyScanStats') || 'null') };
+    let cur = store.dailyScanStats;
+    if (!cur || cur.date !== todayStr) {
+      cur = { date: todayStr, mapsScans: 0, groupScans: 0 };
+    }
+    if (type === 'maps') {
+      cur.mapsScans = (Number(cur.mapsScans) || 0) + delta;
+    } else if (type === 'group') {
+      cur.groupScans = (Number(cur.groupScans) || 0) + delta;
+    }
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await chrome.storage.local.set({ dailyScanStats: cur });
+    } else {
+      localStorage.setItem('dailyScanStats', JSON.stringify(cur));
+    }
+  } catch (_) {}
+}
+
 function isDedupePhonesEnabled() {
   return Boolean(dedupePhonesEnabled);
 }
@@ -419,6 +446,7 @@ function addRow(row, options = {}) {
     }
     state.seenKeys[key] = true;
     state.rows.push(row.id ? row : { ...row, id: nextClientRowId('mp') });
+    recordDailyScanCount('maps', 1);
     return true;
   }
 
@@ -438,6 +466,7 @@ function addRow(row, options = {}) {
 
   state.seenKeys[key] = true;
   state.rows.push(row.id ? row : { ...row, id: nextClientRowId('mp') });
+  recordDailyScanCount('maps', 1);
   return true;
 }
 
@@ -1579,6 +1608,7 @@ async function importGroupPhonesFromClipboardText(rawText) {
         category,
         at: new Date().toLocaleString('vi-VN')
       });
+      recordDailyScanCount('group', 1);
       added++;
       log(`✅ [Clipboard Nhóm] ${cleanP} (${authorName})`);
     }
@@ -1787,6 +1817,7 @@ async function runGroupScraperDirectly({ skipInitialTabOpen = false, extensionOu
               category: category,
               at: new Date().toLocaleString('vi-VN')
             });
+            recordDailyScanCount('group', 1);
             newPhonesAddedInRound++;
 
             log(`✅ Tìm thấy SĐT: ${phone} (${item.name} – Nguồn: ${item.source})`);
@@ -3053,6 +3084,7 @@ function syncGroupRowFromWorker(r) {
   }
   if (k) groupState.seenKeys[k] = true;
   groupState.rows.push(r.id ? r : { ...r, id: nextClientRowId('fg') });
+  recordDailyScanCount('group', 1);
   return true;
 }
 

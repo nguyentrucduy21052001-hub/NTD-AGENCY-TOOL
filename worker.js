@@ -33,6 +33,24 @@ const saveCoordinator = c => chrome.storage.local.set({coordinator: c});
 const readDailyStats = async () => (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
 const saveDailyStats = stats => chrome.storage.local.set({dailyPostStats: stats});
 
+async function recordWorkerDailyScan(type, count = 1) {
+  if (count <= 0) return;
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const { dailyScanStats } = await chrome.storage.local.get('dailyScanStats');
+    let cur = dailyScanStats;
+    if (!cur || cur.date !== todayStr) {
+      cur = { date: todayStr, mapsScans: 0, groupScans: 0 };
+    }
+    if (type === 'maps') {
+      cur.mapsScans = (Number(cur.mapsScans) || 0) + count;
+    } else if (type === 'group') {
+      cur.groupScans = (Number(cur.groupScans) || 0) + count;
+    }
+    await chrome.storage.local.set({ dailyScanStats: cur });
+  } catch (_) {}
+}
+
 // ── Proxy Management & Auth Provider ──────────────────────────────────────────
 let activeProxyConfig = null;
 let activeProxyAuth = null;
@@ -2942,11 +2960,13 @@ async function runMapsScraperLoop(jobParam, phoneTypesParam, seenKeysParam = nul
           if (uKey) state.seenKeys[uKey] = true;
           state.rows.push(finalRow);
           wasAdded = true;
+          recordWorkerDailyScan('maps', 1);
           broadcastMapsMessage({ type: 'MAPS_ROW_ADDED', row: finalRow });
         } else if (!alreadySeen && !alreadyInRows) {
           if (uKey) state.seenKeys[uKey] = true;
           wasAdded = addMapsRowWorker(state.rows, finalRow);
           if (wasAdded) {
+            recordWorkerDailyScan('maps', 1);
             broadcastMapsMessage({ type: 'MAPS_ROW_ADDED', row: finalRow });
           }
         } else if (alreadyInRows) {
@@ -3318,6 +3338,7 @@ async function runFbGroupScraperLoop(jobParam, phoneTypesParam, seenKeysParam = 
             at: new Date().toLocaleString('vi-VN')
           };
           state.rows.push(fbRow);
+          recordWorkerDailyScan('group', 1);
           broadcastMapsMessage({ type: 'FB_GROUP_ROW_ADDED', row: fbRow });
           newPhonesAddedInRound++;
 
