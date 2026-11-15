@@ -230,12 +230,20 @@ export async function supabaseLogin(username, password, machineId) {
   const u = (username || '').trim().toLowerCase();
   const p = (password || '').trim();
 
-  const users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=*`);
+  // 1. Tìm user theo username (hỗ trợ cả khi có hoặc không có tiền tố dng_)
+  let users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=*`);
+  if ((!users || users.length === 0) && !u.startsWith('dng_')) {
+    users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent('dng_' + u)}&select=*`);
+  }
+  if ((!users || users.length === 0) && u.startsWith('dng_')) {
+    users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u.slice(4))}&select=*`);
+  }
   if (!users || users.length === 0) {
     return { ok: false, error: 'Tài khoản không tồn tại trên hệ thống.' };
   }
 
   const user = users[0];
+  const canonicalUsername = user.username;
 
   // Kiểm tra mật khẩu
   if (user.password !== p) {
@@ -267,7 +275,7 @@ export async function supabaseLogin(username, password, machineId) {
   if (allowedMids.length === 0 && currentMid) {
     // Lần đầu đăng nhập trên thiết bị -> Tự động ghim mã máy này
     try {
-      await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+      await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
         method: 'PATCH',
         body: JSON.stringify({ machine_id: currentMid, last_login: new Date().toISOString() })
       });
@@ -285,7 +293,7 @@ export async function supabaseLogin(username, password, machineId) {
     };
   } else {
     // Cập nhật last_login
-    supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+    supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
       method: 'PATCH',
       body: JSON.stringify({ last_login: new Date().toISOString() })
     }).catch(() => {});
@@ -314,10 +322,17 @@ export async function supabaseLogin(username, password, machineId) {
 export async function supabaseCheckLicense(username, currentMachineId = null) {
   try {
     const u = (username || '').trim().toLowerCase();
-    const users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=*`);
+    let users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=*`);
+    if ((!users || users.length === 0) && !u.startsWith('dng_')) {
+      users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent('dng_' + u)}&select=*`);
+    }
+    if ((!users || users.length === 0) && u.startsWith('dng_')) {
+      users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u.slice(4))}&select=*`);
+    }
     if (!users || users.length === 0) return null;
 
     const user = users[0];
+    const canonicalUsername = user.username;
     const expiryDate = new Date(user.expiry_date || user.expiry);
     const role = (user.role || 'member').toLowerCase() === 'admin' ? 'admin' : 'member';
 
@@ -331,7 +346,7 @@ export async function supabaseCheckLicense(username, currentMachineId = null) {
     }
 
     // Cập nhật last_login ngầm để ghi nhận phiên hoạt động
-    supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+    supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
       method: 'PATCH',
       body: JSON.stringify({ last_login: new Date().toISOString() })
     }).catch(() => {});

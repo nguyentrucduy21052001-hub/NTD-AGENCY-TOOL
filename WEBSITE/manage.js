@@ -770,12 +770,27 @@ async function syncMidToGoogleSheets(username, midStr) {
   try {
     const scriptUrl = await getGoogleScriptUrl();
     if (!scriptUrl || scriptUrl.length < 10) return;
-    const targetUrl = new URL(scriptUrl);
-    targetUrl.searchParams.set('action', 'set_machine_ids');
-    targetUrl.searchParams.set('admin_pass', DEFAULT_PASS);
-    targetUrl.searchParams.set('username', username);
-    targetUrl.searchParams.set('machineIds', midStr || '');
-    await fetch(targetUrl.toString(), { method: 'GET', redirect: 'follow' }).catch(() => {});
+
+    // Đồng bộ với cả username gốc và các biến thể có/không có tiền tố dng_
+    const targets = [username];
+    if (username.toLowerCase().startsWith('dng_')) {
+      targets.push(username.slice(4));
+    } else {
+      targets.push('dng_' + username);
+    }
+
+    for (const u of targets) {
+      const targetUrl = new URL(scriptUrl);
+      if (!midStr) {
+        targetUrl.searchParams.set('action', 'reset_machine');
+      } else {
+        targetUrl.searchParams.set('action', 'set_machine_ids');
+        targetUrl.searchParams.set('machineIds', midStr);
+      }
+      targetUrl.searchParams.set('admin_pass', DEFAULT_PASS);
+      targetUrl.searchParams.set('username', u);
+      await fetch(targetUrl.toString(), { method: 'GET', redirect: 'follow' }).catch(() => {});
+    }
   } catch (_) {}
 }
 

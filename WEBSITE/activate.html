@@ -583,7 +583,8 @@
 
           try {
             // Gọi trực tiếp Supabase REST API
-            const res = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}&select=*`, {
+            const uLow = username.toLowerCase();
+            let res = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(uLow)}&select=*`, {
               method: 'GET',
               headers: buildSbHeaders()
             });
@@ -596,7 +597,27 @@
               throw new Error(`Supabase phản hồi lỗi HTTP ${res.status}: ${text}`);
             }
 
-            const users = await res.json();
+            let users = await res.json();
+            if ((!users || users.length === 0) && !uLow.startsWith('dng_')) {
+              const retryRes = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent('dng_' + uLow)}&select=*`, {
+                method: 'GET',
+                headers: buildSbHeaders()
+              });
+              if (retryRes.ok) {
+                const rUsers = await retryRes.json();
+                if (rUsers && rUsers.length > 0) users = rUsers;
+              }
+            } else if ((!users || users.length === 0) && uLow.startsWith('dng_')) {
+              const retryRes = await fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(uLow.slice(4))}&select=*`, {
+                method: 'GET',
+                headers: buildSbHeaders()
+              });
+              if (retryRes.ok) {
+                const rUsers = await retryRes.json();
+                if (rUsers && rUsers.length > 0) users = rUsers;
+              }
+            }
+
             if (!users || users.length === 0) {
               throw new Error('Tài khoản không tồn tại trên hệ thống.');
             }
@@ -618,7 +639,7 @@
             // Kiểm tra và Ghim mã máy (Hỗ trợ nhiều máy tính cho 1 tài khoản)
             const allowedMids = (user.machine_id || '').split(/[\s,;\n\r\t]+/).map(s => s.trim().toLowerCase()).filter(s => s.length >= 8);
             if (allowedMids.length === 0) {
-              fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}`, {
+              fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(user.username.toLowerCase())}`, {
                 method: 'PATCH',
                 headers: buildSbHeaders(),
                 body: JSON.stringify({ machine_id: mid, last_login: new Date().toISOString() })
@@ -628,7 +649,7 @@
               if (lockBox) lockBox.style.display = 'block';
               throw new Error(`⚠️ Tài khoản này chưa được cấp quyền trên máy tính này!\n• Mã máy hiện tại của bạn: ${mid}\n• Tài khoản đã ghim ${allowedMids.length} máy tính khác.\n\n👉 Vui lòng nhấn nút "Sao chép" mã máy bên dưới và gửi cho Quản trị viên để được thêm vào danh sách máy được phép sử dụng!`);
             } else {
-              fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(username.toLowerCase())}`, {
+              fetch(`${SUPABASE_URL}/rest/v1/ntd_users?username=eq.${encodeURIComponent(user.username.toLowerCase())}`, {
                 method: 'PATCH',
                 headers: buildSbHeaders(),
                 body: JSON.stringify({ last_login: new Date().toISOString() })
