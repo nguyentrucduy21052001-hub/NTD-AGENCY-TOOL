@@ -290,15 +290,95 @@ export async function supabaseCheckLicense(username) {
 }
 
 /**
+ * Kiểm tra xem một mốc thời gian có thuộc về ngày hôm nay theo giờ Việt Nam (Asia/Ho_Chi_Minh GMT+7) hay không
+ */
+export function isTodayVietnamTime(dateStr) {
+  if (!dateStr) return false;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    const vnOptions = { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' };
+    const dateVn = new Intl.DateTimeFormat('en-CA', vnOptions).format(d); // YYYY-MM-DD
+    const todayVn = new Intl.DateTimeFormat('en-CA', vnOptions).format(new Date()); // YYYY-MM-DD
+    return dateVn === todayVn;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Tự động làm sạch các dòng đã qua ngày hôm trước trên cơ sở dữ liệu Supabase (chạy ngầm)
+ */
+async function autoResetStaleDailyStats(usernames) {
+  if (!Array.isArray(usernames) || usernames.length === 0) return;
+  try {
+    const list = usernames.map(encodeURIComponent).join(',');
+    await supabaseRequest(`ntd_users?username=in.(${list})`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        today_posts: 0,
+        today_group_scans: 0,
+        today_maps_scans: 0
+      })
+    });
+  } catch (err) {
+    console.warn('Lỗi tự động đặt lại số liệu ngày mới trên Supabase:', err.message);
+  }
+}
+
+/**
+ * [ADMIN] Đặt lại toàn bộ số liệu hôm nay (bài đăng, quét nhóm, quét maps) về 0 cho tất cả hoặc các user qua ngày mới
+ */
+export async function supabaseResetAllDailyStats(onlyStale = true) {
+  try {
+    let endpoint = 'ntd_users';
+    if (onlyStale) {
+      const nowVn = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+      const startOfDayVn = new Date(nowVn.getFullYear(), nowVn.getMonth(), nowVn.getDate());
+      const startIso = new Date(startOfDayVn.getTime() - (7 * 3600 * 1000)).toISOString();
+      endpoint = `ntd_users?or=(last_login.is.null,last_login.lt.${encodeURIComponent(startIso)})`;
+    }
+    await supabaseRequest(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        today_posts: 0,
+        today_group_scans: 0,
+        today_maps_scans: 0
+      })
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * [ADMIN] Lấy toàn bộ danh sách người dùng kèm phân quyền
  */
 export async function supabaseListUsers() {
   const users = await supabaseRequest(`ntd_users?select=*&order=created_at.desc`);
   const now = new Date();
+  const staleUsernames = [];
 
-  return (users || []).map(u => {
+  const result = (users || []).map(u => {
     const exp = new Date(u.expiry_date || u.expiry);
     const isExpired = !isNaN(exp.getTime()) && exp < now;
+
+    // Kiểm tra xem khách hàng có đăng nhập / hoạt động trong ngày hôm nay (giờ VN) không
+    const activeToday = isTodayVietnamTime(u.last_login);
+    const rawPosts = Number(u.today_posts) || 0;
+    const rawGroups = Number(u.today_group_scans) || 0;
+    const rawMaps = Number(u.today_maps_scans) || 0;
+
+    // Sau 0h mỗi ngày: Nếu khách chưa đăng nhập / hoạt động hôm nay, tất cả số liệu BÀI HÔM NAY, QUÉT NHÓM, QUÉT MAPS tự động quay về 0
+    const todayPosts = activeToday ? rawPosts : 0;
+    const todayGroupScans = activeToday ? rawGroups : 0;
+    const todayMapsScans = activeToday ? rawMaps : 0;
+
+    if (!activeToday && (rawPosts > 0 || rawGroups > 0 || rawMaps > 0) && u.username) {
+      staleUsernames.push(u.username);
+    }
+
     return {
       username: u.username,
       password: u.password,
@@ -311,14 +391,22 @@ export async function supabaseListUsers() {
       note: u.note || '',
       fbCount: Number(u.fb_count) || 0,
       fanpageCount: Number(u.fanpage_count) || 0,
-      todayPosts: Number(u.today_posts) || 0,
-      todayGroupScans: Number(u.today_group_scans) || 0,
-      todayMapsScans: Number(u.today_maps_scans) || 0,
+      todayPosts,
+      todayGroupScans,
+      todayMapsScans,
+      activeToday,
       rawLastLogin: u.last_login || null,
       lastLogin: u.last_login ? new Date(u.last_login).toLocaleString('vi-VN') : 'Chưa đăng nhập',
       createdAt: u.created_at ? new Date(u.created_at).toLocaleDateString('vi-VN') : ''
     };
   });
+
+  // Tự động dọn sạch các số liệu ngày cũ trên Supabase trong nền
+  if (staleUsernames.length > 0) {
+    autoResetStaleDailyStats(staleUsernames).catch(() => {});
+  }
+
+  return result;
 }
 
 /**
@@ -1519,6 +1607,42 @@ values
 on conflict (username) do update
 set role = excluded.role,
     expiry_date = excluded.expiry_date;
+
+-- 7. Tự động hóa đặt lại số liệu ngày mới (0h hàng ngày)
+-- Hàm đặt lại BÀI HÔM NAY, QUÉT NHÓM, QUÉT MAPS về 0 cho các tài khoản chưa đăng nhập hôm nay
+create or replace function public.reset_daily_stats_if_new_day()
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+    v_count integer;
+    v_start_of_day_vn timestamptz;
+begin
+    -- 00:00:00 ngày hôm nay theo múi giờ Việt Nam (UTC+7)
+    v_start_of_day_vn := date_trunc('day', timezone('Asia/Ho_Chi_Minh', now())) at time zone 'Asia/Ho_Chi_Minh';
+
+    update public.ntd_users
+    set today_posts = 0,
+        today_group_scans = 0,
+        today_maps_scans = 0
+    where last_login is null
+       or last_login < v_start_of_day_vn;
+
+    get diagnostics v_count = row_count;
+
+    return jsonb_build_object(
+        'ok', true,
+        'reset_count', v_count,
+        'executed_at', now()
+    );
+end;
+$$;
+
+grant execute on function public.reset_daily_stats_if_new_day() to anon, authenticated;
+
+-- Nếu dự án Supabase đã bật Extension pg_cron, bạn có thể tự động chạy hàm này vào đúng 00:00 mỗi đêm:
+-- select cron.schedule('reset-daily-stats-midnight-vn', '0 17 * * *', 'select public.reset_daily_stats_if_new_day();');
 
 -- Hoàn tất! Cả 4 bảng dữ liệu đã sẵn sàng hoạt động.
 `;

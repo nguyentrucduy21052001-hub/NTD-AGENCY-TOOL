@@ -795,30 +795,49 @@ if (!activeLicense) {
         }
       }
 
-      // Quét số nhóm hôm nay (tính theo số điện thoại / bài viết quét được trong ngày)
+      // Quét số nhóm hôm nay (tính theo số điện thoại / bài viết quét được trong ngày hôm nay)
       let todayGroupScans = 0;
       const groupRows = Array.isArray(data.rinFbGroup?.rows) ? data.rinFbGroup.rows : [];
       if (groupRows.length > 0) {
         const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
         const todayVi = todayDate.toLocaleDateString('vi-VN');
-        const matched = groupRows.filter(r => {
+        todayGroupScans = groupRows.filter(r => {
           if (r.id && r.id.startsWith('fg_')) {
             const ts = Number(r.id.split('_')[1]);
             if (!isNaN(ts) && ts >= startOfDay) return true;
           }
           if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
+          if (r.scanned_at) {
+            const t = new Date(r.scanned_at).getTime();
+            if (!isNaN(t) && t >= startOfDay) return true;
+          }
           return false;
         }).length;
-        todayGroupScans = matched > 0 ? matched : groupRows.length;
       }
 
-      // Quét Google Maps hôm nay
+      // Quét Google Maps hôm nay (tính theo số cơ sở quét được trong ngày hôm nay)
+      let todayMapsScans = 0;
       const mapRows = Array.isArray(data.rinMaps?.rows) ? data.rinMaps.rows : [];
-      const todayMapsScans = mapRows.length;
+      if (mapRows.length > 0) {
+        const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
+        const todayVi = todayDate.toLocaleDateString('vi-VN');
+        todayMapsScans = mapRows.filter(r => {
+          if (r.id && r.id.startsWith('mp_')) {
+            const ts = Number(r.id.split('_')[1]);
+            if (!isNaN(ts) && ts >= startOfDay) return true;
+          }
+          if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
+          if (r.scanned_at) {
+            const t = new Date(r.scanned_at).getTime();
+            if (!isNaN(t) && t >= startOfDay) return true;
+          }
+          return false;
+        }).length;
+      }
 
       // Gửi lên Supabase bằng dynamic import an toàn
       try {
-        const sb = await import('./supabase.js?v=20261112_1000');
+        const sb = await import('./supabase.js?v=20261115_1800');
         if (typeof sb.supabaseUpdateUserStats === 'function') {
           await sb.supabaseUpdateUserStats(username, {
             fb_count: fbCount,

@@ -19,10 +19,12 @@ import {
   supabaseDeleteUser,
   supabaseRenameUser,
   supabaseResetUserAccountCounts,
+  supabaseResetAllDailyStats,
+  isTodayVietnamTime,
   pushLocalChangesToSupabase,
   hydrateLocalFromSupabase,
   SUPABASE_SETUP_SQL
-} from './supabase.js?v=20261114_1700';
+} from './supabase.js?v=20261115_1800';
 
 const $ = id => document.getElementById(id);
 const DEFAULT_PASS = 'DuyAdmin@2025';
@@ -138,6 +140,9 @@ async function initAdminPage() {
 
   // Tải danh sách người dùng
   await loadUserList();
+
+  // Bắt đầu hẹn giờ tự động làm mới khi bước sang 0h00 mỗi ngày (giờ VN)
+  scheduleMidnightRefresh();
 }
 
 // ── 4. LƯU & TEST SUPABASE ───────────────────────────────────────────────────
@@ -1018,21 +1023,24 @@ function formatRelativeTime(dateString) {
   const diffDays = Math.floor(diffHours / 24);
 
   const formattedExact = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) + ' ' + date.toLocaleDateString('vi-VN');
+  const isToday = isTodayVietnamTime(dateString);
 
   let relative = '';
   if (diffSec < 60) {
     relative = 'Vừa xong';
   } else if (diffMin < 60) {
     relative = `${diffMin} phút trước`;
-  } else if (diffHours < 24) {
+  } else if (isToday) {
     relative = `${diffHours} giờ trước`;
+  } else if (diffDays <= 1) {
+    relative = '1 ngày trước';
   } else if (diffDays <= 30) {
     relative = `${diffDays} ngày trước`;
   } else {
     relative = date.toLocaleDateString('vi-VN');
   }
 
-  return { display: formattedExact, sub: relative, isToday: diffHours < 24 };
+  return { display: formattedExact, sub: relative, isToday };
 }
 
 function renderKpiCards(users) {
@@ -1073,10 +1081,7 @@ function filterDashUsers(users) {
     }
 
     if (dashFilter === 'active-today') {
-      if (!u.rawLastLogin) return false;
-      const d = new Date(u.rawLastLogin);
-      const today = new Date();
-      return d.toDateString() === today.toDateString();
+      return Boolean(u.activeToday || (u.rawLastLogin && isTodayVietnamTime(u.rawLastLogin)));
     }
     if (dashFilter === 'has-fb') {
       return (Number(u.fbCount) || 0) > 0;
@@ -1291,9 +1296,59 @@ function exportDashCsv() {
   URL.revokeObjectURL(url);
 }
 
+// ── Tự động làm mới khi bước sang 0h00 mỗi ngày (Giờ Việt Nam GMT+7) ──────────
+let _midnightTimer = null;
+function scheduleMidnightRefresh() {
+  if (_midnightTimer) clearTimeout(_midnightTimer);
+  try {
+    const now = new Date();
+    const vnNowStr = now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' });
+    const vnNow = new Date(vnNowStr);
+
+    const nextMidnight = new Date(vnNow.getFullYear(), vnNow.getMonth(), vnNow.getDate() + 1, 0, 0, 5);
+    const msUntilMidnight = Math.max(1000, nextMidnight.getTime() - vnNow.getTime());
+
+    _midnightTimer = setTimeout(async () => {
+      console.log('⏰ Bước qua 0h00 ngày mới (GMT+7) - Tự động tải lại dữ liệu Dashboard & đặt lại số liệu ngày mới!');
+      try {
+        await loadUserList();
+      } catch (e) {
+        console.warn('Lỗi tự động làm mới lúc 0h:', e);
+      }
+      scheduleMidnightRefresh();
+    }, msUntilMidnight);
+  } catch (err) {
+    console.warn('Không thể đặt lịch tự động làm mới 0h:', err);
+  }
+}
+
 // Gắn sự kiện các chức năng Dashboard
 $('refreshDashBtn')?.addEventListener('click', loadUserList);
 $('exportDashCsvBtn')?.addEventListener('click', exportDashCsv);
+
+// Nút đặt lại ngày mới (0h): Đưa BÀI HÔM NAY, QUÉT NHÓM, QUÉT MAPS về 0 cho nick chưa đăng nhập hôm nay
+document.querySelectorAll('.btn-reset-daily-stats').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (!confirm('Bạn có chắc chắn muốn đặt lại BÀI HÔM NAY, QUÉT NHÓM và QUÉT MAPS về 0 cho tất cả tài khoản chưa đăng nhập hôm nay không?')) return;
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang đặt lại…';
+    try {
+      const res = await supabaseResetAllDailyStats(true);
+      if (res && res.ok) {
+        alert('✅ Đã đặt lại số liệu ngày mới thành công!\nCác tài khoản không hoạt động hôm nay đều đã quay về 0.');
+        await loadUserList();
+      } else {
+        alert('Không thể đặt lại số liệu: ' + (res?.error || 'Lỗi không xác định'));
+      }
+    } catch (err) {
+      alert('Lỗi đặt lại số liệu: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
+  });
+});
 
 $('dashSearchInput')?.addEventListener('input', (e) => {
   dashSearch = e.target.value;
