@@ -170,6 +170,11 @@ function handleRequest(e) {
       return handleResetMachine(params);
     }
 
+    // 6B. Cập nhật danh sách mã máy (dành cho Admin - hỗ trợ nhiều máy)
+    if (action === 'set_machine_ids') {
+      return handleSetMachineIds(params);
+    }
+
     // 7. Lấy danh sách tài khoản (dành cho Admin)
     if (action === 'list_users') {
       return handleListUsers(params);
@@ -309,20 +314,21 @@ function handleLogin(params) {
     });
   }
 
-  // 4. Kiểm tra và Ghim Mã máy (1 tài khoản / 1 máy)
+  // 4. Kiểm tra và Ghim Mã máy (Hỗ trợ nhiều máy tính cho 1 tài khoản)
   const sheetMid = String(userRow[3] || '').trim();
-  const inputMid = machineId.trim();
+  const inputMid = machineId.trim().toLowerCase();
+  const allowedMids = sheetMid.split(/[\s,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  if (!sheetMid) {
+  if (allowedMids.length === 0) {
     // Lần đầu đăng nhập trên thiết bị -> Tự động ghim mã máy này vào bảng
-    sheet.getRange(foundRow, 4).setValue(inputMid);
-  } else if (sheetMid.toLowerCase() !== inputMid.toLowerCase()) {
+    sheet.getRange(foundRow, 4).setValue(machineId.trim());
+  } else if (!allowedMids.includes(inputMid)) {
     // Đăng nhập trên máy khác mã máy đã ghim
     return jsonResponse({
       ok: false,
       lockedToOtherMachine: true,
-      sheetMid: sheetMid,
-      error: `⚠️ Tài khoản này đã được ghim với máy tính khác!\n• Mã máy đã ghim: ${sheetMid}\n• Mã máy hiện tại: ${inputMid}\n\n👉 Nếu đây vẫn là máy của bạn (vừa đổi cấu hình/màn hình hoặc update bản mới), bạn có thể bấm "⚡ Dùng lại Mã máy cũ đã ghim" bên dưới để đăng nhập ngay mà không cần liên hệ Admin!`
+      sheetMid: allowedMids[0],
+      error: `⚠️ Tài khoản này chưa được cấp phép trên máy tính này!\n• Mã máy hiện tại: ${machineId.trim()}\n• Các máy đã ghim: ${sheetMid}\n\n👉 Vui lòng liên hệ Admin để thêm Mã máy này vào tài khoản của bạn!`
     });
   }
 
@@ -376,9 +382,10 @@ function handleCheck(params) {
   }
 
   const sheetMid = String(userRow[3] || '').trim();
-  const inputMid = machineId.trim();
-  if (inputMid && sheetMid && sheetMid.toLowerCase() !== inputMid.toLowerCase()) {
-    return jsonResponse({ ok: false, machineMismatch: true, error: 'Tài khoản đã được ghim với máy khác.' });
+  const inputMid = machineId.trim().toLowerCase();
+  const allowedMids = sheetMid.split(/[\s,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (inputMid && allowedMids.length > 0 && !allowedMids.includes(inputMid)) {
+    return jsonResponse({ ok: false, machineMismatch: true, error: 'Tài khoản chưa được ghim với máy này.' });
   }
 
   const expiryDate = parseExpiryDate(userRow[2]);
@@ -527,6 +534,34 @@ function handleResetMachine(params) {
       return jsonResponse({
         ok: true,
         message: `Đã reset Mã máy cho tài khoản "${username}". Khách hàng có thể đăng nhập trên máy tính mới.`
+      });
+    }
+  }
+
+  return jsonResponse({ ok: false, error: `Không tìm thấy tài khoản "${username}".` });
+}
+
+/**
+ * Cập nhật danh sách mã máy tính được phép (hỗ trợ nhiều máy tính)
+ */
+function handleSetMachineIds(params) {
+  if (params.admin_pass !== ADMIN_PASSWORD) {
+    return jsonResponse({ ok: false, error: 'Sai mật khẩu quản trị Admin.' });
+  }
+
+  const username = (params.username || '').trim();
+  const machineIds = (params.machineIds || '').trim();
+  if (!username) return jsonResponse({ ok: false, error: 'Chưa nhập Tên tài khoản.' });
+
+  const sheet = initSheet();
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim().toLowerCase() === username.toLowerCase()) {
+      sheet.getRange(i + 1, 4).setValue(machineIds);
+      return jsonResponse({
+        ok: true,
+        message: `Đã cập nhật Mã máy cho tài khoản "${username}".`
       });
     }
   }

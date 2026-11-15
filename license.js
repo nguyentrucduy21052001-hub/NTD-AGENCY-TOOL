@@ -261,7 +261,7 @@ export async function loginWithAccount(username, password) {
         try { localStorage.setItem('dg_machine_id', machineId); } catch (_) {}
         try { await chrome.storage.sync?.set({ machineId: machineId }); } catch (_) {}
         return { ok: true, data: licenseData };
-      } else if (sbRes.locked || sbRes.expired) {
+      } else if (sbRes.locked || sbRes.expired || sbRes.lockedToOtherMachine) {
         return sbRes;
       }
     } catch (sbErr) {

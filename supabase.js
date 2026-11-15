@@ -187,6 +187,43 @@ export async function testSupabaseConnection(url, key) {
 }
 
 /**
+ * Tách và chuẩn hóa danh sách các mã máy tính được phép (hỗ trợ nhiều máy tính cho 1 tài khoản)
+ * @param {string} rawStr Chuỗi chứa 1 hoặc nhiều mã máy (cách nhau bởi phẩy, chấm phẩy, khoảng trắng, xuống dòng)
+ * @returns {string[]} Danh sách các mã máy chuẩn hóa (chữ thường, loại bỏ trùng lặp)
+ */
+export function parseMachineIds(rawStr) {
+  if (!rawStr || typeof rawStr !== 'string') return [];
+  const parts = rawStr.split(/[\s,;\n\r\t]+/).map(s => s.trim().toLowerCase()).filter(s => s.length >= 8);
+  return Array.from(new Set(parts));
+}
+
+/**
+ * Ghép danh sách mã máy thành chuỗi chuẩn lưu trữ (cách nhau bởi dấu phẩy)
+ * @param {string[]|string} mids 
+ * @returns {string}
+ */
+export function formatMachineIds(mids) {
+  if (Array.isArray(mids)) {
+    return Array.from(new Set(mids.map(s => String(s || '').trim().toLowerCase()).filter(s => s.length >= 8))).join(', ');
+  }
+  return parseMachineIds(mids).join(', ');
+}
+
+/**
+ * Kiểm tra xem một mã máy có thuộc danh sách được cấp quyền hay không
+ * @param {string} rawStored Chuỗi lưu trong DB
+ * @param {string} inputMid Mã máy hiện tại của người dùng
+ * @returns {boolean}
+ */
+export function isMachineIdAllowed(rawStored, inputMid) {
+  const allowed = parseMachineIds(rawStored);
+  if (allowed.length === 0) return true; // Chưa ghim máy nào -> Cho phép và tự động ghim
+  const target = (inputMid || '').trim().toLowerCase();
+  if (!target) return true; // Không có mã máy gửi lên
+  return allowed.includes(target);
+}
+
+/**
  * Đăng nhập người dùng qua Supabase
  */
 export async function supabaseLogin(username, password, machineId) {
@@ -221,16 +258,31 @@ export async function supabaseLogin(username, password, machineId) {
     };
   }
 
-  // Ghim mã máy (nếu chưa có hoặc khớp)
+  // Kiểm tra và Ghim mã máy (Hỗ trợ nhiều máy tính cho 1 tài khoản)
+  const currentMid = (machineId || '').trim().toLowerCase();
+  const allowedMids = parseMachineIds(user.machine_id);
+
   let updatedMachine = user.machine_id;
-  if (!user.machine_id && machineId) {
+
+  if (allowedMids.length === 0 && currentMid) {
+    // Lần đầu đăng nhập trên thiết bị -> Tự động ghim mã máy này
     try {
       await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ machine_id: machineId, last_login: new Date().toISOString() })
+        body: JSON.stringify({ machine_id: currentMid, last_login: new Date().toISOString() })
       });
-      updatedMachine = machineId;
+      updatedMachine = currentMid;
     } catch (_) {}
+  } else if (allowedMids.length > 0 && currentMid && !allowedMids.includes(currentMid)) {
+    // Máy tính hiện tại KHÔNG nằm trong danh sách mã máy được cấp phép
+    return {
+      ok: false,
+      lockedToOtherMachine: true,
+      sheetMid: allowedMids[0],
+      allowedMids: allowedMids,
+      currentMid: currentMid,
+      error: `⚠️ Tài khoản này chưa được cấp quyền trên máy tính này!\n• Mã máy hiện tại của bạn: ${currentMid}\n• Tài khoản đang ghim ${allowedMids.length} máy tính khác.\n\n👉 Vui lòng sao chép Mã máy này gửi cho Quản trị viên để được thêm vào danh sách máy được phép sử dụng!`
+    };
   } else {
     // Cập nhật last_login
     supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
@@ -249,6 +301,7 @@ export async function supabaseLogin(username, password, machineId) {
       expiry: expiryDate.toISOString(),
       expiryFormatted: expiryDate.toLocaleDateString('vi-VN'),
       machineId: updatedMachine || machineId,
+      allowedMids,
       status: user.status || 'active',
       note: user.note || ''
     }
@@ -258,7 +311,7 @@ export async function supabaseLogin(username, password, machineId) {
 /**
  * Kiểm tra trạng thái tài khoản trên Supabase (cho sync ngầm)
  */
-export async function supabaseCheckLicense(username) {
+export async function supabaseCheckLicense(username, currentMachineId = null) {
   try {
     const u = (username || '').trim().toLowerCase();
     const users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=*`);
@@ -267,6 +320,15 @@ export async function supabaseCheckLicense(username) {
     const user = users[0];
     const expiryDate = new Date(user.expiry_date || user.expiry);
     const role = (user.role || 'member').toLowerCase() === 'admin' ? 'admin' : 'member';
+
+    const allowedMids = parseMachineIds(user.machine_id);
+    let machineMismatch = false;
+    if (currentMachineId && allowedMids.length > 0) {
+      const cleanMid = currentMachineId.trim().toLowerCase();
+      if (!allowedMids.includes(cleanMid)) {
+        machineMismatch = true;
+      }
+    }
 
     // Cập nhật last_login ngầm để ghi nhận phiên hoạt động
     supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
@@ -282,7 +344,9 @@ export async function supabaseCheckLicense(username) {
       isExpired: expiryDate < new Date(),
       expiry: expiryDate.toISOString(),
       expiryFormatted: expiryDate.toLocaleDateString('vi-VN'),
-      machineId: user.machine_id || ''
+      machineId: user.machine_id || '',
+      allowedMids,
+      machineMismatch
     };
   } catch (_) {
     return null;
@@ -625,6 +689,87 @@ export async function supabaseResetMachine(username) {
   });
 
   return { ok: true };
+}
+
+/**
+ * [ADMIN] Cập nhật toàn bộ danh sách mã máy tính của tài khoản
+ * @param {string} username 
+ * @param {string|string[]} machineIds 
+ */
+export async function supabaseUpdateUserMachineIds(username, machineIds) {
+  const u = (username || '').trim().toLowerCase();
+  if (!u) throw new Error('Chưa cung cấp Tên tài khoản.');
+
+  const formatted = formatMachineIds(machineIds);
+  const patchVal = formatted.length > 0 ? formatted : null;
+
+  await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      machine_id: patchVal,
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  return { ok: true, machine_id: patchVal, mids: parseMachineIds(patchVal) };
+}
+
+/**
+ * [ADMIN] Thêm 1 hoặc nhiều mã máy mới vào tài khoản khách hàng (không xóa máy cũ)
+ * @param {string} username 
+ * @param {string} newMachineId 
+ */
+export async function supabaseAddMachineIdToUser(username, newMachineId) {
+  const u = (username || '').trim().toLowerCase();
+  if (!u) throw new Error('Chưa cung cấp Tên tài khoản.');
+
+  const incoming = parseMachineIds(newMachineId);
+  if (incoming.length === 0) throw new Error('Mã máy không hợp lệ (cần tối thiểu 8 ký tự).');
+
+  const users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=machine_id`);
+  const currentRaw = users?.[0]?.machine_id || '';
+  const currentList = parseMachineIds(currentRaw);
+
+  const merged = Array.from(new Set([...currentList, ...incoming]));
+  const formatted = merged.join(', ');
+
+  await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      machine_id: formatted,
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  return { ok: true, machine_id: formatted, mids: merged, addedCount: incoming.length };
+}
+
+/**
+ * [ADMIN] Xóa 1 mã máy cụ thể khỏi tài khoản
+ * @param {string} username 
+ * @param {string} targetMachineId 
+ */
+export async function supabaseRemoveMachineIdFromUser(username, targetMachineId) {
+  const u = (username || '').trim().toLowerCase();
+  if (!u) throw new Error('Chưa cung cấp Tên tài khoản.');
+
+  const target = (targetMachineId || '').trim().toLowerCase();
+  const users = await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}&select=machine_id`);
+  const currentRaw = users?.[0]?.machine_id || '';
+  const currentList = parseMachineIds(currentRaw);
+
+  const filtered = currentList.filter(id => id !== target);
+  const patchVal = filtered.length > 0 ? filtered.join(', ') : null;
+
+  await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      machine_id: patchVal,
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  return { ok: true, machine_id: patchVal, mids: filtered };
 }
 
 /**

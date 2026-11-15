@@ -16,6 +16,11 @@ import {
   supabaseUpdateStatus,
   supabaseRenewUser,
   supabaseResetMachine,
+  supabaseUpdateUserMachineIds,
+  supabaseAddMachineIdToUser,
+  supabaseRemoveMachineIdFromUser,
+  parseMachineIds,
+  formatMachineIds,
   supabaseDeleteUser,
   supabaseRenameUser,
   supabaseResetUserAccountCounts,
@@ -24,7 +29,7 @@ import {
   pushLocalChangesToSupabase,
   hydrateLocalFromSupabase,
   SUPABASE_SETUP_SQL
-} from './supabase.js?v=20261115_1800';
+} from './supabase.js?v=20261115_2000';
 
 const $ = id => document.getElementById(id);
 const DEFAULT_PASS = 'DuyAdmin@2025';
@@ -760,6 +765,239 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
   saveBtn.onclick = doSave;
 }
 
+// ── Đồng bộ mã máy sang Google Sheets nếu được cấu hình ──────────────────────
+async function syncMidToGoogleSheets(username, midStr) {
+  try {
+    const scriptUrl = await getGoogleScriptUrl();
+    if (!scriptUrl || scriptUrl.length < 10) return;
+    const targetUrl = new URL(scriptUrl);
+    targetUrl.searchParams.set('action', 'set_machine_ids');
+    targetUrl.searchParams.set('admin_pass', DEFAULT_PASS);
+    targetUrl.searchParams.set('username', username);
+    targetUrl.searchParams.set('machineIds', midStr || '');
+    await fetch(targetUrl.toString(), { method: 'GET', redirect: 'follow' }).catch(() => {});
+  } catch (_) {}
+}
+
+// ── Hộp thoại Quản lý Mã máy (Machine IDs) - Hỗ trợ nhiều máy tính cho 1 tài khoản ────────────
+function openManageMachineModal(username) {
+  let overlay = document.getElementById('manageMachineModalOverlay');
+  if (overlay) overlay.remove();
+
+  const user = cachedUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
+  const initialMids = parseMachineIds(user?.machineId || user?.machine_id || '');
+
+  overlay = document.createElement('div');
+  overlay.id = 'manageMachineModalOverlay';
+  overlay.className = 'rename-modal-overlay';
+  overlay.innerHTML = `
+    <div class="rename-modal-card" style="max-width:580px;width:95%">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--card-border, #334155)">
+        <div style="font-weight:700;font-size:16px;color:var(--text-main,#f8fafc);display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">💻</span>
+          <span>Quản lý Mã máy (Machine IDs)</span>
+        </div>
+        <button type="button" class="manage-mid-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-sub,#94a3b8);line-height:1;padding:4px" title="Đóng">✕</button>
+      </div>
+
+      <div style="padding:20px;max-height:75vh;overflow-y:auto">
+        <!-- Account Info Header -->
+        <div style="font-size:12.5px;color:var(--text-sub,#94a3b8);margin-bottom:16px;background:rgba(255,255,255,0.03);padding:12px 14px;border-radius:10px;border:1px solid var(--card-border,#334155);line-height:1.6">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div><b>Tài khoản:</b> <span style="color:#60a5fa;font-weight:700;font-size:14px">${escapeHtml(username)}</span></div>
+            <div id="midCountBadge" style="font-size:11.5px;font-weight:700;color:#38bdf8;background:rgba(56,189,248,0.15);padding:2px 8px;border-radius:6px;border:1px solid rgba(56,189,248,0.3)">
+              ${initialMids.length} máy tính được cấp phép
+            </div>
+          </div>
+          <div style="margin-top:6px;font-size:11.5px;color:#94a3b8;line-height:1.5">
+            💡 <b>Tính năng Đa thiết bị:</b> Bạn có thể thêm thủ công mã máy khi khách hàng đổi máy tính hoặc dùng cùng lúc trên nhiều máy tính (máy bàn + laptop). Khách hàng sẽ đăng nhập được trên tất cả các máy trong danh sách này mà không bị chặn.
+          </div>
+        </div>
+
+        <!-- Add New Machine ID Form -->
+        <div style="background:rgba(15,23,42,0.6);border:1.5px solid var(--card-border,#334155);border-radius:10px;padding:14px;margin-bottom:18px">
+          <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
+            ➕ Thêm mã máy mới vào tài khoản:
+          </label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="inputNewMid" placeholder="Dán mã máy của khách (VD: fd9cb026b380fbe84471dd86c4f7f04b...)" style="flex:1;box-sizing:border-box;padding:9px 12px;font-size:13px;font-family:monospace;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc)">
+            <button type="button" id="btnAddMid" class="btn-primary" style="padding:9px 16px;font-size:12.5px;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:6px">
+              <span>➕ Thêm máy</span>
+            </button>
+          </div>
+          <div style="font-size:11px;color:var(--text-sub,#94a3b8);margin-top:5px">
+            * Có thể dán 1 mã hoặc nhiều mã cách nhau bằng dấu phẩy hoặc xuống dòng.
+          </div>
+        </div>
+
+        <!-- List of Bound Machines -->
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <label style="font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
+              📋 Danh sách máy tính được phép:
+            </label>
+            <button type="button" id="btnResetAllMids" style="background:none;border:none;font-size:11.5px;color:#f87171;cursor:pointer;text-decoration:underline;font-weight:600">
+              🗑️ Xóa tất cả (Reset đổi máy)
+            </button>
+          </div>
+          <div id="midListContainer" style="display:flex;flex-direction:column;gap:8px">
+            <!-- Render danh sách mã máy -->
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--card-border,#334155);background:rgba(0,0,0,0.15)">
+        <button type="button" class="btn-secondary manage-mid-modal-cancel" style="padding:8px 20px;font-size:13px;font-weight:600">Đóng (Esc)</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  let currentMids = [...initialMids];
+
+  const renderMidsList = () => {
+    const listWrap = overlay.querySelector('#midListContainer');
+    const badge = overlay.querySelector('#midCountBadge');
+    if (badge) badge.textContent = `${currentMids.length} máy tính được cấp phép`;
+
+    if (currentMids.length === 0) {
+      listWrap.innerHTML = `
+        <div style="text-align:center;padding:24px 16px;color:var(--text-sub,#94a3b8);border:1.5px dashed var(--card-border,#334155);border-radius:10px;background:rgba(255,255,255,0.01)">
+          <div style="font-size:24px;margin-bottom:6px">💻</div>
+          <div style="font-weight:600">Chưa ghim mã máy nào</div>
+          <div style="font-size:11.5px;margin-top:4px">Khi khách đăng nhập lần đầu trên máy tính bất kỳ, hệ thống sẽ tự động ghim máy đó, hoặc bạn có thể nhập thủ công ở ô trên.</div>
+        </div>
+      `;
+      return;
+    }
+
+    listWrap.innerHTML = currentMids.map((mid, i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--card-border,#334155);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+          <span style="font-size:16px">💻</span>
+          <div style="min-width:0;flex:1">
+            <div style="font-size:11px;color:var(--text-sub,#94a3b8);font-weight:700">MÁY ${i + 1}</div>
+            <div style="font-family:monospace;font-size:12.5px;color:#93c5fd;font-weight:700;word-break:break-all">${escapeHtml(mid)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:10px">
+          <button type="button" class="btn-copy-mid action-btn-sm" data-mid="${escapeHtml(mid)}" style="background:#334155;color:#e2e8f0;padding:4px 8px;font-size:11px" title="Sao chép mã máy">📋 Copy</button>
+          <button type="button" class="btn-del-mid action-btn-sm" data-mid="${escapeHtml(mid)}" style="background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.4);padding:4px 8px;font-size:11px" title="Xóa máy này khỏi tài khoản">🗑️ Xóa</button>
+        </div>
+      </div>
+    `).join('');
+
+    listWrap.querySelectorAll('.btn-copy-mid').forEach(b => {
+      b.onclick = async () => {
+        const m = b.getAttribute('data-mid');
+        await navigator.clipboard.writeText(m).catch(() => {});
+        b.textContent = '✅ Đã chép!';
+        setTimeout(() => { b.textContent = '📋 Copy'; }, 1500);
+      };
+    });
+
+    listWrap.querySelectorAll('.btn-del-mid').forEach(b => {
+      b.onclick = async () => {
+        const m = b.getAttribute('data-mid');
+        if (!confirm(`Xóa mã máy "${m.slice(0, 8)}..." khỏi tài khoản "${username}"?`)) return;
+        try {
+          b.disabled = true;
+          b.textContent = '⏳...';
+          await supabaseRemoveMachineIdFromUser(username, m);
+          currentMids = currentMids.filter(x => x !== m);
+          syncMidToGoogleSheets(username, currentMids.join(', ')).catch(() => {});
+          renderMidsList();
+          loadUserList();
+        } catch (err) {
+          alert('Lỗi xóa mã máy: ' + err.message);
+          renderMidsList();
+        }
+      };
+    });
+  };
+
+  renderMidsList();
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', handleKey);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', handleKey);
+
+  overlay.querySelector('.manage-mid-modal-close').onclick = close;
+  overlay.querySelector('.manage-mid-modal-cancel').onclick = close;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+
+  const addBtn = overlay.querySelector('#btnAddMid');
+  const inputMid = overlay.querySelector('#inputNewMid');
+
+  const doAddMid = async () => {
+    const rawVal = inputMid.value.trim();
+    if (!rawVal) {
+      alert('Vui lòng nhập hoặc dán Mã máy của khách hàng.');
+      inputMid.focus();
+      return;
+    }
+
+    const newMids = parseMachineIds(rawVal);
+    if (newMids.length === 0) {
+      alert('Mã máy không hợp lệ. Mã máy chuẩn có tối thiểu 8 ký tự.');
+      inputMid.focus();
+      return;
+    }
+
+    try {
+      addBtn.disabled = true;
+      addBtn.textContent = '⏳ Đang thêm...';
+
+      const res = await supabaseAddMachineIdToUser(username, rawVal);
+      currentMids = res.mids;
+      inputMid.value = '';
+
+      syncMidToGoogleSheets(username, currentMids.join(', ')).catch(() => {});
+
+      renderMidsList();
+      loadUserList();
+      alert(`✅ Đã thêm thành công ${newMids.length} mã máy vào tài khoản "${username}"!\nKhách có thể đăng nhập trên máy tính này ngay.`);
+    } catch (err) {
+      alert('Lỗi thêm mã máy: ' + err.message);
+    } finally {
+      addBtn.disabled = false;
+      addBtn.innerHTML = '<span>➕ Thêm máy</span>';
+    }
+  };
+
+  addBtn.onclick = doAddMid;
+  inputMid.onkeydown = (e) => {
+    if (e.key === 'Enter') doAddMid();
+  };
+
+  const resetAllBtn = overlay.querySelector('#btnResetAllMids');
+  resetAllBtn.onclick = async () => {
+    if (!confirm(`Xóa toàn bộ mã máy của tài khoản "${username}"? Khi khách đăng nhập ở máy mới, hệ thống sẽ tự động ghim máy mới đó.`)) return;
+    try {
+      resetAllBtn.textContent = '⏳ Đang xóa...';
+      await supabaseResetMachine(username);
+      currentMids = [];
+      syncMidToGoogleSheets(username, '').catch(() => {});
+      renderMidsList();
+      loadUserList();
+      alert(`✅ Đã reset toàn bộ mã máy cho "${username}".`);
+    } catch (err) {
+      alert('Lỗi reset mã máy: ' + err.message);
+    } finally {
+      resetAllBtn.textContent = '🗑️ Xóa tất cả (Reset đổi máy)';
+    }
+  };
+}
+
 function renderUserTable() {
   const container = $('userListContainer');
   if (!container) return;
@@ -811,9 +1049,23 @@ function renderUserTable() {
       ? '<span class="badge-locked">Bị khóa</span>'
       : (u.isExpired ? '<span class="badge-expired">Hết hạn</span>' : '<span class="badge-active">Hoạt động</span>');
 
-    const machineDisplay = u.machineId
-      ? `<span title="${u.machineId}" style="font-family:monospace;font-size:11px;color:#93c5fd">${u.machineId.slice(0, 8)}…</span>`
-      : '<span style="color:#64748b;font-style:italic">Chưa ghim</span>';
+    const mids = parseMachineIds(u.machineId || '');
+    let machineDisplay = '<span style="color:#64748b;font-style:italic">Chưa ghim</span>';
+    if (mids.length === 1) {
+      machineDisplay = `<div style="display:inline-flex;align-items:center;gap:4px">
+        <span title="${escapeHtml(mids[0])}" style="font-family:monospace;font-size:11px;color:#93c5fd">${escapeHtml(mids[0].slice(0, 8))}…</span>
+        <button type="button" class="btn-manage-mid-icon" data-user="${escapeHtml(u.username)}" title="Quản lý mã máy: xem, thêm mã máy khác hoặc đổi máy" style="background:none;border:none;cursor:pointer;font-size:12px;color:#38bdf8;padding:1px 3px">⚙️</button>
+      </div>`;
+    } else if (mids.length > 1) {
+      machineDisplay = `<div style="display:inline-flex;align-items:center;gap:4px">
+        <button type="button" class="btn-manage-mid-icon" data-user="${escapeHtml(u.username)}" title="Đã cấp phép cho ${mids.length} máy tính:\n${escapeHtml(mids.join('\n'))}" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(56,189,248,0.15);color:#38bdf8;font-weight:700;cursor:pointer;border:1px solid rgba(56,189,248,0.3)">💻 ${mids.length} máy ⚙️</button>
+      </div>`;
+    } else {
+      machineDisplay = `<div style="display:inline-flex;align-items:center;gap:4px">
+        <span style="color:#64748b;font-style:italic">Chưa ghim</span>
+        <button type="button" class="btn-manage-mid-icon" data-user="${escapeHtml(u.username)}" title="Thêm mã máy thủ công cho khách" style="background:none;border:none;cursor:pointer;font-size:12px;color:#38bdf8;padding:1px 3px">➕</button>
+      </div>`;
+    }
 
     // Hiển thị số liệu hoạt động / hiệu suất
     const loginInfo = formatRelativeTime(u.rawLastLogin);
@@ -879,6 +1131,7 @@ function renderUserTable() {
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
             <button type="button" class="action-btn-sm btn-rename-user" data-user="${escapeHtml(u.username)}" style="background:#059669;color:#fff" title="Đổi tên tài khoản đăng nhập (Username) theo yêu cầu khách hàng">✏️ Đổi tên</button>
+            <button type="button" class="action-btn-sm btn-manage-mid" data-user="${escapeHtml(u.username)}" style="background:#0284c7;color:#fff" title="Quản lý mã máy: Thêm mã máy thủ công, xem danh sách máy hoặc đổi máy">💻 Mã máy</button>
             <button type="button" class="action-btn-sm btn-edit-stats" data-user="${escapeHtml(u.username)}" data-fb="${Number(u.fbCount)||0}" data-page="${Number(u.fanpageCount)||0}" data-posts="${Number(u.todayPosts)||0}" data-groups="${Number(u.todayGroupScans)||0}" data-maps="${Number(u.todayMapsScans)||0}" style="background:#475569;color:#e2e8f0" title="Đặt lại hoặc sửa số lượng Nick FB / Fanpage / Số liệu hôm nay">🔄 Số liệu</button>
             ${roleToggleBtn}
             ${lockBtn}
@@ -906,6 +1159,15 @@ function attachTableEventListeners(container) {
       e.stopPropagation();
       const u = btn.getAttribute('data-user');
       openRenameUserModal(u);
+    });
+  });
+
+  // 0C. Quản lý mã máy tính (thêm máy thủ công hoặc đổi máy)
+  container.querySelectorAll('.btn-manage-mid, .btn-manage-mid-icon').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const u = btn.getAttribute('data-user');
+      openManageMachineModal(u);
     });
   });
 
@@ -1206,6 +1468,7 @@ function renderDashboardTable() {
               <div style="font-weight:700;color:var(--text-main);display:flex;align-items:center;gap:6px">
                 <span>${escapeHtml(u.username)}</span>
                 <button type="button" class="btn-rename-user-icon" data-user="${escapeHtml(u.username)}" title="Đổi tên đăng nhập tài khoản này" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.75;padding:1px 3px;color:var(--text-sub)">✏️</button>
+                <button type="button" class="btn-manage-mid-icon" data-user="${escapeHtml(u.username)}" title="Quản lý mã máy tính (thêm máy thủ công hoặc đổi máy)" style="background:none;border:none;cursor:pointer;font-size:11.5px;padding:1px 3px;color:#38bdf8">💻</button>
                 ${isAdmin ? '<span class="badge-role-admin" style="font-size:9.5px;padding:1px 5px">👑 Admin</span>' : '<span class="badge-role-member" style="font-size:9.5px;padding:1px 5px">👤 Member</span>'}
               </div>
               <div style="font-size:11.5px;color:var(--text-sub);margin-top:2px" title="${escapeHtml(u.note)}">${escapeHtml(u.note || 'Không có ghi chú')}</div>
@@ -1265,6 +1528,15 @@ function renderDashboardTable() {
       e.stopPropagation();
       const u = btn.getAttribute('data-user');
       openRenameUserModal(u);
+    });
+  });
+
+  // Gắn sự kiện nút Quản lý mã máy tính (thêm máy thủ công hoặc đổi máy)
+  tbody.querySelectorAll('.btn-manage-mid-icon').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const u = btn.getAttribute('data-user');
+      openManageMachineModal(u);
     });
   });
 
