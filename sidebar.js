@@ -746,11 +746,11 @@ if (!activeLicense) {
 
   // ── 9. [TELEMETRY] Tự động đồng bộ số liệu hoạt động lên Supabase cho Admin Dashboard ──
   let _lastTelemetryReport = 0;
-  async function reportUserActivity() {
+  async function reportUserActivity(force = false) {
     try {
       const now = Date.now();
-      // Giới hạn tần suất: Tối đa 1 lần mỗi 20 giây để không gây nghẽn mạng
-      if (now - _lastTelemetryReport < 20000) return;
+      // Giới hạn tần suất: Tối đa 1 lần mỗi 20 giây để không gây nghẽn mạng (trừ khi có cờ force)
+      if (!force && (now - _lastTelemetryReport < 20000)) return;
       _lastTelemetryReport = now;
 
       const lic = activeLicense || JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
@@ -923,14 +923,37 @@ if (!activeLicense) {
       'rinFbGroup'
     ]);
 
+    // Lắng nghe sự kiện force telemetry từ các trang chức năng
+    if (typeof window !== 'undefined') {
+      window.ntdForceReportActivity = () => reportUserActivity(true);
+      window.addEventListener('ntd_force_telemetry', () => {
+        reportUserActivity(true).catch(() => {});
+        flushPendingCloudSync().catch(() => {});
+      });
+    }
+
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
 
       if (changes.accounts || changes.dailyPostStats || changes.rinFbGroup || changes.rinMaps) {
-        if (_telemetryTimer) clearTimeout(_telemetryTimer);
-        _telemetryTimer = setTimeout(() => {
-          reportUserActivity().catch(() => {});
-        }, 5000);
+        const newAccs = Array.isArray(changes.accounts?.newValue) ? changes.accounts.newValue : null;
+        const oldAccs = Array.isArray(changes.accounts?.oldValue) ? changes.accounts.oldValue : null;
+        // Nếu số lượng tài khoản giảm về 0 hoặc ít hơn trước, gửi telemetry ngay lập tức (không delay)
+        const isAccountReduced = changes.accounts && (
+          (newAccs && newAccs.length === 0) ||
+          (oldAccs && newAccs && newAccs.length < oldAccs.length)
+        );
+
+        if (isAccountReduced) {
+          if (_telemetryTimer) clearTimeout(_telemetryTimer);
+          reportUserActivity(true).catch(() => {});
+          flushPendingCloudSync().catch(() => {});
+        } else {
+          if (_telemetryTimer) clearTimeout(_telemetryTimer);
+          _telemetryTimer = setTimeout(() => {
+            reportUserActivity().catch(() => {});
+          }, 3000);
+        }
       }
 
       if (_applyingRemoteSupabaseSync) return;
@@ -945,7 +968,7 @@ if (!activeLicense) {
         if (_cloudPushTimer) clearTimeout(_cloudPushTimer);
         _cloudPushTimer = setTimeout(() => {
           flushPendingCloudSync().catch(() => {});
-        }, 3500);
+        }, 2500);
       }
     });
   }

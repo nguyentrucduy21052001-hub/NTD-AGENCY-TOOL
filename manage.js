@@ -18,10 +18,11 @@ import {
   supabaseResetMachine,
   supabaseDeleteUser,
   supabaseRenameUser,
+  supabaseResetUserAccountCounts,
   pushLocalChangesToSupabase,
   hydrateLocalFromSupabase,
   SUPABASE_SETUP_SQL
-} from './supabase.js?v=20261112_1000';
+} from './supabase.js?v=20261114_1700';
 
 const $ = id => document.getElementById(id);
 const DEFAULT_PASS = 'DuyAdmin@2025';
@@ -604,6 +605,124 @@ function openRenameUserModal(oldUsername) {
   }, 50);
 }
 
+// ── Hộp thoại Đặt lại / Sửa số nick FB & Fanpage ─────────────────────────────
+function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
+  let overlay = document.getElementById('editStatsModalOverlay');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'editStatsModalOverlay';
+  overlay.className = 'rename-modal-overlay';
+  overlay.innerHTML = `
+    <div class="rename-modal-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--card-border, #334155)">
+        <div style="font-weight:700;font-size:16px;color:var(--text-main,#f8fafc);display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">🔄</span>
+          <span>Đặt lại &amp; Điều chỉnh số lượng nick FB</span>
+        </div>
+        <button type="button" class="edit-stats-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-sub,#94a3b8);line-height:1;padding:4px" title="Đóng">✕</button>
+      </div>
+      <div style="padding:20px">
+        <div style="font-size:12.5px;color:var(--text-sub,#94a3b8);margin-bottom:16px;background:rgba(255,255,255,0.03);padding:12px 14px;border-radius:10px;border:1px solid var(--card-border,#334155);line-height:1.6">
+          <div><b>Tài khoản:</b> <span style="color:#60a5fa;font-weight:700;font-size:13.5px">${escapeHtml(username)}</span></div>
+          <div style="margin-top:4px"><b>Hiện tại trong hệ thống:</b> <span style="color:#38bdf8">${fbCount} nick Facebook</span> · <span style="color:#c084fc">${fanpageCount} Fanpage</span></div>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <button type="button" id="btnQuickResetZero" class="btn-secondary" style="width:100%;padding:10px 14px;background:rgba(239,68,68,0.12);color:#f87171;border:1.5px dashed rgba(239,68,68,0.4);font-weight:700;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+            <span>🔄</span> <b>1-Chạm: Đặt về 0 nick &amp; 0 page (Đã đăng xuất hết)</b>
+          </button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
+              Nick FB cá nhân:
+            </label>
+            <input type="number" id="editFbCountInput" min="0" value="${fbCount}" style="width:100%;box-sizing:border-box;padding:10px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
+              Fanpage vệ tinh:
+            </label>
+            <input type="number" id="editPageCountInput" min="0" value="${fanpageCount}" style="width:100%;box-sizing:border-box;padding:10px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
+          </div>
+        </div>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-sub,#94a3b8);cursor:pointer;user-select:none">
+          <input type="checkbox" id="editClearWsCheckbox" checked style="accent-color:#ea580c;width:15px;height:15px">
+          <span>Đồng thời dọn sạch danh sách nick cũ trên bộ nhớ đám mây (ntd_workspaces)</span>
+        </label>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--card-border,#334155);background:rgba(0,0,0,0.15)">
+        <button type="button" class="btn-secondary edit-stats-modal-cancel" style="padding:8px 16px;font-size:13px;font-weight:600">Hủy (Esc)</button>
+        <button type="button" class="btn-primary edit-stats-modal-save" style="padding:8px 22px;font-size:13px;font-weight:700">💾 Lưu số lượng (Enter)</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const fbInput = overlay.querySelector('#editFbCountInput');
+  const pageInput = overlay.querySelector('#editPageCountInput');
+  const clearWsCb = overlay.querySelector('#editClearWsCheckbox');
+  const quickZeroBtn = overlay.querySelector('#btnQuickResetZero');
+  const closeBtn = overlay.querySelector('.edit-stats-modal-close');
+  const cancelBtn = overlay.querySelector('.edit-stats-modal-cancel');
+  const saveBtn = overlay.querySelector('.edit-stats-modal-save');
+
+  quickZeroBtn.onclick = () => {
+    fbInput.value = '0';
+    pageInput.value = '0';
+    clearWsCb.checked = true;
+  };
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', handleKey);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter') doSave();
+  };
+  document.addEventListener('keydown', handleKey);
+
+  closeBtn.onclick = close;
+  cancelBtn.onclick = close;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+
+  const doSave = async () => {
+    const newFb = Math.max(0, parseInt(fbInput.value, 10) || 0);
+    const newPage = Math.max(0, parseInt(pageInput.value, 10) || 0);
+    const clearWs = clearWsCb.checked;
+
+    try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ Đang lưu...';
+
+      if (await isSupabaseConfigured()) {
+        await supabaseResetUserAccountCounts(username, newFb, newPage, clearWs);
+      } else {
+        alert('Cơ sở dữ liệu Supabase chưa được cấu hình.');
+        return;
+      }
+
+      close();
+      alert(`✅ Đã cập nhật số lượng nick cho "${username}": ${newFb} nick FB cá nhân, ${newPage} Fanpage.`);
+      loadUserList();
+    } catch (err) {
+      alert('Lỗi cập nhật số lượng: ' + err.message);
+      saveBtn.disabled = false;
+      saveBtn.textContent = '💾 Lưu số lượng (Enter)';
+    }
+  };
+
+  saveBtn.onclick = doSave;
+}
+
 function renderUserTable() {
   const container = $('userListContainer');
   if (!container) return;
@@ -723,6 +842,7 @@ function renderUserTable() {
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
             <button type="button" class="action-btn-sm btn-rename-user" data-user="${escapeHtml(u.username)}" style="background:#059669;color:#fff" title="Đổi tên tài khoản đăng nhập (Username) theo yêu cầu khách hàng">✏️ Đổi tên</button>
+            <button type="button" class="action-btn-sm btn-edit-stats" data-user="${escapeHtml(u.username)}" data-fb="${Number(u.fbCount)||0}" data-page="${Number(u.fanpageCount)||0}" style="background:#475569;color:#e2e8f0" title="Đặt lại hoặc sửa số lượng Nick FB / Fanpage">🔄 Số nick</button>
             ${roleToggleBtn}
             ${lockBtn}
             <button type="button" class="action-btn-sm btn-renew-user" data-user="${escapeHtml(u.username)}" style="background:#2563eb;color:#fff" title="Gia hạn thêm 30 ngày">+30N</button>
@@ -749,6 +869,17 @@ function attachTableEventListeners(container) {
       e.stopPropagation();
       const u = btn.getAttribute('data-user');
       openRenameUserModal(u);
+    });
+  });
+
+  // 0B. Đặt lại / Sửa số nick FB & Fanpage
+  container.querySelectorAll('.btn-edit-stats').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const u = btn.getAttribute('data-user');
+      const fb = Number(btn.getAttribute('data-fb')) || 0;
+      const page = Number(btn.getAttribute('data-page')) || 0;
+      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page });
     });
   });
 
@@ -1041,8 +1172,18 @@ function renderDashboardTable() {
             </div>
           </div>
         </td>
-        <td style="text-align:center">${fbBadge}</td>
-        <td style="text-align:center">${fpBadge}</td>
+        <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
+            ${fbBadge}
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
+            ${fpBadge}
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
         <td style="text-align:center">${postBadge}</td>
         <td style="text-align:center">${groupBadge}</td>
         <td style="text-align:center">${mapsBadge}</td>
@@ -1069,6 +1210,17 @@ function renderDashboardTable() {
       e.stopPropagation();
       const u = btn.getAttribute('data-user');
       openRenameUserModal(u);
+    });
+  });
+
+  // Gắn sự kiện nút Sửa / Đặt lại số lượng nick FB & Fanpage
+  tbody.querySelectorAll('.btn-edit-stats-quick').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const u = btn.getAttribute('data-user');
+      const fb = Number(btn.getAttribute('data-fb')) || 0;
+      const page = Number(btn.getAttribute('data-page')) || 0;
+      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page });
     });
   });
 

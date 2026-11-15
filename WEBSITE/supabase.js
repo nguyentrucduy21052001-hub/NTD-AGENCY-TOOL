@@ -329,14 +329,13 @@ export async function supabaseUpdateUserStats(username, stats = {}) {
   if (!u) return { ok: false };
 
   try {
-    const payload = {
-      fb_count: Number(stats.fb_count) || 0,
-      fanpage_count: Number(stats.fanpage_count) || 0,
-      today_posts: Number(stats.today_posts) || 0,
-      today_group_scans: Number(stats.today_group_scans) || 0,
-      today_maps_scans: Number(stats.today_maps_scans) || 0,
-      last_login: new Date().toISOString()
-    };
+    const payload = {};
+    if (stats.fb_count !== undefined) payload.fb_count = Math.max(0, Number(stats.fb_count) || 0);
+    if (stats.fanpage_count !== undefined) payload.fanpage_count = Math.max(0, Number(stats.fanpage_count) || 0);
+    if (stats.today_posts !== undefined) payload.today_posts = Math.max(0, Number(stats.today_posts) || 0);
+    if (stats.today_group_scans !== undefined) payload.today_group_scans = Math.max(0, Number(stats.today_group_scans) || 0);
+    if (stats.today_maps_scans !== undefined) payload.today_maps_scans = Math.max(0, Number(stats.today_maps_scans) || 0);
+    if (!stats.skipLastLogin) payload.last_login = new Date().toISOString();
 
     await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
       method: 'PATCH',
@@ -348,6 +347,39 @@ export async function supabaseUpdateUserStats(username, stats = {}) {
     console.warn('Không thể gửi telemetry Supabase:', err.message);
     return { ok: false, error: err.message };
   }
+}
+
+/**
+ * [ADMIN] Đặt lại hoặc chỉnh sửa số lượng nick FB & Fanpage của người dùng
+ * Hỗ trợ đồng bộ dọn sạch ntd_workspaces khi đưa số lượng về 0
+ */
+export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanpageCount = 0, clearWorkspace = false) {
+  const u = (username || '').trim().toLowerCase();
+  if (!u) throw new Error('Tài khoản không hợp lệ.');
+  
+  const payload = {
+    fb_count: Math.max(0, Number(fbCount) || 0),
+    fanpage_count: Math.max(0, Number(fanpageCount) || 0)
+  };
+
+  await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+
+  if (clearWorkspace && payload.fb_count === 0 && payload.fanpage_count === 0) {
+    // Dọn dẹp cả bản sao workspace trên đám mây để không bị kéo về lại
+    await supabaseRequest(`ntd_workspaces?owner_username=eq.${encodeURIComponent(u)}&data_key=eq.accounts`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        payload: [],
+        item_count: 0,
+        updated_at: new Date().toISOString()
+      })
+    }).catch(() => {});
+  }
+
+  return { ok: true, fb_count: payload.fb_count, fanpage_count: payload.fanpage_count };
 }
 
 /**
@@ -1077,6 +1109,20 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null) {
       const r = await supabaseUpsertWorkspaceKeys(u, wsMap);
       if (r.needTables) needTables = true;
       totalRecords += r.count || 0;
+
+      // Đồng bộ ngay lập tức fb_count và fanpage_count sang bảng ntd_users
+      if (wsMap.accounts !== undefined && Array.isArray(wsMap.accounts)) {
+        const fbCount = wsMap.accounts.filter(a => a?.type !== 'fanpage').length;
+        const fanpageCount = wsMap.accounts.filter(a => a?.type === 'fanpage').length;
+        await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            fb_count: fbCount,
+            fanpage_count: fanpageCount,
+            last_login: new Date().toISOString()
+          })
+        }).catch(() => {});
+      }
     }
   }
 
@@ -1202,9 +1248,19 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   // 1. Tài khoản Facebook / Fanpage
   const remoteAccs = wsMap.get('accounts');
   if (Array.isArray(remoteAccs) && remoteAccs.length > 0) {
-    const localAccs = Array.isArray(local.accounts) ? local.accounts : [];
-    const merged = mergeByKey(localAccs, remoteAccs, a => a?.uid || a?.id || a?.email || a?.cookie, force);
-    if (merged.length > localAccs.length || force) toSet.accounts = merged;
+    const hasLocalAccountsState = local.accounts !== undefined;
+    if (!hasLocalAccountsState || force) {
+      // Máy cài mới tinh (chưa từng có key accounts) hoặc Admin/User chủ động bấm "Đồng bộ từ Supabase"
+      toSet.accounts = remoteAccs;
+    } else if (Array.isArray(local.accounts) && local.accounts.length > 0) {
+      // Máy đã có tài khoản: Chỉ bổ sung nếu có tài khoản mới từ máy khác khi force = true
+      // Tuyệt đối không tự ý hồi sinh các tài khoản đã bị người dùng xóa ở máy này
+      if (force) {
+        const merged = mergeByKey(local.accounts, remoteAccs, a => a?.uid || a?.id || a?.email || a?.cookie, true);
+        if (merged.length !== local.accounts.length) toSet.accounts = merged;
+      }
+    }
+    // Nếu local.accounts là mảng rỗng [] (người dùng đã chủ động xóa/đăng xuất hết), KHÔNG kéo từ remote về!
   }
 
   // 2. Danh mục nhóm

@@ -1301,13 +1301,83 @@ async function render() {
       const accs = await loadAccounts();
       const acc = accs.find(a => a.id === id);
       if (!acc || !confirm(`Xóa tài khoản "${acc.name}"?`)) return;
-      await saveAccounts(accs.filter(a => a.id !== id));
+      const remaining = accs.filter(a => a.id !== id);
+      await saveAccounts(remaining);
       const { campaigns } = await chrome.storage.local.get('campaigns');
       if (campaigns?.[id]) { delete campaigns[id]; await chrome.storage.local.set({ campaigns }); }
       msg('Đã xóa tài khoản.');
       render();
+      syncAccountsToCloudImmediately(remaining);
     };
   });
+}
+
+// ── Đồng bộ danh sách tài khoản ngay lập tức lên Supabase khi thêm/xóa ───────
+async function syncAccountsToCloudImmediately(remainingAccs) {
+  try {
+    let username = '';
+    try {
+      const { checkCurrentLicense } = await import('./license.js');
+      const lic = await checkCurrentLicense(false);
+      username = (lic?.username || '').trim().toLowerCase();
+    } catch (_) {}
+    if (!username) {
+      try {
+        const lic = JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
+        username = (lic?.username || '').trim().toLowerCase();
+      } catch (_) {}
+    }
+    if (!username) return;
+
+    const sb = await import('./supabase.js?v=20261114_1700');
+    if (typeof sb.pushLocalChangesToSupabase === 'function') {
+      await sb.pushLocalChangesToSupabase(username, ['accounts']);
+    }
+
+    const all = Array.isArray(remainingAccs) ? remainingAccs : [];
+    const fbCount = all.filter(a => a.type !== 'fanpage').length;
+    const fanpageCount = all.filter(a => a.type === 'fanpage').length;
+
+    if (typeof sb.supabaseUpdateUserStats === 'function') {
+      await sb.supabaseUpdateUserStats(username, {
+        fb_count: fbCount,
+        fanpage_count: fanpageCount
+      });
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ntd_force_telemetry'));
+      if (typeof window.ntdForceReportActivity === 'function') {
+        window.ntdForceReportActivity();
+      }
+    }
+  } catch (err) {
+    console.warn('Sync accounts to cloud immediately error:', err);
+  }
+}
+
+// ── Xóa tất cả tài khoản Facebook cá nhân (Đưa số lượng về 0 trên hệ thống) ────
+const clearAllAccountsBtn = $('clearAllAccountsBtn');
+if (clearAllAccountsBtn) {
+  clearAllAccountsBtn.onclick = async () => {
+    const accs = await loadAccounts();
+    const personal = accs.filter(a => a.type !== 'fanpage');
+    if (personal.length === 0) {
+      msg('Hiện tại chưa có tài khoản Facebook cá nhân nào để xóa.');
+      return;
+    }
+    if (!confirm(`⚠️ CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ ${personal.length} tài khoản Facebook cá nhân khỏi máy này?\n\nSố lượng tài khoản trên hệ thống Supabase sẽ được đồng bộ ngay lập tức về 0.`)) {
+      return;
+    }
+    const remaining = accs.filter(a => a.type === 'fanpage');
+    await saveAccounts(remaining);
+    const { campaigns = {} } = await chrome.storage.local.get('campaigns');
+    personal.forEach(p => { if (campaigns[p.id]) delete campaigns[p.id]; });
+    await chrome.storage.local.set({ campaigns });
+    msg('✅ Đã xóa toàn bộ nick Facebook cá nhân! Hệ thống đã cập nhật số lượng về 0.', 'ok');
+    render();
+    await syncAccountsToCloudImmediately(remaining);
+  };
 }
 
 // Gắn sự kiện kiểm tra Proxy cho các form thêm tài khoản
