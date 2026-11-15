@@ -259,6 +259,93 @@ function setStep(stepId, status) {
   el.className = { done: 'step-done', active: 'step-active', wait: 'step-wait' }[status];
 }
 
+// ── Helper: Lấy session & cookies Facebook hiện tại trên Chrome ──────────────
+async function getCurrentFacebookSession() {
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  let extCookieStr = '';
+  let extCUser = '';
+
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      const extResp = await window.chrome.runtime.sendToExtension({ type: 'GET_FACEBOOK_COOKIES' });
+      if (extResp?.ok && (extResp.cookieStr || extResp.cUser)) {
+        extCookieStr = extResp.cookieStr || '';
+        extCUser = extResp.cUser || '';
+      }
+    } catch (_) {}
+  }
+
+  let allCookies = [];
+  if (!extCookieStr && typeof chrome !== 'undefined' && chrome.cookies?.getAll) {
+    try {
+      allCookies = (await chrome.cookies.getAll({})).filter(c =>
+        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+      );
+    } catch (_) {}
+  }
+
+  const cookieMap = new Map();
+  for (const ck of allCookies) {
+    if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+      cookieMap.set(ck.name, ck);
+    }
+  }
+
+  const cUser = extCUser || cookieMap.get('c_user')?.value || '';
+  const cookieStr = extCookieStr || [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+
+  return {
+    cUser,
+    cookieStr,
+    hasSession: Boolean(cUser && cookieStr)
+  };
+}
+
+// ── Helper: Lưu hoặc cập nhật tài khoản vào cơ sở dữ liệu ───────────────────
+async function saveOrUpdateAccountRecord({ name, email, pass, twoFactor, proxy, cookies, token, cUser, groups }) {
+  const accounts = await loadAccounts();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const existingIdx = accounts.findIndex(a =>
+    (cleanEmail && a.email && a.email.trim().toLowerCase() === cleanEmail) ||
+    (cUser && a.fbId && a.fbId === cUser)
+  );
+  const isExisting = existingIdx >= 0;
+
+  if (isExisting) {
+    accounts[existingIdx].name = name || accounts[existingIdx].name;
+    if (pass) accounts[existingIdx].password = pass;
+    if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
+    if (proxy !== null && proxy !== undefined) accounts[existingIdx].proxy = proxy;
+    if (cookies) accounts[existingIdx].cookies = cookies;
+    if (token) accounts[existingIdx].token = token;
+    if (cUser) accounts[existingIdx].fbId = cUser;
+    accounts[existingIdx].status = 'active';
+    accounts[existingIdx].errorMsg = null;
+    accounts[existingIdx].lastCookieSync = Date.now();
+    if (groups) accounts[existingIdx].groups = groups;
+    await saveAccounts(accounts);
+    return { isExisting: true, account: accounts[existingIdx] };
+  } else {
+    const newAcc = {
+      id: crypto.randomUUID(),
+      name: name || (cUser ? `FB Nick (${cUser})` : 'Tài khoản FB'),
+      email: email || '',
+      password: pass || '',
+      twoFactor: twoFactor || null,
+      proxy: proxy || null,
+      cookies: cookies || '',
+      token: token || null,
+      groups: groups || '',
+      addedVia: twoFactor ? 'via' : 'password',
+      fbId: cUser || '',
+      lastCookieSync: Date.now()
+    };
+    accounts.push(newAcc);
+    await saveAccounts(accounts);
+    return { isExisting: false, account: newAcc };
+  }
+}
+
 // ── Add account via PASSWORD ──────────────────────────────────────────────────
 $('loginBtn').onclick = async () => {
   const name   = $('accName').value.trim();
@@ -276,12 +363,6 @@ $('loginBtn').onclick = async () => {
     try { validateGroups(groups); } catch(e) { msg(e.message, 'err'); return; }
   }
 
-  // Kiểm tra tài khoản đã tồn tại chưa để thêm mới hoặc cập nhật
-  const accounts = await loadAccounts();
-  const cleanEmail = email.trim().toLowerCase();
-  const existingIdx = accounts.findIndex(a => a.email && a.email.trim().toLowerCase() === cleanEmail);
-  const isExisting = existingIdx >= 0;
-
   // Show progress
   $('loginProgress').classList.add('show');
   $('loginBtn').disabled = true;
@@ -289,123 +370,50 @@ $('loginBtn').onclick = async () => {
   ['step1','step2','step3','step4','step5'].forEach(s => setStep(s, 'wait'));
   const el2fa = $('step_2fa');
   if (el2fa) { el2fa.style.display = 'none'; el2fa.className = 'step-wait'; }
+  $('progressTitle').textContent = '🔄 Đang đăng nhập...';
 
   setStep('step1', 'active');
 
-  try {
-    let result = null;
-    try {
-      result = await sendExtensionCommand({
-        type: 'DO_LOGIN',
-        email,
-        password: pass,
-        twoFactor,
-        proxy: normalizedProxy,
-        keepSession: true,
-        openFacebookTab: true
-      });
-    } catch (_) {}
+  let isDone = false;
+  let pollInterval = null;
 
-    if (result && result.ok && result.cookies) {
-      ['step1','step2','step3','step4'].forEach(s => setStep(s, 'done'));
-      if (el2fa && el2fa.style.display !== 'none') el2fa.className = 'step-done';
-      setStep('step5', 'active');
-
-      if (isExisting) {
-        // Cập nhật lại tài khoản đã có với thông tin đăng nhập và proxy mới
-        accounts[existingIdx].name = name || accounts[existingIdx].name;
-        accounts[existingIdx].password = pass;
-        if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
-        if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
-        accounts[existingIdx].cookies = result.cookies;
-        if (result.token) accounts[existingIdx].token = result.token;
-        if (result.cUser) accounts[existingIdx].fbId = result.cUser;
-        accounts[existingIdx].status = 'active';
-        accounts[existingIdx].errorMsg = null;
-        accounts[existingIdx].lastCookieSync = Date.now();
-        if (groups) accounts[existingIdx].groups = groups;
-        await saveAccounts(accounts);
-
-        setStep('step5', 'done');
-        $('progressTitle').textContent = '✅ Đăng nhập & cập nhật tài khoản thành công!';
-        msg(`🔄 Đã cập nhật tài khoản "${name}" với Mật khẩu, Cookies và Proxy mới!`, 'ok');
-      } else {
-        accounts.push({
-          id: crypto.randomUUID(),
-          name,
-          email,
-          password: pass,
-          twoFactor: twoFactor || null,
-          proxy: normalizedProxy,
-          cookies: result.cookies,
-          token: result.token || null,
-          groups,
-          addedVia: twoFactor ? 'via' : 'password',
-          fbId: result.cUser || '',
-          lastCookieSync: Date.now()
-        });
-        await saveAccounts(accounts);
-
-        setStep('step5', 'done');
-        $('progressTitle').textContent = '✅ Đăng nhập & thêm tài khoản thành công!';
-        msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${result.cUser})!`);
-      }
-    } else {
-      // Fallback thông minh: Dù Extension phiên bản nào, Web vẫn hoạt động 100% không bắt người dùng reload Extension!
-      // Vẫn lưu tài khoản với Email/UID & Mật khẩu để bạn không cần nhập lại
-      if (isExisting) {
-        accounts[existingIdx].name = name || accounts[existingIdx].name;
-        accounts[existingIdx].password = pass;
-        if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
-        if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
-        if (groups) accounts[existingIdx].groups = groups;
-        await saveAccounts(accounts);
-
-        // Xóa phiên cũ và mở tab đăng nhập Facebook mới
-        if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
-          window.chrome.runtime.sendToExtension({ type: 'CLEAR_FACEBOOK_SESSION', openLoginTab: true }).catch(() => {});
-        } else {
-          window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
-        }
-
-        setStep('step1', 'done');
-        setStep('step2', 'done');
-        setStep('step5', 'done');
-        $('progressTitle').textContent = '✅ Đã cập nhật thông tin tài khoản!';
-        msg(`🔄 Đã cập nhật thông tin & Proxy cho "${name}"! Đã mở tab Facebook để bạn đăng nhập nick này.`, 'ok');
-      } else {
-        const newAccId = crypto.randomUUID();
-        const detectedFbId = email.match(/^\d+$/) ? email : '';
-        accounts.push({
-          id: newAccId,
-          name,
-          email,
-          password: pass,
-          twoFactor: twoFactor || null,
-          proxy: normalizedProxy,
-          cookies: '',
-          token: null,
-          groups,
-          addedVia: twoFactor ? 'via' : 'password',
-          fbId: detectedFbId,
-          lastCookieSync: Date.now()
-        });
-        await saveAccounts(accounts);
-
-        // Xóa phiên cũ và mở tab đăng nhập Facebook mới
-        if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
-          window.chrome.runtime.sendToExtension({ type: 'CLEAR_FACEBOOK_SESSION', openLoginTab: true }).catch(() => {});
-        } else {
-          window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
-        }
-
-        setStep('step1', 'done');
-        setStep('step2', 'done');
-        setStep('step5', 'done');
-        $('progressTitle').textContent = '✅ Đã lưu tài khoản!';
-        msg(`✅ Đã lưu tài khoản "${name}"! Đã mở tab Facebook để bạn đăng nhập nick này. Sau khi đăng nhập, hệ thống sẽ tự động cập nhật cookie!`, 'ok');
-      }
+  const cleanupProgress = () => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
     }
+    $('loginBtn').disabled = false;
+  };
+
+  const finishLoginSuccessfully = async (cookies, cUser, token = null) => {
+    if (isDone) return;
+    isDone = true;
+    cleanupProgress();
+
+    ['step1','step2','step3','step4'].forEach(s => setStep(s, 'done'));
+    if (el2fa && el2fa.style.display !== 'none') el2fa.className = 'step-done';
+    setStep('step5', 'active');
+
+    const saveRes = await saveOrUpdateAccountRecord({
+      name,
+      email,
+      pass,
+      twoFactor,
+      proxy: normalizedProxy,
+      cookies,
+      token,
+      cUser,
+      groups
+    });
+
+    setStep('step5', 'done');
+    $('progressTitle').textContent = saveRes.isExisting
+      ? '✅ Đăng nhập & cập nhật tài khoản thành công!'
+      : '✅ Đăng nhập & thêm tài khoản thành công!';
+
+    msg(saveRes.isExisting
+      ? `🔄 Đã cập nhật tài khoản "${name}" với Mật khẩu, Cookies và Proxy mới!`
+      : `✅ Đã thêm tài khoản "${name}" (FB ID: ${cUser || 'OK'})!`, 'ok');
 
     // Clear form
     $('accName').value = '';
@@ -424,11 +432,132 @@ $('loginBtn').onclick = async () => {
     }, 2500);
 
     render();
+  };
+
+  // Nút 1: Hủy chờ đăng nhập
+  const btnCancel = $('btnCancelLoginProgress');
+  if (btnCancel) {
+    btnCancel.onclick = () => {
+      if (isDone) return;
+      isDone = true;
+      cleanupProgress();
+      $('loginProgress').classList.remove('show');
+      msg('Đã dừng chờ đăng nhập.', 'ok');
+    };
+  }
+
+  // Nút 2: Bấm lấy Cookie ngay lập tức khi tab Facebook đã đăng nhập
+  const btnForce = $('btnForceCaptureCookie');
+  if (btnForce) {
+    btnForce.onclick = async () => {
+      if (isDone) return;
+      btnForce.disabled = true;
+      const prevText = btnForce.textContent;
+      btnForce.textContent = '⏳ Đang quét cookie từ Chrome...';
+      try {
+        const sess = await getCurrentFacebookSession();
+        if (sess.hasSession) {
+          await finishLoginSuccessfully(sess.cookieStr, sess.cUser);
+          return;
+        } else {
+          msg('Chưa tìm thấy phiên Facebook (c_user) trên trình duyệt. Vui lòng kiểm tra tab Facebook đã đăng nhập thành công chưa nhé!', 'err');
+        }
+      } catch (err) {
+        msg('Lỗi quét cookie: ' + err.message, 'err');
+      } finally {
+        btnForce.disabled = false;
+        btnForce.textContent = prevText;
+      }
+    };
+  }
+
+  // Khởi động vòng quét cookie chủ động (mỗi 1.5 giây một lần)
+  // Ngay khi tab Facebook đăng nhập thành công, accounts.js tự động nhận diện và lưu ngay lập tức!
+  pollInterval = setInterval(async () => {
+    if (isDone) return;
+    try {
+      const sess = await getCurrentFacebookSession();
+      if (sess.hasSession) {
+        await finishLoginSuccessfully(sess.cookieStr, sess.cUser);
+      }
+    } catch (_) {}
+  }, 1500);
+
+  try {
+    // Gửi lệnh DO_LOGIN tới Extension Background Worker có bọc timeout 25s
+    const loginCmd = sendExtensionCommand({
+      type: 'DO_LOGIN',
+      email,
+      password: pass,
+      twoFactor,
+      proxy: normalizedProxy,
+      keepSession: true,
+      openFacebookTab: true
+    });
+
+    const timeoutGuard = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 25000));
+    const result = await Promise.race([loginCmd, timeoutGuard]).catch(e => ({ ok: false, error: e?.message }));
+
+    if (result && result.ok && result.cookies) {
+      await finishLoginSuccessfully(result.cookies, result.cUser, result.token);
+      return;
+    }
+
+    // Nếu lệnh DO_LOGIN kết thúc hoặc timeout nhưng chưa xong:
+    if (!isDone) {
+      // Quét session 1 lần nữa
+      const finalSess = await getCurrentFacebookSession();
+      if (finalSess.hasSession) {
+        await finishLoginSuccessfully(finalSess.cookieStr, finalSess.cUser);
+        return;
+      }
+
+      // Vẫn lưu tài khoản để user không mất thông tin
+      const accounts = await loadAccounts();
+      const cleanEmail = email.trim().toLowerCase();
+      const existingIdx = accounts.findIndex(a => a.email && a.email.trim().toLowerCase() === cleanEmail);
+      const isExisting = existingIdx >= 0;
+
+      if (isExisting) {
+        accounts[existingIdx].name = name || accounts[existingIdx].name;
+        accounts[existingIdx].password = pass;
+        if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
+        if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
+        if (groups) accounts[existingIdx].groups = groups;
+        await saveAccounts(accounts);
+      } else {
+        const detectedFbId = email.match(/^\d+$/) ? email : '';
+        accounts.push({
+          id: crypto.randomUUID(),
+          name,
+          email,
+          password: pass,
+          twoFactor: twoFactor || null,
+          proxy: normalizedProxy,
+          cookies: '',
+          token: null,
+          groups,
+          addedVia: twoFactor ? 'via' : 'password',
+          fbId: detectedFbId,
+          lastCookieSync: Date.now()
+        });
+        await saveAccounts(accounts);
+      }
+
+      // Giữ bảng chờ mở để user có thể bấm nút "⚡ Tab Facebook đã đăng nhập? Bấm lấy Cookie ngay"
+      setStep('step1', 'done');
+      setStep('step2', 'done');
+      $('progressTitle').textContent = '⚠️ Hãy đăng nhập trên tab Facebook vừa mở...';
+      msg('⚠️ Tab Facebook đã mở. Khi bạn đã vào được trang Facebook, hãy bấm nút xanh: [⚡ Tab Facebook đã đăng nhập? Bấm lấy Cookie ngay] phía trên!', 'err');
+      render();
+    }
   } catch (e) {
-    $('loginProgress').classList.remove('show');
-    msg('❌ ' + e.message, 'err');
+    if (!isDone) {
+      $('loginProgress').classList.remove('show');
+      msg('❌ ' + e.message, 'err');
+    }
   } finally {
-    $('loginBtn').disabled = false;
+    cleanupProgress();
   }
 };
 

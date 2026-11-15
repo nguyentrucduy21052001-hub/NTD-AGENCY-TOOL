@@ -882,19 +882,25 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
  * Lấy Token EAAG từ business.facebook.com/content_management
  * (Tích hợp từ tiện ích Get Token Cookie)
  */
-export async function fetchTokenEAAG() {
+export async function fetchTokenEAAG(timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch('https://business.facebook.com/content_management', {
       method: 'GET',
-      credentials: 'include'
+      credentials: 'include',
+      signal: controller.signal
     });
+    clearTimeout(timer);
     const text = await res.text();
     const match = text.match(/EAAGNO[a-zA-Z0-9]+/);
     if (match && match[0]) return match[0];
     const matchGeneric = text.match(/EAAG[a-zA-Z0-9]+/);
     if (matchGeneric && matchGeneric[0]) return matchGeneric[0];
   } catch (err) {
-    console.warn('[Token] Lỗi lấy token EAAG:', err);
+    // Timeout hoặc lỗi mạng qua proxy
+  } finally {
+    clearTimeout(timer);
   }
   return null;
 }
@@ -903,11 +909,14 @@ export async function fetchTokenEAAG() {
  * Lấy Token EAAB từ adsmanager.facebook.com/adsmanager/manage/campaigns
  * (Tích hợp từ tiện ích Get Token Cookie)
  */
-export async function fetchTokenEAAB() {
+export async function fetchTokenEAAB(timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch('https://adsmanager.facebook.com/adsmanager/manage/campaigns', {
       method: 'GET',
-      credentials: 'include'
+      credentials: 'include',
+      signal: controller.signal
     });
     const text = await res.text();
     if (text.includes('EAA')) {
@@ -917,13 +926,19 @@ export async function fetchTokenEAAB() {
     const redirectMatch = text.match(/window\.location\.replace\("([^"]+)"\)/);
     if (redirectMatch && redirectMatch[1]) {
       const redirectUrl = decodeURIComponent(redirectMatch[1]);
-      const res2 = await fetch(redirectUrl, { method: 'GET', credentials: 'include' });
+      const res2 = await fetch(redirectUrl, {
+        method: 'GET',
+        credentials: 'include',
+        signal: controller.signal
+      });
       const text2 = await res2.text();
       const match2 = text2.match(/EAAB[a-zA-Z0-9]+/);
       if (match2 && match2[0]) return match2[0];
     }
   } catch (err) {
-    console.warn('[Token] Lỗi lấy token EAAB:', err);
+    // Timeout hoặc lỗi mạng qua proxy
+  } finally {
+    clearTimeout(timer);
   }
   return null;
 }
