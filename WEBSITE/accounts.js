@@ -42,33 +42,41 @@ async function testProxyViaWorker(proxyStr) {
   }
   const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
 
+  let res = null;
   if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
     try {
-      return await window.chrome.runtime.sendToExtension({
+      res = await window.chrome.runtime.sendToExtension({
         type: 'TEST_PROXY',
         proxy: proxyStr.trim()
       });
     } catch (e) {
-      return { ok: false, error: e.message || 'Lỗi kết nối tới Extension' };
+      res = { ok: false, error: e.message || 'Lỗi kết nối tới Extension' };
     }
   }
 
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({
-        type: 'TEST_PROXY',
-        proxy: proxyStr.trim()
-      }, (res) => {
-        if (chrome.runtime.lastError) {
-          resolve({ ok: false, error: chrome.runtime.lastError.message });
-        } else {
-          resolve(res || { ok: false, error: 'Không nhận được phản hồi từ extension' });
-        }
-      });
-    } else {
-      resolve({ ok: false, error: 'Extension API không khả dụng.' });
-    }
-  });
+  if (!res) {
+    res = await new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({
+          type: 'TEST_PROXY',
+          proxy: proxyStr.trim()
+        }, (r) => {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(r || { ok: false, error: 'Không nhận được phản hồi từ extension' });
+          }
+        });
+      } else {
+        resolve({ ok: false, error: 'Extension API không khả dụng.' });
+      }
+    });
+  }
+
+  if (res && res.error && (res.error.includes('Lệnh không hợp lệ') || res.error.includes('Invalid command'))) {
+    res.error = 'Extension NTD Agency trên trình duyệt đang chạy bản cũ trong bộ nhớ. Hãy vào chrome://extensions và bấm nút ↻ Tải lại (Reload) tiện ích để kích hoạt tính năng kiểm tra Proxy!';
+  }
+  return res;
 }
 
 function handleProxyTestUi(btnEl, inputEl, statusEl) {
@@ -268,11 +276,11 @@ $('loginBtn').onclick = async () => {
     try { validateGroups(groups); } catch(e) { msg(e.message, 'err'); return; }
   }
 
-  // Check duplicate email
+  // Kiểm tra tài khoản đã tồn tại chưa để thêm mới hoặc cập nhật
   const accounts = await loadAccounts();
-  if (accounts.some(a => a.email === email)) {
-    msg('Email này đã được thêm rồi.', 'err'); return;
-  }
+  const cleanEmail = email.trim().toLowerCase();
+  const existingIdx = accounts.findIndex(a => a.email && a.email.trim().toLowerCase() === cleanEmail);
+  const isExisting = existingIdx >= 0;
 
   // Show progress
   $('loginProgress').classList.add('show');
@@ -303,58 +311,100 @@ $('loginBtn').onclick = async () => {
       if (el2fa && el2fa.style.display !== 'none') el2fa.className = 'step-done';
       setStep('step5', 'active');
 
-      accounts.push({
-        id: crypto.randomUUID(),
-        name,
-        email,
-        password: pass,
-        twoFactor: twoFactor || null,
-        proxy: normalizedProxy,
-        cookies: result.cookies,
-        token: result.token || null,
-        groups,
-        addedVia: twoFactor ? 'via' : 'password',
-        fbId: result.cUser || '',
-        lastCookieSync: Date.now()
-      });
-      await saveAccounts(accounts);
+      if (isExisting) {
+        // Cập nhật lại tài khoản đã có với thông tin đăng nhập và proxy mới
+        accounts[existingIdx].name = name || accounts[existingIdx].name;
+        accounts[existingIdx].password = pass;
+        if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
+        if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
+        accounts[existingIdx].cookies = result.cookies;
+        if (result.token) accounts[existingIdx].token = result.token;
+        if (result.cUser) accounts[existingIdx].fbId = result.cUser;
+        accounts[existingIdx].status = 'active';
+        accounts[existingIdx].errorMsg = null;
+        accounts[existingIdx].lastCookieSync = Date.now();
+        if (groups) accounts[existingIdx].groups = groups;
+        await saveAccounts(accounts);
 
-      setStep('step5', 'done');
-      $('progressTitle').textContent = '✅ Đăng nhập & thêm tài khoản thành công!';
-      msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${result.cUser})!`);
+        setStep('step5', 'done');
+        $('progressTitle').textContent = '✅ Đăng nhập & cập nhật tài khoản thành công!';
+        msg(`🔄 Đã cập nhật tài khoản "${name}" với Mật khẩu, Cookies và Proxy mới!`, 'ok');
+      } else {
+        accounts.push({
+          id: crypto.randomUUID(),
+          name,
+          email,
+          password: pass,
+          twoFactor: twoFactor || null,
+          proxy: normalizedProxy,
+          cookies: result.cookies,
+          token: result.token || null,
+          groups,
+          addedVia: twoFactor ? 'via' : 'password',
+          fbId: result.cUser || '',
+          lastCookieSync: Date.now()
+        });
+        await saveAccounts(accounts);
+
+        setStep('step5', 'done');
+        $('progressTitle').textContent = '✅ Đăng nhập & thêm tài khoản thành công!';
+        msg(`✅ Đã thêm tài khoản "${name}" (FB ID: ${result.cUser})!`);
+      }
     } else {
       // Fallback thông minh: Dù Extension phiên bản nào, Web vẫn hoạt động 100% không bắt người dùng reload Extension!
       // Vẫn lưu tài khoản với Email/UID & Mật khẩu để bạn không cần nhập lại
-      const newAccId = crypto.randomUUID();
-      const detectedFbId = email.match(/^\d+$/) ? email : '';
-      accounts.push({
-        id: newAccId,
-        name,
-        email,
-        password: pass,
-        twoFactor: twoFactor || null,
-        proxy: normalizedProxy,
-        cookies: '',
-        token: null,
-        groups,
-        addedVia: twoFactor ? 'via' : 'password',
-        fbId: detectedFbId,
-        lastCookieSync: Date.now()
-      });
-      await saveAccounts(accounts);
+      if (isExisting) {
+        accounts[existingIdx].name = name || accounts[existingIdx].name;
+        accounts[existingIdx].password = pass;
+        if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
+        if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
+        if (groups) accounts[existingIdx].groups = groups;
+        await saveAccounts(accounts);
 
-      // Xóa phiên cũ và mở tab đăng nhập Facebook mới
-      if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
-        window.chrome.runtime.sendToExtension({ type: 'CLEAR_FACEBOOK_SESSION', openLoginTab: true }).catch(() => {});
+        // Xóa phiên cũ và mở tab đăng nhập Facebook mới
+        if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+          window.chrome.runtime.sendToExtension({ type: 'CLEAR_FACEBOOK_SESSION', openLoginTab: true }).catch(() => {});
+        } else {
+          window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
+        }
+
+        setStep('step1', 'done');
+        setStep('step2', 'done');
+        setStep('step5', 'done');
+        $('progressTitle').textContent = '✅ Đã cập nhật thông tin tài khoản!';
+        msg(`🔄 Đã cập nhật thông tin & Proxy cho "${name}"! Đã mở tab Facebook để bạn đăng nhập nick này.`, 'ok');
       } else {
-        window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
-      }
+        const newAccId = crypto.randomUUID();
+        const detectedFbId = email.match(/^\d+$/) ? email : '';
+        accounts.push({
+          id: newAccId,
+          name,
+          email,
+          password: pass,
+          twoFactor: twoFactor || null,
+          proxy: normalizedProxy,
+          cookies: '',
+          token: null,
+          groups,
+          addedVia: twoFactor ? 'via' : 'password',
+          fbId: detectedFbId,
+          lastCookieSync: Date.now()
+        });
+        await saveAccounts(accounts);
 
-      setStep('step1', 'done');
-      setStep('step2', 'done');
-      setStep('step5', 'done');
-      $('progressTitle').textContent = '✅ Đã lưu tài khoản!';
-      msg(`✅ Đã lưu tài khoản "${name}"! Đã mở tab Facebook để bạn đăng nhập nick này. Sau khi đăng nhập, hệ thống sẽ tự động cập nhật cookie!`, 'ok');
+        // Xóa phiên cũ và mở tab đăng nhập Facebook mới
+        if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+          window.chrome.runtime.sendToExtension({ type: 'CLEAR_FACEBOOK_SESSION', openLoginTab: true }).catch(() => {});
+        } else {
+          window.open('https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2F', '_blank');
+        }
+
+        setStep('step1', 'done');
+        setStep('step2', 'done');
+        setStep('step5', 'done');
+        $('progressTitle').textContent = '✅ Đã lưu tài khoản!';
+        msg(`✅ Đã lưu tài khoản "${name}"! Đã mở tab Facebook để bạn đăng nhập nick này. Sau khi đăng nhập, hệ thống sẽ tự động cập nhật cookie!`, 'ok');
+      }
     }
 
     // Clear form

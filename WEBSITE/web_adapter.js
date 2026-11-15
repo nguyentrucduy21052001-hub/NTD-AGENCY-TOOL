@@ -379,6 +379,7 @@
       // Nếu là các lệnh đặc quyền cần quyền Chrome Extension (cookies, tabs, background automation)
       // và tiện ích mở rộng NTD Agency đã được cài đặt -> Chuyển tiếp ngay sang Extension Runner!
       const EXT_PRIVILEGED = new Set([
+        'TEST_PROXY',
         'ACTIVATE_ACCOUNT_SESSION',
         'DO_LOGIN',
         'CLEAR_FACEBOOK_SESSION',
@@ -515,10 +516,12 @@
         try {
           const extResp = await window.chrome.runtime.sendToExtension(message);
           const isAuthCmd = message.type === 'DO_LOGIN' || message.type === 'ACTIVATE_ACCOUNT_SESSION';
+          const isProxyCmd = message.type === 'TEST_PROXY';
           const hasExtAnswer = extResp && (
             extResp.ok ||
             extResp.success ||
             isScheduleCmd ||
+            isProxyCmd ||
             (isAuthCmd && !extResp.extensionUnavailable && extResp.error !== 'Extension Runner timeout' && extResp.error !== 'Chưa nạp Tiện ích Extension')
           );
           if (hasExtAnswer) {
