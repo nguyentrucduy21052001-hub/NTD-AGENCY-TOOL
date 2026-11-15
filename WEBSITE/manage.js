@@ -611,7 +611,7 @@ function openRenameUserModal(oldUsername) {
 }
 
 // ── Hộp thoại Đặt lại / Sửa số nick FB & Fanpage ─────────────────────────────
-function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
+function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPosts = 0, todayGroupScans = 0, todayMapsScans = 0 }) {
   let overlay = document.getElementById('editStatsModalOverlay');
   if (overlay) overlay.remove();
 
@@ -619,11 +619,11 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
   overlay.id = 'editStatsModalOverlay';
   overlay.className = 'rename-modal-overlay';
   overlay.innerHTML = `
-    <div class="rename-modal-card">
+    <div class="rename-modal-card" style="max-width:540px">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--card-border, #334155)">
         <div style="font-weight:700;font-size:16px;color:var(--text-main,#f8fafc);display:flex;align-items:center;gap:8px">
           <span style="font-size:18px">🔄</span>
-          <span>Đặt lại &amp; Điều chỉnh số lượng nick FB</span>
+          <span>Đặt lại &amp; Điều chỉnh số liệu tài khoản</span>
         </div>
         <button type="button" class="edit-stats-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-sub,#94a3b8);line-height:1;padding:4px" title="Đóng">✕</button>
       </div>
@@ -631,6 +631,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
         <div style="font-size:12.5px;color:var(--text-sub,#94a3b8);margin-bottom:16px;background:rgba(255,255,255,0.03);padding:12px 14px;border-radius:10px;border:1px solid var(--card-border,#334155);line-height:1.6">
           <div><b>Tài khoản:</b> <span style="color:#60a5fa;font-weight:700;font-size:13.5px">${escapeHtml(username)}</span></div>
           <div style="margin-top:4px"><b>Hiện tại trong hệ thống:</b> <span style="color:#38bdf8">${fbCount} nick Facebook</span> · <span style="color:#c084fc">${fanpageCount} Fanpage</span></div>
+          <div style="margin-top:2px;font-size:12px;color:var(--text-sub)"><b>Số liệu hôm nay:</b> <span style="color:#34d399">${todayPosts} bài</span> · <span style="color:#fbbf24">${todayGroupScans} nhóm</span> · <span style="color:#f97316">${todayMapsScans} maps</span></div>
         </div>
 
         <div style="margin-bottom:16px">
@@ -639,18 +640,39 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
           </button>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <div>
             <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
               Nick FB cá nhân:
             </label>
-            <input type="number" id="editFbCountInput" min="0" value="${fbCount}" style="width:100%;box-sizing:border-box;padding:10px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
+            <input type="number" id="editFbCountInput" min="0" value="${fbCount}" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
           </div>
           <div>
             <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
               Fanpage vệ tinh:
             </label>
-            <input type="number" id="editPageCountInput" min="0" value="${fanpageCount}" style="width:100%;box-sizing:border-box;padding:10px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
+            <input type="number" id="editPageCountInput" min="0" value="${fanpageCount}" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+          <div>
+            <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:#34d399">
+              🚀 Bài hôm nay:
+            </label>
+            <input type="number" id="editPostCountInput" min="0" value="${todayPosts}" style="width:100%;box-sizing:border-box;padding:8px 10px;font-size:13.5px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:#34d399;font-weight:700">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:#fbbf24">
+              👥 Quét nhóm:
+            </label>
+            <input type="number" id="editGroupCountInput" min="0" value="${todayGroupScans}" style="width:100%;box-sizing:border-box;padding:8px 10px;font-size:13.5px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:#fbbf24;font-weight:700">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:#f97316">
+              🗺️ Quét Maps:
+            </label>
+            <input type="number" id="editMapsCountInput" min="0" value="${todayMapsScans}" style="width:100%;box-sizing:border-box;padding:8px 10px;font-size:13.5px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:#f97316;font-weight:700">
           </div>
         </div>
 
@@ -670,6 +692,9 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
 
   const fbInput = overlay.querySelector('#editFbCountInput');
   const pageInput = overlay.querySelector('#editPageCountInput');
+  const postInput = overlay.querySelector('#editPostCountInput');
+  const groupInput = overlay.querySelector('#editGroupCountInput');
+  const mapsInput = overlay.querySelector('#editMapsCountInput');
   const clearWsCb = overlay.querySelector('#editClearWsCheckbox');
   const quickZeroBtn = overlay.querySelector('#btnQuickResetZero');
   const closeBtn = overlay.querySelector('.edit-stats-modal-close');
@@ -702,6 +727,9 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
   const doSave = async () => {
     const newFb = Math.max(0, parseInt(fbInput.value, 10) || 0);
     const newPage = Math.max(0, parseInt(pageInput.value, 10) || 0);
+    const newPosts = Math.max(0, parseInt(postInput.value, 10) || 0);
+    const newGroups = Math.max(0, parseInt(groupInput.value, 10) || 0);
+    const newMaps = Math.max(0, parseInt(mapsInput.value, 10) || 0);
     const clearWs = clearWsCb.checked;
 
     try {
@@ -709,17 +737,21 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0 }) {
       saveBtn.textContent = '⏳ Đang lưu...';
 
       if (await isSupabaseConfigured()) {
-        await supabaseResetUserAccountCounts(username, newFb, newPage, clearWs);
+        await supabaseResetUserAccountCounts(username, newFb, newPage, clearWs, {
+          today_posts: newPosts,
+          today_group_scans: newGroups,
+          today_maps_scans: newMaps
+        });
       } else {
         alert('Cơ sở dữ liệu Supabase chưa được cấu hình.');
         return;
       }
 
       close();
-      alert(`✅ Đã cập nhật số lượng nick cho "${username}": ${newFb} nick FB cá nhân, ${newPage} Fanpage.`);
+      alert(`✅ Đã cập nhật số liệu cho "${username}": ${newFb} nick FB, ${newPage} Fanpage, ${newPosts} bài đăng.`);
       loadUserList();
     } catch (err) {
-      alert('Lỗi cập nhật số lượng: ' + err.message);
+      alert('Lỗi cập nhật số liệu: ' + err.message);
       saveBtn.disabled = false;
       saveBtn.textContent = '💾 Lưu số lượng (Enter)';
     }
@@ -847,7 +879,7 @@ function renderUserTable() {
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
             <button type="button" class="action-btn-sm btn-rename-user" data-user="${escapeHtml(u.username)}" style="background:#059669;color:#fff" title="Đổi tên tài khoản đăng nhập (Username) theo yêu cầu khách hàng">✏️ Đổi tên</button>
-            <button type="button" class="action-btn-sm btn-edit-stats" data-user="${escapeHtml(u.username)}" data-fb="${Number(u.fbCount)||0}" data-page="${Number(u.fanpageCount)||0}" style="background:#475569;color:#e2e8f0" title="Đặt lại hoặc sửa số lượng Nick FB / Fanpage">🔄 Số nick</button>
+            <button type="button" class="action-btn-sm btn-edit-stats" data-user="${escapeHtml(u.username)}" data-fb="${Number(u.fbCount)||0}" data-page="${Number(u.fanpageCount)||0}" data-posts="${Number(u.todayPosts)||0}" data-groups="${Number(u.todayGroupScans)||0}" data-maps="${Number(u.todayMapsScans)||0}" style="background:#475569;color:#e2e8f0" title="Đặt lại hoặc sửa số lượng Nick FB / Fanpage / Số liệu hôm nay">🔄 Số liệu</button>
             ${roleToggleBtn}
             ${lockBtn}
             <button type="button" class="action-btn-sm btn-renew-user" data-user="${escapeHtml(u.username)}" style="background:#2563eb;color:#fff" title="Gia hạn thêm 30 ngày">+30N</button>
@@ -884,7 +916,10 @@ function attachTableEventListeners(container) {
       const u = btn.getAttribute('data-user');
       const fb = Number(btn.getAttribute('data-fb')) || 0;
       const page = Number(btn.getAttribute('data-page')) || 0;
-      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page });
+      const posts = Number(btn.getAttribute('data-posts')) || 0;
+      const groups = Number(btn.getAttribute('data-groups')) || 0;
+      const maps = Number(btn.getAttribute('data-maps')) || 0;
+      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page, todayPosts: posts, todayGroupScans: groups, todayMapsScans: maps });
     });
   });
 
@@ -1180,18 +1215,33 @@ function renderDashboardTable() {
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${fbBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${fpBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
-        <td style="text-align:center">${postBadge}</td>
-        <td style="text-align:center">${groupBadge}</td>
-        <td style="text-align:center">${mapsBadge}</td>
+        <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
+            ${postBadge}
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số bài hôm nay hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
+            ${groupBadge}
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số quét nhóm hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
+            ${mapsBadge}
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số quét maps hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
         <td>
           <div style="font-weight:600">${loginInfo.display}</div>
           <div style="font-size:11px;color:${loginInfo.isToday ? '#34d399' : 'var(--text-sub)'}">${loginInfo.sub}</div>
@@ -1225,7 +1275,10 @@ function renderDashboardTable() {
       const u = btn.getAttribute('data-user');
       const fb = Number(btn.getAttribute('data-fb')) || 0;
       const page = Number(btn.getAttribute('data-page')) || 0;
-      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page });
+      const posts = Number(btn.getAttribute('data-posts')) || 0;
+      const groups = Number(btn.getAttribute('data-groups')) || 0;
+      const maps = Number(btn.getAttribute('data-maps')) || 0;
+      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page, todayPosts: posts, todayGroupScans: groups, todayMapsScans: maps });
     });
   });
 

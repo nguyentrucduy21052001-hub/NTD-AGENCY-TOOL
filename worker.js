@@ -13,6 +13,7 @@ import {
   resolvePicturesIntoPayload,
   pruneUnreferencedScheduledPictures
 } from './post_schedule_helper.js';
+import { supabaseUpdateUserStats } from './supabase.js';
 
 // ── Serial lock per account ─────────────────────────────────────────────────
 const locks = {};
@@ -448,6 +449,127 @@ function calcDelayMs(c) {
   const randomGap = Math.floor(Math.random() * (max - min + 1)) + min;
   return randomGap * 1000;
 }
+
+// ── [TELEMETRY NGẦM] Tự động đồng bộ số liệu hoạt động từ Background Service Worker lên Supabase ──
+let _workerTelemetryTimer = null;
+let _lastWorkerTelemetryReport = 0;
+
+export async function sendWorkerTelemetry(force = false) {
+  try {
+    const now = Date.now();
+    if (!force && (now - _lastWorkerTelemetryReport < 5000)) return;
+    _lastWorkerTelemetryReport = now;
+
+    let lic = null;
+    let accounts = [];
+    let dailyPostStats = {};
+    let dailyScanStats = null;
+    let rinFbGroup = {};
+    let rinMaps = {};
+
+    try {
+      const res = await chrome.storage.local.get([
+        'license',
+        'accounts',
+        'dailyPostStats',
+        'dailyScanStats',
+        'rinFbGroup',
+        'rinMaps'
+      ]);
+      lic = res.license;
+      accounts = Array.isArray(res.accounts) ? res.accounts : [];
+      dailyPostStats = res.dailyPostStats || {};
+      dailyScanStats = res.dailyScanStats || null;
+      rinFbGroup = res.rinFbGroup || {};
+      rinMaps = res.rinMaps || {};
+    } catch (_) {}
+
+    const username = (lic?.username || '').trim().toLowerCase();
+    if (!username) return;
+
+    const fbCount = accounts.filter(a => a.type !== 'fanpage').length;
+    const fanpageCount = accounts.filter(a => a.type === 'fanpage').length;
+    const todayStr = getTodayDateStr();
+
+    let todayPosts = 0;
+    for (const k of Object.keys(dailyPostStats)) {
+      if (dailyPostStats[k] && dailyPostStats[k].date === todayStr) {
+        todayPosts += Number(dailyPostStats[k].count) || 0;
+      }
+    }
+
+    let todayGroupScans = 0;
+    if (dailyScanStats && dailyScanStats.date === todayStr) {
+      todayGroupScans = Number(dailyScanStats.groupScans) || 0;
+    }
+    const groupRows = Array.isArray(rinFbGroup?.rows) ? rinFbGroup.rows : [];
+    if (groupRows.length > 0) {
+      const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+      const todayVi = new Date().toLocaleDateString('vi-VN');
+      const inTable = groupRows.filter(r => {
+        if (r.id && r.id.startsWith('fg_')) {
+          const ts = Number(r.id.split('_')[1]);
+          if (!isNaN(ts) && ts >= startOfDay) return true;
+        }
+        if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
+        if (r.scanned_at) {
+          const t = new Date(r.scanned_at).getTime();
+          if (!isNaN(t) && t >= startOfDay) return true;
+        }
+        return false;
+      }).length;
+      todayGroupScans = Math.max(todayGroupScans, inTable);
+    }
+
+    let todayMapsScans = 0;
+    if (dailyScanStats && dailyScanStats.date === todayStr) {
+      todayMapsScans = Number(dailyScanStats.mapsScans) || 0;
+    }
+    const mapRows = Array.isArray(rinMaps?.rows) ? rinMaps.rows : [];
+    if (mapRows.length > 0) {
+      const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+      const todayVi = new Date().toLocaleDateString('vi-VN');
+      const inTable = mapRows.filter(r => {
+        if (r.id && r.id.startsWith('mp_')) {
+          const ts = Number(r.id.split('_')[1]);
+          if (!isNaN(ts) && ts >= startOfDay) return true;
+        }
+        if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
+        if (r.scanned_at) {
+          const t = new Date(r.scanned_at).getTime();
+          if (!isNaN(t) && t >= startOfDay) return true;
+        }
+        return false;
+      }).length;
+      todayMapsScans = Math.max(todayMapsScans, inTable);
+    }
+
+    await supabaseUpdateUserStats(username, {
+      fb_count: fbCount,
+      fanpage_count: fanpageCount,
+      today_posts: todayPosts,
+      today_group_scans: todayGroupScans,
+      today_maps_scans: todayMapsScans
+    });
+  } catch (err) {
+    console.warn('[Worker Telemetry] Lỗi gửi telemetry ngầm lên Supabase:', err?.message || err);
+  }
+}
+
+export function triggerWorkerTelemetryDebounced(delayMs = 2500) {
+  if (_workerTelemetryTimer) clearTimeout(_workerTelemetryTimer);
+  _workerTelemetryTimer = setTimeout(() => {
+    _workerTelemetryTimer = null;
+    sendWorkerTelemetry(true).catch(() => {});
+  }, delayMs);
+}
+
+// Lắng nghe thay đổi dữ liệu từ bất kỳ tab nào (hoặc tác vụ nền) để đẩy telemetry lên Supabase
+chrome.storage?.onChanged?.addListener((changes, area) => {
+  if (area === 'local' && (changes.accounts || changes.dailyPostStats || changes.dailyScanStats || changes.rinFbGroup || changes.rinMaps || changes.license)) {
+    triggerWorkerTelemetryDebounced(2500);
+  }
+});
 
 // ── Khi cài đặt extension hoặc cập nhật: Tự động mở trang kích hoạt nếu chưa có license ───
 if (chrome.runtime?.onInstalled?.addListener) {
@@ -7341,13 +7463,16 @@ function handleRuntimeMessage(m, sender, reply) {
       let dailyCount = 0;
       if (!isSkipped && !isError) {
         c.postedCount = (c.postedCount || 0) + 1;
+        // Luôn cộng dồn bài đăng thành công vào dailyPostStats bất kể có bật giới hạn hay không
+        dailyCount = await incrementDailyCount(accountId);
         if (c.enableDailyLimit !== false) {
           const limit = c.dailyLimit || 20;
-          dailyCount = await incrementDailyCount(accountId);
           if (dailyCount >= limit) {
             hitDailyLimit = true;
           }
         }
+        // Kích hoạt đồng bộ telemetry ngầm lên Supabase ngay lập tức
+        triggerWorkerTelemetryDebounced(1500);
       }
       await saveCampaigns(campaigns);
 

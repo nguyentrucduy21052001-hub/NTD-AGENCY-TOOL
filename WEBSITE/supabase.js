@@ -441,7 +441,7 @@ export async function supabaseUpdateUserStats(username, stats = {}) {
  * [ADMIN] Đặt lại hoặc chỉnh sửa số lượng nick FB & Fanpage của người dùng
  * Hỗ trợ đồng bộ dọn sạch ntd_workspaces khi đưa số lượng về 0
  */
-export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanpageCount = 0, clearWorkspace = false) {
+export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanpageCount = 0, clearWorkspace = false, extraStats = {}) {
   const u = (username || '').trim().toLowerCase();
   if (!u) throw new Error('Tài khoản không hợp lệ.');
   
@@ -449,6 +449,19 @@ export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanp
     fb_count: Math.max(0, Number(fbCount) || 0),
     fanpage_count: Math.max(0, Number(fanpageCount) || 0)
   };
+
+  if (extraStats.today_posts !== undefined) {
+    payload.today_posts = Math.max(0, Number(extraStats.today_posts) || 0);
+  }
+  if (extraStats.today_group_scans !== undefined) {
+    payload.today_group_scans = Math.max(0, Number(extraStats.today_group_scans) || 0);
+  }
+  if (extraStats.today_maps_scans !== undefined) {
+    payload.today_maps_scans = Math.max(0, Number(extraStats.today_maps_scans) || 0);
+  }
+  if (payload.today_posts > 0 || payload.today_group_scans > 0 || payload.today_maps_scans > 0) {
+    payload.last_login = new Date().toISOString();
+  }
 
   await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
     method: 'PATCH',

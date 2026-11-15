@@ -746,11 +746,24 @@ if (!activeLicense) {
 
   // ── 9. [TELEMETRY] Tự động đồng bộ số liệu hoạt động lên Supabase cho Admin Dashboard ──
   let _lastTelemetryReport = 0;
+  let _pendingTelemetryTimer = null;
   async function reportUserActivity(force = false) {
     try {
       const now = Date.now();
-      // Giới hạn tần suất: Tối đa 1 lần mỗi 20 giây để không gây nghẽn mạng (trừ khi có cờ force)
-      if (!force && (now - _lastTelemetryReport < 20000)) return;
+      // Giới hạn tần suất: Tối đa 1 lần mỗi 10 giây để không gây nghẽn mạng nhưng không bỏ sót số liệu
+      if (!force && (now - _lastTelemetryReport < 10000)) {
+        if (!_pendingTelemetryTimer) {
+          _pendingTelemetryTimer = setTimeout(() => {
+            _pendingTelemetryTimer = null;
+            reportUserActivity(true).catch(() => {});
+          }, 10000 - (now - _lastTelemetryReport));
+        }
+        return;
+      }
+      if (_pendingTelemetryTimer) {
+        clearTimeout(_pendingTelemetryTimer);
+        _pendingTelemetryTimer = null;
+      }
       _lastTelemetryReport = now;
 
       const lic = activeLicense || JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
