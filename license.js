@@ -449,6 +449,9 @@ export async function checkCurrentLicense(forceOnline = false) {
             await chrome.storage.local.remove('license');
             return null;
           }
+          if (sbInfo.username && license.username !== sbInfo.username) {
+            license.username = sbInfo.username;
+          }
           license.role = sbInfo.role;
           license.expiry = sbInfo.expiry;
           license.expiryFormatted = sbInfo.expiryFormatted;
