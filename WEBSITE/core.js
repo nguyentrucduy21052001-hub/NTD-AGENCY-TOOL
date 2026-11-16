@@ -848,7 +848,8 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
                 }
               }).then(r => Boolean(r?.[0]?.result)).catch(() => false);
             }
-            if (!hasLiveCUser || !hasCompleteFacebookCookies(currentCookieObj) || tabShowsLoginForm) {
+            const hasLiveSession = Boolean(hasLiveCUser && currentCookieObj && currentCookieObj.c_user && currentCookieObj.xs);
+            if (!hasLiveSession || tabShowsLoginForm) {
               console.log(`[AutoLogin] Cookies của "${acc.name}" đã hết hạn hoặc bị yêu cầu đăng nhập. Đang tự động đăng nhập lại bằng mật khẩu & 2FA...`);
               chrome.runtime.sendMessage({
                 type: 'DO_LOGIN',
@@ -1387,11 +1388,14 @@ export function shouldAttemptSessionRelogin({ cookieObj, hasCredentials, activeC
     !hasUsableCookies ||
     (expectedCUser && String(activeCUser) !== String(expectedCUser))
   );
+  // CHỈ tự động đăng nhập lại bằng Mật khẩu khi:
+  // 1. forceRelogin = true (khi đăng bài bị Facebook văng phiên thực sự).
+  // 2. HOẶC tài khoản chưa có Cookies dùng được (!hasUsableCookies - tức thiếu c_user hoặc xs).
+  // Tuyệt đối KHÔNG ép relogin khi tài khoản đã có c_user và xs, nhằm bảo vệ phiên khi chạy qua Proxy!
   const needRelogin = Boolean(
     hasCredentials && (
       forceRelogin ||
-      !hasUsableCookies ||
-      (!hasCompleteCookies && needSwitchUser)
+      !hasUsableCookies
     )
   );
   return {

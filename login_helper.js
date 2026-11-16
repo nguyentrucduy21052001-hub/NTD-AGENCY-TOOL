@@ -363,6 +363,26 @@
             loginBtn?.click?.();
           }
         } catch (_) {}
+
+        // Tự động kiểm tra và bấm qua các thông báo "Lưu trình duyệt" / "Tiếp tục" / "Đây là tôi" sau khi submit
+        let postClickChecks = 0;
+        const postClickTimer = setInterval(() => {
+          postClickChecks++;
+          if (postClickChecks > 10) {
+            clearInterval(postClickTimer);
+            return;
+          }
+          dismissModals();
+          const continueBtn = pickPreferredElement(
+            [...document.querySelectorAll('#checkpointSubmitButton, button, [role="button"], input[type="submit"]')].filter(b => {
+              const t = (b.innerText || b.textContent || b.getAttribute('aria-label') || b.value || '').trim();
+              return /^(tiếp tục|continue|lưu trình duyệt|save browser|đây là tôi|this was me|tin cậy|trust|đồng ý|xác nhận|lúc khác|not now)$/i.test(t);
+            })
+          );
+          if (continueBtn) {
+            try { continueBtn.click(); } catch (_) {}
+          }
+        }, 1000);
       }, 60);
 
       return { ok: true, submitted: true };

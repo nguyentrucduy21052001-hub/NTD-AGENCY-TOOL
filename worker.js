@@ -5398,21 +5398,71 @@ async function performFacebookLogin(m) {
       const tabCheck = await chrome.tabs.get(tabId).catch(() => null);
       if (!tabCheck) break;
 
-      const is2FaUrl = Boolean(tabCheck.url && /checkpoint|two_step|two_factor|2fa|approvals|auth_platform/i.test(tabCheck.url));
-      let has2FaDom = false;
-      if (!is2FaUrl && !submitted2FASucceeded && loopTick >= 3 && loopTick % 2 === 1) {
-        const probeState = await inspectTabFacebookAuthState(tabId);
-        has2FaDom = Boolean(probeState.hasTwoFactorInput);
+      // ── BƯỚC 1: Quét Cookie trước tiên (c_user & xs) ────────────────────────
+      allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
+        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
+      );
+
+      cookieMap = new Map();
+      for (const ck of allNewCookies) {
+        if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
+          cookieMap.set(ck.name, ck);
+        }
       }
 
-      if (is2FaUrl || has2FaDom) {
-        if (m.failFastOnChallenge && !m.twoFactor) {
+      cUser = cookieMap.get('c_user');
+      const xsCookie = cookieMap.get('xs');
+      if (cUser && cUser.value && xsCookie && xsCookie.value) {
+        // Phiên đăng nhập thực tế đã thành công mỹ mãn! Đã có c_user và xs!
+        // (Dù URL hiện tại có chứa 'checkpoint' như nhắc "Lưu trình duyệt" hay "Xác nhận thiết bị",
+        // thì cookie phiên đã hoàn toàn hợp lệ, không được hủy bỏ hay báo lỗi 2FA).
+        break;
+      }
+
+      // ── BƯỚC 2: Phân loại URL và DOM (2FA thực sự vs Checkpoint thông thường) ──
+      const isActual2FaUrl = Boolean(tabCheck.url && /two_step|two_factor|2fa|approvals|auth_platform/i.test(tabCheck.url));
+      const isCheckpointUrl = Boolean(tabCheck.url && /checkpoint/i.test(tabCheck.url));
+
+      let has2FaDom = false;
+      let hasCheckpointContinueBtn = false;
+
+      if (loopTick >= 2) {
+        const probeState = await inspectTabFacebookAuthState(tabId);
+        has2FaDom = Boolean(probeState.hasTwoFactorInput);
+        hasCheckpointContinueBtn = Boolean(probeState.hasContinueBtn || probeState.hasSavedProfile);
+      }
+
+      // Nếu là Checkpoint thông thường ("Lưu trình duyệt", "Tiếp tục", "Đây là tôi") mà KHÔNG có ô nhập 2FA:
+      // Tự động bấm nút để vượt qua, KHÔNG coi đây là lỗi 2FA!
+      if (isCheckpointUrl && !has2FaDom && !isActual2FaUrl && loopTick >= 2) {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const btns = [...document.querySelectorAll('button, [role="button"], input[type="submit"]')];
+            const clickTarget = btns.find(b => {
+              const t = (b.innerText || b.textContent || b.getAttribute('aria-label') || b.value || '').trim();
+              return /^(tiếp tục|continue|lưu trình duyệt|save browser|đây là tôi|this was me|tin cậy|trust|đồng ý|xác nhận|lúc khác|not now|bỏ qua|skip)$/i.test(t);
+            });
+            if (clickTarget) {
+              try { clickTarget.click(); } catch (_) {}
+            }
+          }
+        }).catch(() => {});
+      }
+
+      // CHỈ xử lý 2FA khi: Trang THỰC SỰ có ô nhập 2FA (has2FaDom) hoặc URL là trang xác thực 2 lớp thực sự
+      const isReal2Fa = has2FaDom || (isActual2FaUrl && !hasCheckpointContinueBtn);
+
+      if (isReal2Fa) {
+        // Chỉ failFast khi thực sự đòi mã 2FA, đã chờ ít nhất 4 tick để tránh nhầm lẫn, và nick không có 2FA key
+        if (m.failFastOnChallenge && !m.twoFactor && loopTick >= 4) {
           if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
           return {
             ok: false,
             error: 'Tài khoản yêu cầu xác minh 2FA/Checkpoint nhưng chưa có mã 2FA (bỏ qua nhanh khi chạy nền).'
           };
         }
+
         if (!notified2FA) {
           notified2FA = true;
           endWait = Date.now() + 120000;
@@ -5438,28 +5488,6 @@ async function performFacebookLogin(m) {
           }
         } else if (!m.twoFactor) {
           broadcastLoginStep('step_2fa', 'Vui lòng nhập mã 2FA trên tab Facebook...');
-        }
-      }
-
-      allNewCookies = (await chrome.cookies.getAll({})).filter(c =>
-        c.domain && (c.domain.includes('facebook.com') || c.domain.includes('fb.com'))
-      );
-
-      cookieMap = new Map();
-      for (const ck of allNewCookies) {
-        if (!cookieMap.has(ck.name) || ck.domain.startsWith('.')) {
-          cookieMap.set(ck.name, ck);
-        }
-      }
-
-      cUser = cookieMap.get('c_user');
-      const xsCookie = cookieMap.get('xs');
-      if (cUser && cUser.value) {
-        if (!is2FaUrl && !has2FaDom) {
-          break;
-        } else if (xsCookie && xsCookie.value) {
-          // c_user và xs đều đã tồn tại (dù URL đang ở checkpoint lưu trình duyệt, phiên đăng nhập thực tế đã thành công!)
-          break;
         }
       }
 
@@ -6119,8 +6147,8 @@ function handleRuntimeMessage(m, sender, reply) {
           // 1. Nếu có tab Facebook đang mở, tạm chuyển sang about:blank để ngắt các kết nối nền của phiên cũ gây logout tự động
           const existingFbTabs = await parkOpenFacebookTabs();
 
-          // Nếu có yêu cầu mở Facebook và nick chưa đủ cookies chuẩn (hoặc thiếu hoàn toàn) nhưng có Mật khẩu -> tự động đăng nhập luôn không để tab đứng yên
-          if (m.openFacebookTab && hasCredentials && !hasCompleteCookies && acc.type !== 'fanpage') {
+          // Nếu có yêu cầu mở Facebook và nick chưa có bất kỳ cookies nào nhưng có Mật khẩu -> tự động đăng nhập luôn không để tab đứng yên
+          if (m.openFacebookTab && hasCredentials && !hasCookies && acc.type !== 'fanpage') {
             let reuseTabId = null;
             if (m.tabId) {
               const targetedTab = await chrome.tabs.get(m.tabId).catch(() => null);
