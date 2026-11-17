@@ -3607,6 +3607,21 @@ function broadcastWarmupLog(text, icon = 'ℹ️') {
   broadcastWarmupMessage({ type: 'WARMUP_LOG_EVENT', text, icon, time });
 }
 
+function resolveWarmupSpintax(text) {
+  if (!text || typeof text !== 'string') return '';
+  let str = text;
+  const spinRegex = /\{([^{}]+)\}/g;
+  let maxLoops = 25;
+  while (spinRegex.test(str) && maxLoops-- > 0) {
+    str = str.replace(spinRegex, (_, choices) => {
+      const parts = choices.split('|');
+      const pick = parts[Math.floor(Math.random() * parts.length)];
+      return pick !== undefined ? pick : '';
+    });
+  }
+  return str.trim();
+}
+
 async function runWarmupLoop(accountIds, config) {
   if (warmupRunning) return { ok: true, alreadyRunning: true };
   warmupRunning = true;
@@ -3630,6 +3645,11 @@ async function runWarmupLoop(accountIds, config) {
   const enableNotif = config?.notif !== false;
 
   const { warmupConfig: savedWConfig = {} } = await chrome.storage.local.get('warmupConfig');
+  const enablePersonalPost = Boolean(config?.personalPost ?? config?.enablePersonalPost ?? savedWConfig.personalPost);
+  const postContentSource = config?.postContentSource ?? savedWConfig.postContentSource ?? 'random_all';
+  const postCondition = config?.postCondition ?? savedWConfig.postCondition ?? 'days_1';
+  const customPostContent = config?.customPostContent ?? savedWConfig.customPostContent ?? '';
+
   const isBg = config?.backgroundMode ?? savedWConfig.backgroundMode ?? true;
   const shouldAutoClose = config?.autoCloseTab ?? savedWConfig.autoCloseTab ?? true;
 
@@ -3766,13 +3786,57 @@ async function runWarmupLoop(accountIds, config) {
 
         await sleepMs(1200);
 
+        // Chuẩn bị nội dung bài viết cá nhân nếu được kích hoạt
+        let accountPostText = null;
+        if (enablePersonalPost) {
+          try {
+            const { warmupContentSchedules = {} } = await chrome.storage.local.get('warmupContentSchedules');
+            const sched = warmupContentSchedules[acc.id] || {};
+            const lastPostDate = sched.lastPostDate ? new Date(sched.lastPostDate).getTime() : 0;
+            const daysSince = lastPostDate ? Math.floor((Date.now() - lastPostDate) / (1000 * 3600 * 24)) : 999;
+
+            let shouldPost = false;
+            if (postCondition === 'always') shouldPost = true;
+            else if (postCondition === 'days_1' && daysSince >= 1) shouldPost = true;
+            else if (postCondition === 'days_2' && daysSince >= 2) shouldPost = true;
+            else if (postCondition === 'days_3' && daysSince >= 3) shouldPost = true;
+
+            if (shouldPost) {
+              if (postContentSource === 'custom' && customPostContent) {
+                accountPostText = resolveWarmupSpintax(customPostContent);
+              } else {
+                const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+                let pool = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0 ? ntd_shared_content_library : [];
+                if (postContentSource.startsWith('cat_')) {
+                  const catKey = postContentSource.replace('cat_', '');
+                  const filtered = pool.filter(t => t.category === catKey);
+                  if (filtered.length > 0) pool = filtered;
+                }
+                if (pool.length > 0) {
+                  const picked = pool[Math.floor(Math.random() * pool.length)];
+                  accountPostText = resolveWarmupSpintax(picked.content);
+                }
+              }
+              if (accountPostText) {
+                broadcastWarmupLog(`📝 Chuẩn bị đăng bài cá nhân cho nick "${acc.name}": "${accountPostText.slice(0, 50)}..."`, '📝');
+              }
+            } else {
+              broadcastWarmupLog(`Nick "${acc.name}" đã đăng bài gần đây (${daysSince} ngày), bỏ qua đăng cá nhân đợt này.`, 'ℹ️');
+            }
+          } catch (cErr) {
+            console.warn('[Warmup] Lỗi chuẩn bị bài đăng cá nhân:', cErr);
+          }
+        }
+
         const sessionConfig = {
           feedDuration: enableFeed ? feedDuration : 0,
           reelsDuration: enableReels ? reelsDuration : 0,
           enableLike,
           maxLikes,
           enableReels,
-          enableNotif
+          enableNotif,
+          enablePersonalPost: Boolean(accountPostText),
+          personalPostText: accountPostText
         };
 
         // Gửi lệnh khởi động chu trình tương tác và nhận phản hồi đồng bộ tức thì
@@ -3843,6 +3907,9 @@ async function runWarmupLoop(accountIds, config) {
         if (enableNotif) {
           actionsList.push(`<div class="report-action-line">• 🔔 Kiểm tra Thông báo (~15s)</div>`);
         }
+        if (accountPostText) {
+          actionsList.push(`<div class="report-action-line">• 📝 Đăng bài lên Trang cá nhân ("${accountPostText.slice(0, 40)}...")</div>`);
+        }
 
         const actionsHtml = actionsList.length > 0 ? actionsList.join('') : 'Tương tác mô phỏng người thật';
 
@@ -3882,6 +3949,32 @@ async function runWarmupLoop(accountIds, config) {
           if (a) {
             a.lastWarmupAt = Date.now();
             await chrome.storage.local.set({ accounts: curAccs });
+          }
+
+          if (accountPostText) {
+            try {
+              const { warmupContentSchedules = {} } = await chrome.storage.local.get('warmupContentSchedules');
+              warmupContentSchedules[acc.id] = {
+                lastPostDate: new Date().toISOString(),
+                lastPostText: accountPostText
+              };
+              await chrome.storage.local.set({ warmupContentSchedules });
+
+              const { warmupAuditLogs = [] } = await chrome.storage.local.get('warmupAuditLogs');
+              warmupAuditLogs.unshift({
+                id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                accId: acc.id,
+                accName: acc.name,
+                type: 'content',
+                details: `Đăng bài cá nhân (Timeline): "${accountPostText.slice(0, 60)}..."`,
+                status: 'success',
+                statusText: 'Đã đăng',
+                timeStr: new Date().toLocaleString('vi-VN'),
+                timestamp: Date.now()
+              });
+              if (warmupAuditLogs.length > 300) warmupAuditLogs.length = 300;
+              await chrome.storage.local.set({ warmupAuditLogs });
+            } catch (_) {}
           }
         } else {
           broadcastWarmupLog(`Tài khoản "${acc.name}" kết thúc: ${statusText}`, '⚠️');

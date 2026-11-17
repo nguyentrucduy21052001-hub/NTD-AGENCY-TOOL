@@ -1741,6 +1741,364 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
   };
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// KHO NỘI DUNG DÙNG CHUNG (SHARED CLOUD CONTENT LIBRARY) & BỘ GIẢI MÃ SPIN-TAX
+// Hỗ trợ nuôi tài khoản đăng bài lên Trang cá nhân (Timeline), tự động cập nhật từ Cloud
+// ════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bộ giải mã cú pháp Spin-tax {tùy chọn 1|tùy chọn 2|tùy chọn 3}
+ * Hỗ trợ cả Spin-tax lồng nhau, trả về chuỗi văn bản ngẫu nhiên duy nhất cho mỗi bài đăng
+ */
+export function resolveSpintax(text) {
+  if (!text || typeof text !== 'string') return '';
+  let str = text;
+  const spinRegex = /\{([^{}]+)\}/g;
+  let maxLoops = 25;
+  while (spinRegex.test(str) && maxLoops-- > 0) {
+    str = str.replace(spinRegex, (_, choices) => {
+      const parts = choices.split('|');
+      const pick = parts[Math.floor(Math.random() * parts.length)];
+      return pick !== undefined ? pick : '';
+    });
+  }
+  return str.trim();
+}
+
+/**
+ * Kho nội dung mẫu mặc định chất lượng cao (30 mẫu bài viết tiếng Việt đa dạng thể loại)
+ * Tích hợp sẵn Spin-tax phong phú, chống trùng lặp tuyệt đối khi đăng bài cá nhân
+ */
+export const DEFAULT_SHARED_CONTENT_LIBRARY = [
+  // ── 1. Đời sống & Chào ngày mới (doi_song) ──
+  {
+    id: 'tmpl_ds_01',
+    category: 'doi_song',
+    categoryName: '☕ Đời sống & Chào ngày mới',
+    title: 'Chào ngày mới tích cực & Năng lượng cà phê',
+    content: '{Chào buổi sáng|Chúc cả nhà buổi sáng|Hello mọi người|Chào ngày mới}! {Bắt đầu ngày mới với ly cà phê thật thơm|Chúc mọi người một ngày mới tràn đầy năng lượng|Một ngày mới lại bắt đầu với bao dự định mới|Chúc cả nhà một ngày làm việc thật vui vẻ và thuận lợi nhé}! ☕✨',
+    badge: 'Tương tác cao',
+    tags: ['Đời sống', 'Chào buổi sáng'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ds_02',
+    category: 'doi_song',
+    categoryName: '☕ Đời sống & Chào ngày mới',
+    title: 'Cuối tuần thư giãn cùng gia đình',
+    content: '{Cuối tuần rồi|Thứ 7 thảnh thơi|Chủ nhật an lành}, {cả nhà có kế hoạch đi đâu chơi không|mọi người thường làm gì để nạp lại năng lượng|thư giãn thôi nào cả nhà}? {Chúc mọi người có những phút giây thật ấm áp bên gia đình|Tận hưởng những khoảnh khắc bình yên bên người thân yêu nhé}! 🌿',
+    badge: 'Tăng Trust',
+    tags: ['Đời sống', 'Cuối tuần'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ds_03',
+    category: 'doi_song',
+    categoryName: '☕ Đời sống & Chào ngày mới',
+    title: 'Hoàn thành công việc trong ngày',
+    content: '{Một ngày bận rộn nhưng đầy năng lượng|Vừa hoàn thành xong các công việc quan trọng trong ngày|Thời gian trôi nhanh thật, lại sắp hết một ngày}! {Cảm thấy may mắn vì luôn có những người bạn đồng hành tuyệt vời|Cảm ơn những nỗ lực không ngừng nghỉ của chính mình|Nghỉ ngơi và chuẩn bị cho ngày mai thật tốt thôi nào}! 💪',
+    badge: 'Chân thực',
+    tags: ['Đời sống', 'Công việc'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ds_04',
+    category: 'doi_song',
+    categoryName: '☕ Đời sống & Chào ngày mới',
+    title: 'Tận hưởng thời tiết & Giữ gìn sức khỏe',
+    content: '{Thời tiết hôm nay|Trời hôm nay} {mát mẻ thật dễ chịu|đẹp tuyệt vời|trong lành quá}. {Mọi người ra đường nhớ giữ gìn sức khỏe nhé|Chúc cả nhà một ngày ngập tràn niềm vui và may mắn}! 🌤️',
+    badge: 'Thân thiện',
+    tags: ['Đời sống', 'Thời tiết'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ds_05',
+    category: 'doi_song',
+    categoryName: '☕ Đời sống & Chào ngày mới',
+    title: 'Niềm vui giản dị mỗi ngày',
+    content: '{Hạnh phúc đôi khi chỉ là|Niềm vui giản dị mỗi ngày chính là} {được làm công việc mình yêu thích|thấy mọi việc tiến triển tốt đẹp từng ngày|nhận được một lời cảm ơn chân thành từ khách hàng}. {Chúc cả nhà luôn bình an và vui vẻ|Cứ mỉm cười thì may mắn sẽ tự tìm đến}! ❤️',
+    badge: 'Lan tỏa niềm vui',
+    tags: ['Đời sống', 'Tích cực'],
+    updatedAt: 1731800000000
+  },
+
+  // ── 2. Kinh nghiệm & Mẹo thực chiến (kinh_nghiem) ──
+  {
+    id: 'tmpl_kn_01',
+    category: 'kinh_nghiem',
+    categoryName: '💡 Kinh nghiệm & Mẹo thực chiến',
+    title: 'Bài học rút ra sau thời gian làm việc',
+    content: '{Hôm nay chia sẻ với mọi người|Góc chia sẻ kinh nghiệm|Sau nhiều năm làm việc, mình nhận ra|Một bài học thực tế mình rút ra}: {Muốn đi nhanh hãy đi một mình, muốn đi xa hãy đi cùng nhau|Chất lượng phục vụ chính là chìa khóa giữ chân khách hàng tốt nhất|Sự kiên trì quan trọng hơn tài năng rất nhiều|Lắng nghe khách hàng chính là cách marketing hiệu quả nhất}. {Mọi người có đồng quan điểm không|Bạn tâm đắc nhất điều nào}? 🎯',
+    badge: 'Nhiều Comment',
+    tags: ['Kinh nghiệm', 'Làm việc'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_kn_02',
+    category: 'kinh_nghiem',
+    categoryName: '💡 Kinh nghiệm & Mẹo thực chiến',
+    title: '3 thói quen làm việc hiệu quả mỗi ngày',
+    content: '{3 thói quen|3 mẹo nhỏ|3 nguyên tắc} {giúp mình làm việc hiệu quả hơn mỗi ngày|giúp tiết kiệm thời gian và giảm áp lực}: 1. {Lên danh sách việc cần làm từ tối hôm trước|Ghi chú rõ ràng 3 việc quan trọng nhất trong ngày}. 2. {Tập trung giải quyết việc khó nhất vào buổi sáng|Ưu tiên xử lý việc tạo ra giá trị cao trước}. 3. {Dành 15 phút cuối ngày để nhìn lại và cải thiện|Luôn giữ tinh thần tích cực trước mọi thử thách}. {Anh em áp dụng thử xem nhé|Hy vọng sẽ hữu ích với mọi người}! 📝',
+    badge: 'Giá trị cao',
+    tags: ['Kinh nghiệm', 'Kỹ năng'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_kn_03',
+    category: 'kinh_nghiem',
+    categoryName: '💡 Kinh nghiệm & Mẹo thực chiến',
+    title: 'Giá trị cốt lõi của sự chân thành & uy tín',
+    content: '{Làm việc gì cũng vậy|Trong kinh doanh hay công việc hàng ngày}, {sự trung thực và uy tín luôn là giá trị cốt lõi|khách hàng luôn cảm nhận được sự tận tâm của bạn|đừng ngại bắt đầu từ những việc nhỏ nhất}. {Uy tín tạo nên thương hiệu|Chân thành luôn chạm đến trái tim}! 🌟',
+    badge: 'Xây dựng uy tín',
+    tags: ['Kinh nghiệm', 'Uy tín'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_kn_04',
+    category: 'kinh_nghiem',
+    categoryName: '💡 Kinh nghiệm & Mẹo thực chiến',
+    title: 'Sai lầm thường gặp & Cách khắc phục',
+    content: '{Một sai lầm phổ biến mà nhiều người hay gặp phải là|Kinh nghiệm xương máu của mình là}: {quá tập trung vào kết quả mà quên đi trải nghiệm của khách hàng|ngại thay đổi khi xu hướng đã thay đổi|chần chừ không hành động ngay khi có ý tưởng hay}. {Bài học quý giá giúp mình trưởng thành hơn mỗi ngày|Thay đổi nhỏ hôm nay tạo kết quả lớn ngày mai}! 💡',
+    badge: 'Bài học hay',
+    tags: ['Kinh nghiệm', 'Trải nghiệm'],
+    updatedAt: 1731800000000
+  },
+
+  // ── 3. Thảo luận & Tương tác cao (tuong_tac) ──
+  {
+    id: 'tmpl_tt_01',
+    category: 'tuong_tac',
+    categoryName: '💬 Thảo luận & Tương tác cao',
+    title: 'Khảo sát: Làm việc văn phòng hay làm từ xa?',
+    content: '{Khảo sát nhỏ cuối tuần|Hỏi nhanh đáp vui|Cần xin ý kiến của mọi người}: {Nếu được chọn giữa làm việc tại văn phòng và làm việc từ xa (Work from home)|Theo anh em thì thái độ hay trình độ quan trọng hơn trong công việc|Mọi người thích đi du lịch biển hay lên vùng núi cao hơn}? {Mọi người để lại bình luận chia sẻ quan điểm nhé|Cùng thảo luận rôm rả dưới phần comment nào}! 👇',
+    badge: 'Nhiều Comment',
+    tags: ['Tương tác', 'Khảo sát'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_tt_02',
+    category: 'tuong_tac',
+    categoryName: '💬 Thảo luận & Tương tác cao',
+    title: 'Câu hỏi kích thích suy ngẫm',
+    content: '{Một câu hỏi làm mình suy nghĩ cả ngày hôm nay|Hôm nay mình tình cờ nghe được câu hỏi này rất hay}: "{Thành công đối với bạn định nghĩa là gì?|Điều gì tạo động lực lớn nhất giúp bạn thức dậy mỗi sáng?|Nếu quay lại 5 năm trước, bạn sẽ nhắn nhủ bản thân điều gì?}" {Rất muốn lắng nghe chia sẻ từ mọi người|Ai có câu trả lời hay nhất không nào}? 💭',
+    badge: 'Gợi mở',
+    tags: ['Tương tác', 'Thảo luận'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_tt_03',
+    category: 'tuong_tac',
+    categoryName: '💬 Thảo luận & Tương tác cao',
+    title: 'Gợi ý giải trí & Đời sống cuối tuần',
+    content: '{Cuối tuần rồi|Hôm nay rảnh rỗi một chút}, {mọi người thường nghe bài hát nào để thư giãn|có cuốn sách hoặc bộ phim nào hay giới thiệu cho mình với|anh em có quán cà phê nào view đẹp gợi ý cho mình nhé}! {Cảm ơn cả nhà rất nhiều|Chờ gợi ý của mọi người dưới comment}! ☕🎶',
+    badge: 'Gần gũi',
+    tags: ['Tương tác', 'Đời sống'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_tt_04',
+    category: 'tuong_tac',
+    categoryName: '💬 Thảo luận & Tương tác cao',
+    title: 'Góc nhìn: Tích lũy hay đầu tư nâng cấp bản thân?',
+    content: '{Giữa việc tích lũy tài chính an toàn và đầu tư mạo hiểm để bứt phá|Giữa chọn con đường an toàn và thử thách kinh doanh riêng}, {theo bạn ở thời điểm hiện tại nên ưu tiên điều gì hơn|quan điểm của bạn thế nào}? {Cùng chia sẻ góc nhìn nhé|Bình luận quan điểm của bạn bên dưới nha}! 💬',
+    badge: 'Chuyên sâu',
+    tags: ['Tương tác', 'Góc nhìn'],
+    updatedAt: 1731800000000
+  },
+
+  // ── 4. Uy tín & Tri ân đối tác (uy_tin) ──
+  {
+    id: 'tmpl_ut_01',
+    category: 'uy_tin',
+    categoryName: '⭐ Uy tín & Tri ân đối tác',
+    title: 'Tri ân khách hàng & Người đồng hành',
+    content: '{Cảm ơn sự tin tưởng và đồng hành của|Biết ơn sâu sắc tới|Thật hạnh phúc khi nhận được sự ủng hộ nhiệt tình từ} {quý khách hàng và đối tác trong suốt thời gian qua|toàn thể anh chị em bạn bè gần xa}. {Được phục vụ và mang lại giá trị cho mọi người là niềm vinh dự lớn nhất của mình|Sự hài lòng của khách hàng là động lực lớn nhất để nỗ lực mỗi ngày}! 🙏❤️',
+    badge: 'Tạo niềm tin',
+    tags: ['Uy tín', 'Tri ân'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ut_02',
+    category: 'uy_tin',
+    categoryName: '⭐ Uy tín & Tri ân đối tác',
+    title: 'Hoàn thành bàn giao & Chinh phục mục tiêu',
+    content: '{Hoàn thành bàn giao|Vừa xong một dự án mới|Đạt thêm một cột mốc quan trọng}! {Nhìn lại hành trình mới thấy mỗi bước đi đều xứng đáng|Không có áp lực thì không có kim cương|Cảm ơn team và đối tác đã cùng nhau nỗ lực hết mình}. {Sẵn sàng cho những mục tiêu cao hơn tiếp theo|Tiếp tục bứt phá thôi nào}! 🏆',
+    badge: 'Chuyên nghiệp',
+    tags: ['Uy tín', 'Thành tích'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ut_03',
+    category: 'uy_tin',
+    categoryName: '⭐ Uy tín & Tri ân đối tác',
+    title: 'Phản hồi chân thành từ khách yêu',
+    content: '{Khách hàng nhắn tin:|"Hàng dùng rất thích em nhé",|"Dịch vụ bên bạn chu đáo và nhanh nhẹn quá!"} {Những phản hồi chân thành như thế này chính là món quà quý giá nhất|Chỉ cần khách ưng ý là mọi mệt mỏi đều tan biến hết|Luôn đặt chữ TÂM và chữ TÍN lên hàng đầu}! {Cảm ơn cả nhà luôn yêu thương và ủng hộ}! 🥰',
+    badge: 'Đánh giá thật',
+    tags: ['Uy tín', 'Khách hàng'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_ut_04',
+    category: 'uy_tin',
+    categoryName: '⭐ Uy tín & Tri ân đối tác',
+    title: 'Cam kết chất lượng bền vững',
+    content: '{Chặng đường nào trải bước trên hoa hồng cũng có lúc chông gai|Thành quả không đến từ may mắn mà đến từ sự kiên trì và nghiêm túc}. {Luôn cam kết mang lại chất lượng và dịch vụ tốt nhất tới tay khách hàng|Chân thành cảm ơn mọi người đã luôn đồng hành}! 🤝',
+    badge: 'Cam kết',
+    tags: ['Uy tín', 'Chất lượng'],
+    updatedAt: 1731800000000
+  },
+
+  // ── 5. Động lực & Cảm hứng (dong_luc) ──
+  {
+    id: 'tmpl_dl_01',
+    category: 'dong_luc',
+    categoryName: '🚀 Động lực & Cảm hứng',
+    title: 'Bắt đầu từ những gì bạn có',
+    content: '{Đừng chờ đợi cơ hội hoàn hảo, hãy bắt đầu từ những gì bạn có|Mỗi ngày là một cơ hội mới để bạn hoàn thiện chính mình|Tương lai thuộc về những ai tin vào vẻ đẹp của ước mơ}! {Hãy luôn vững tin vào con đường mình đã chọn|Không ngừng nỗ lực, thành quả ngọt ngào sẽ đến}! 🌈✨',
+    badge: 'Truyền cảm hứng',
+    tags: ['Động lực', 'Phát triển'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_dl_02',
+    category: 'dong_luc',
+    categoryName: '🚀 Động lực & Cảm hứng',
+    title: 'Kiên trì vượt qua khó khăn',
+    content: '{Khó khăn hôm nay là bài học cho ngày mai|Thất bại chỉ là một điểm dừng chân để nhìn nhận lại, không phải điểm kết thúc}. {Hãy kiên trì thêm một chút nữa|Người chiến thắng không bao giờ bỏ cuộc, và người bỏ cuộc không bao giờ chiến thắng}! 🔥',
+    badge: 'Năng lượng cao',
+    tags: ['Động lực', 'Ý chí'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_dl_03',
+    category: 'dong_luc',
+    categoryName: '🚀 Động lực & Cảm hứng',
+    title: 'Năng lượng tích cực thu hút may mắn',
+    content: '{Năng lượng tích cực sẽ thu hút những điều may mắn|Tâm an thì vạn sự an, suy nghĩ lạc quan cuộc sống tự khắc nhẹ nhàng}. {Chúc mọi người một tuần mới tràn đầy nhiệt huyết và gặt hái nhiều thành công|Cứ đi rồi sẽ đến, cứ gõ cửa rồi sẽ mở}! ☀️',
+    badge: 'Lạc quan',
+    tags: ['Động lực', 'May mắn'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_dl_04',
+    category: 'dong_luc',
+    categoryName: '🚀 Động lực & Cảm hứng',
+    title: 'Kỷ luật và sự tiến bộ mỗi ngày',
+    content: '{Bạn không cần phải vĩ đại để bắt đầu, nhưng bạn phải bắt đầu để trở nên vĩ đại|Kỷ luật chính là cầu nối vững chắc nhất giữa mục tiêu và thành tựu}. {Hôm nay bạn đã tiến thêm một bước đến ước mơ của mình chưa|Cố gắng mỗi ngày 1%, sau một năm bạn sẽ thấy sự khác biệt kỳ diệu}! 🚀',
+    badge: 'Kỷ luật',
+    tags: ['Động lực', 'Mục tiêu'],
+    updatedAt: 1731800000000
+  },
+
+  // ── 6. Bán hàng khéo léo & Giá trị (ban_hang) ──
+  {
+    id: 'tmpl_bh_01',
+    category: 'ban_hang',
+    categoryName: '🛍️ Bán hàng & Khéo léo',
+    title: 'Tư vấn giải pháp tối ưu cho khách hàng',
+    content: '{Nhiều anh chị nhắn tin hỏi mình về|Hôm nay giải đáp thắc mắc của rất nhiều khách hàng về|Góc chia sẻ dành cho những ai đang quan tâm đến}: {cách lựa chọn giải pháp phù hợp nhất với nhu cầu|bí quyết tối ưu chi phí mà vẫn đảm bảo hiệu quả vượt trội|kinh nghiệm sử dụng để đạt kết quả tốt nhất}. {Anh chị cần tư vấn chi tiết cứ inbox em hỗ trợ nhiệt tình nhé|Luôn sẵn sàng hỗ trợ mọi người tận tâm 24/7}! 💌',
+    badge: 'Khéo léo',
+    tags: ['Bán hàng', 'Tư vấn'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_bh_02',
+    category: 'ban_hang',
+    categoryName: '🛍️ Bán hàng & Khéo léo',
+    title: 'Hàng về & Đóng gói phục vụ khách',
+    content: '{Đầu tuần hàng về ngập tràn kho|Chuẩn bị đóng gói các đơn hàng gửi tới khách yêu|Lên đơn phục vụ quý khách hàng chu đáo}! {Cảm ơn mọi người luôn ưu ái và tin tưởng ủng hộ bên mình|Cần tư vấn gì cứ ới mình một tiếng là có mặt liền nhé}! 📦🎁',
+    badge: 'Đắt khách',
+    tags: ['Bán hàng', 'Đơn hàng'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_bh_03',
+    category: 'ban_hang',
+    categoryName: '🛍️ Bán hàng & Khéo léo',
+    title: 'Khách quen giới thiệu khách mới',
+    content: '{Chất lượng tạo nên uy tín - Uy tín tạo nên thương hiệu bền vững|Khách cũ quay lại và giới thiệu thêm bạn bè chính là minh chứng rõ nhất cho chất lượng dịch vụ}. {Bên mình luôn cam kết hỗ trợ tận tâm, bảo hành chu đáo|Sự an tâm và hài lòng của khách hàng là ưu tiên số 1}! 💯',
+    badge: 'Uy tín cao',
+    tags: ['Bán hàng', 'Chăm sóc'],
+    updatedAt: 1731800000000
+  },
+  {
+    id: 'tmpl_bh_04',
+    category: 'ban_hang',
+    categoryName: '🛍️ Bán hàng & Khéo léo',
+    title: 'Giải pháp nhỏ giải quyết vấn đề lớn',
+    content: '{Một giải pháp nhỏ nhưng giải quyết được vấn đề lớn|Đầu tư đúng chỗ luôn mang lại hiệu quả vượt trội và tiết kiệm thời gian}. {Nếu bạn đang tìm kiếm hướng đi tối ưu cho công việc kinh doanh, đừng ngần ngại trao đổi cùng mình nhé|Inbox mình chia sẻ chi tiết thêm nha}! 🤝',
+    badge: 'Giá trị',
+    tags: ['Bán hàng', 'Giải pháp'],
+    updatedAt: 1731800000000
+  }
+];
+
+/**
+ * Tải Kho nội dung dùng chung từ Cloud Supabase hoặc fallback bộ đệm
+ * Đồng bộ toàn bộ danh mục bài viết cho tất cả khách hàng
+ */
+export async function fetchSharedContentLibrary() {
+  try {
+    let localLib = [];
+    try {
+      const resLocal = await chrome.storage.local.get('ntd_shared_content_library');
+      localLib = Array.isArray(resLocal.ntd_shared_content_library) ? resLocal.ntd_shared_content_library : [];
+    } catch (_) {}
+
+    // Thử kéo bản cập nhật mới nhất từ Cloud Supabase (owner_username = shared_system, data_key = shared_content_library)
+    try {
+      const res = await supabaseRequest(`ntd_workspaces?data_key=eq.shared_content_library&select=*`);
+      if (Array.isArray(res) && res.length > 0 && Array.isArray(res[0]?.payload) && res[0].payload.length > 0) {
+        const cloudLib = res[0].payload;
+        await chrome.storage.local.set({ ntd_shared_content_library: cloudLib });
+        return cloudLib;
+      }
+    } catch (netErr) {
+      console.warn('[Supabase] Không thể kết nối Cloud để tải Kho nội dung, dùng bộ đệm:', netErr.message);
+    }
+
+    if (localLib && localLib.length > 0) {
+      return localLib;
+    }
+
+    // Nếu chưa có, nạp kho bài viết mẫu mặc định
+    await chrome.storage.local.set({ ntd_shared_content_library: DEFAULT_SHARED_CONTENT_LIBRARY });
+    return DEFAULT_SHARED_CONTENT_LIBRARY;
+  } catch (err) {
+    console.error('[Supabase] Lỗi fetchSharedContentLibrary:', err);
+    return DEFAULT_SHARED_CONTENT_LIBRARY;
+  }
+}
+
+/**
+ * Đẩy Kho nội dung dùng chung lên Cloud Supabase để chia sẻ cho TOÀN BỘ KHÁCH HÀNG
+ */
+export async function pushSharedContentLibrary(library) {
+  if (!Array.isArray(library) || library.length === 0) {
+    throw new Error('Dữ liệu Kho nội dung không được rỗng.');
+  }
+
+  // 1. Lưu ngay vào máy người dùng
+  await chrome.storage.local.set({ ntd_shared_content_library: library });
+
+  // 2. Đẩy lên Supabase ntd_workspaces để mọi khách hàng đồng bộ
+  try {
+    const row = {
+      owner_username: 'shared_system',
+      data_key: 'shared_content_library',
+      payload: library,
+      item_count: library.length,
+      updated_at: new Date().toISOString()
+    };
+
+    await upsertBatches('ntd_workspaces', 'owner_username,data_key', [row], r => `${r.owner_username}|${r.data_key}`, 10);
+    return { ok: true, count: library.length, message: `Đã đồng bộ thành công ${library.length} bài viết lên Cloud cho toàn bộ khách hàng.` };
+  } catch (err) {
+    console.error('[Supabase] Lỗi pushSharedContentLibrary:', err);
+    return { ok: false, error: err.message, localOnly: true, count: library.length };
+  }
+}
+
 /**
  * Đoạn mã SQL chuẩn để người dùng copy và dán vào Supabase SQL Editor
  */

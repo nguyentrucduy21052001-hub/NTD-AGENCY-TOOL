@@ -719,6 +719,75 @@
     transform: translateY(-2px);
   }
 
+  /* Content Library Filter Pills & Cards */
+  .content-filter-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .content-pill {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .content-pill:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .content-pill.active {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+  .template-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+  }
+  .template-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  }
+  .template-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .template-body {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .template-spintax-tag {
+    font-family: monospace;
+    font-size: 11px;
+    background: rgba(168, 85, 247, 0.15);
+    color: #c084fc;
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
   /* Modals */
   .wn-modal-overlay {
     position: fixed;
@@ -904,6 +973,58 @@
                 </div>
               </div>
               <span class="badge badge-waiting">Khuyên dùng</span>
+            </label>
+
+            <!-- Hành động 5: Đăng bài viết lên Trang cá nhân (Timeline) -->
+            <label class="action-item" for="chkPersonalPost" style="flex-direction:column;align-items:stretch;gap:10px">
+              <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+                <div class="action-item-left">
+                  <input type="checkbox" id="chkPersonalPost">
+                  <div>
+                    <div class="action-item-label" style="display:flex;align-items:center;gap:6px">
+                      <span>Tự động đăng 1 bài viết lên Trang cá nhân (Timeline)</span>
+                      <span class="badge badge-done" style="font-size:10.5px">Tăng Trust 100%</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted)">Đăng bài viết nguyên bản có Spin-tax, tránh bị thuật toán Facebook đánh giá spam nhóm</div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px" onclick="event.stopPropagation()">
+                  <span style="font-size:12px;color:var(--text-muted)">Điều kiện:</span>
+                  <select id="selectPostCondition" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-weight:700;font-size:12px">
+                    <option value="days_1" selected>Chỉ đăng nếu >1 ngày chưa đăng</option>
+                    <option value="days_2">Chỉ đăng nếu >2 ngày chưa đăng</option>
+                    <option value="days_3">Chỉ đăng nếu >3 ngày chưa đăng</option>
+                    <option value="always">Luôn đăng bài mỗi phiên nuôi</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Chi tiết nguồn nội dung bài viết đăng cá nhân -->
+              <div id="personalPostOptionsBox" style="margin-top:4px;padding:12px;background:rgba(255,255,255,0.03);border:1px dashed var(--border);border-radius:8px;display:none" onclick="event.stopPropagation()">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <span style="font-size:12px;font-weight:700;color:var(--text)">Nguồn nội dung:</span>
+                  <select id="selectPostContentSource" style="flex:1;min-width:240px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px">
+                    <option value="random_all" selected>🎲 Lấy ngẫu nhiên từ Kho nội dung dùng chung (Tự đảo từ Spin-tax)</option>
+                    <option value="cat_doi_song">☕ Chủ đề: Đời sống & Chào ngày mới</option>
+                    <option value="cat_kinh_nghiem">💡 Chủ đề: Kinh nghiệm & Mẹo thực chiến</option>
+                    <option value="cat_tuong_tac">💬 Chủ đề: Thảo luận & Tương tác cao</option>
+                    <option value="cat_uy_tin">⭐ Chủ đề: Uy tín & Tri ân đối tác</option>
+                    <option value="cat_dong_luc">🚀 Chủ đề: Động lực & Cảm hứng</option>
+                    <option value="cat_ban_hang">🛍️ Chủ đề: Bán hàng khéo léo & Giá trị</option>
+                    <option value="custom">✍️ Tự nhập nội dung riêng (Hỗ trợ Spin-tax)</option>
+                  </select>
+                  <button type="button" id="btnJumpToContentTab" class="btn-sm-text" style="font-size:12px">📚 Mở Kho nội dung ↗</button>
+                </div>
+
+                <!-- Ô nhập nội dung tùy biến nếu chọn custom -->
+                <div id="customContentWrap" style="margin-top:10px;display:none">
+                  <textarea id="txtCustomPostContent" rows="3" placeholder="Nhập nội dung bài viết, hỗ trợ cú pháp Spin-tax: {Chào cả nhà|Chúc mọi người} ngày mới {tràn đầy năng lượng|thật nhiều may mắn}..." style="width:100%;box-sizing:border-box;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;resize:vertical"></textarea>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+                    <span style="font-size:11px;color:var(--text-muted)">Hệ thống tự động chọn ngẫu nhiên 1 biến thể từ {A|B|C} cho mỗi nick nuôi</span>
+                    <button type="button" id="btnPreviewCustomSpintax" class="btn-sm-text">🎲 Xem thử biến thể</button>
+                  </div>
+                </div>
+              </div>
             </label>
           </div>
         </div>
@@ -1220,56 +1341,50 @@
       </div>
     </div>
 
-    <!-- Kho gợi ý nội dung nguyên bản (Original Content Ideas) -->
+    <!-- 🌐 KHO NỘI DUNG DÙNG CHUNG CẬP NHẬT THƯỜNG XUYÊN TỪ CLOUD (Shared Content Library) -->
     <div class="card">
-      <div class="card-header">
-        <h2 class="card-title">💡 Kho ý tưởng bài viết nguyên bản cho chủ tài khoản</h2>
-        <span style="font-size:12px;color:var(--text-muted)">Nội dung tự nhiên, thu hút tương tác thật</span>
+      <div class="card-header" style="flex-wrap:wrap;gap:12px">
+        <div>
+          <h2 class="card-title">🌐 Kho nội dung dùng chung (Cập nhật thường xuyên từ Cloud)</h2>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
+            Kho bài viết nguyên bản có sẵn Spin-tax {A|B|C}, toàn bộ khách hàng dùng chung và cập nhật liên tục từ Admin.
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn-sm-text" id="btnSyncCloudContent" style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:6px 12px;background:var(--surface);color:#38bdf8">
+            <span>🔄</span> <span>Cập nhật từ Cloud</span>
+          </button>
+          <button type="button" class="btn-sm-text" id="btnAddContentTemplate" style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:6px 12px;background:var(--surface);color:#10b981">
+            <span>➕</span> <span>Thêm bài vào Kho</span>
+          </button>
+          <button type="button" class="btn-sm-text" id="btnPushCloudContent" style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:6px 12px;background:var(--surface);color:#a855f7" title="Đẩy toàn bộ kho bài viết này lên Cloud Supabase cho tất cả khách hàng cùng nhận">
+            <span>☁️</span> <span>Đồng bộ lên Cloud</span>
+          </button>
+        </div>
       </div>
 
-      <div class="content-idea-grid">
-        <div class="idea-card">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <b style="color:var(--accent)">1. Chia sẻ mẹo & Kiến thức thực chiến</b>
-            <span class="badge badge-done">Tương tác cao</span>
-          </div>
-          <p style="font-size:12.5px;color:var(--text-muted);margin:0;line-height:1.5">
-            "Hôm nay chia sẻ với mọi người 3 kinh nghiệm thực tế mình rút ra sau thời gian làm việc... Bạn tâm đắc nhất điều nào?"
-          </p>
-          <button type="button" class="btn-sm-text copy-idea-btn" data-idea="Hôm nay chia sẻ với mọi người 3 kinh nghiệm thực tế mình rút ra trong công việc... Bạn thấy điều nào quan trọng nhất?" style="align-self:flex-start;padding:0">📋 Sao chép mẫu</button>
+      <!-- Thanh tìm kiếm & Phân loại bài viết -->
+      <div style="margin-top:14px">
+        <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center">
+          <input type="text" id="searchSharedContent" placeholder="🔍 Tìm kiếm bài viết theo từ khóa, tiêu đề, chủ đề..." style="flex:1;padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+          <button type="button" id="btnClearContentSearch" class="btn-sm-text" style="display:none;padding:6px 10px">Xóa lọc</button>
         </div>
 
-        <div class="idea-card">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <b style="color:#60a5fa">2. Câu chuyện hậu trường & Cuộc sống</b>
-            <span class="badge badge-running">Tăng Trust</span>
-          </div>
-          <p style="font-size:12.5px;color:var(--text-muted);margin:0;line-height:1.5">
-            "Một ngày bận rộn nhưng đầy năng lượng! Đang chuẩn bị hoàn thành dự án cho khách hàng... Chúc cả nhà tuần mới thuận lợi!"
-          </p>
-          <button type="button" class="btn-sm-text copy-idea-btn" data-idea="Một ngày bận rộn nhưng tràn đầy năng lượng! Chúc mọi người một ngày làm việc hiệu quả và nhiều niềm vui!" style="align-self:flex-start;padding:0">📋 Sao chép mẫu</button>
+        <div class="content-filter-pills" id="pillsContentCategory">
+          <button type="button" class="content-pill active" data-category="all">Tất cả bài viết (<span id="countAllTemplates">0</span>)</button>
+          <button type="button" class="content-pill" data-category="doi_song">☕ Đời sống & Chào ngày mới</button>
+          <button type="button" class="content-pill" data-category="kinh_nghiem">💡 Kinh nghiệm & Mẹo hay</button>
+          <button type="button" class="content-pill" data-category="tuong_tac">💬 Thảo luận & Tương tác</button>
+          <button type="button" class="content-pill" data-category="uy_tin">⭐ Uy tín & Tri ân</button>
+          <button type="button" class="content-pill" data-category="dong_luc">🚀 Động lực & Cảm hứng</button>
+          <button type="button" class="content-pill" data-category="ban_hang">🛍️ Bán hàng & Khéo léo</button>
         </div>
+      </div>
 
-        <div class="idea-card">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <b style="color:#34d399">3. Câu hỏi mở / Khảo sát tương tác</b>
-            <span class="badge badge-waiting">Nhiều Comment</span>
-          </div>
-          <p style="font-size:12.5px;color:var(--text-muted);margin:0;line-height:1.5">
-            "Nếu được chọn giữa làm việc tại văn phòng hay làm từ xa (Work from home), anh em sẽ chọn phương án nào và vì sao?"
-          </p>
-          <button type="button" class="btn-sm-text copy-idea-btn" data-idea="Nếu được chọn giữa làm việc tự do và ổn định công sở, mọi người sẽ nghiêng về phương án nào hơn?" style="align-self:flex-start;padding:0">📋 Sao chép mẫu</button>
-        </div>
-
-        <div class="idea-card">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <b style="color:#f59e0b">4. Lời cảm ơn & Kết quả trải nghiệm</b>
-            <span class="badge badge-done">Tạo uy tín</span>
-          </div>
-          <p style="font-size:12.5px;color:var(--text-muted);margin:0;line-height:1.5">
-            "Cảm ơn những người bạn đồng hành tuyệt vời đã luôn tin tưởng và ủng hộ mình trong chặng đường vừa qua!"
-          </p>
-          <button type="button" class="btn-sm-text copy-idea-btn" data-idea="Cảm ơn sự tin tưởng và đồng hành của mọi người trong suốt thời gian qua. Luôn trân trọng những cơ hội được hợp tác!" style="align-self:flex-start;padding:0">📋 Sao chép mẫu</button>
+      <!-- Danh sách bài viết mẫu trong Kho -->
+      <div class="content-idea-grid" id="sharedContentGrid">
+        <div style="grid-column:1/-1;text-align:center;padding:36px;color:var(--text-muted)">
+          Đang nạp kho nội dung dùng chung từ Cloud...
         </div>
       </div>
     </div>
@@ -1421,7 +1536,7 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════════════════════
-       MODALS: CÀI ĐẶT 2FA NHANH & CHI TIẾT SỨC KHỎE
+       MODALS: CÀI ĐẶT 2FA, KHO NỘI DUNG & XEM TRƯỚC SPIN-TAX
        ══════════════════════════════════════════════════════════════════════════ -->
   <div id="modal2FAOverlay" class="wn-modal-overlay" style="display:none">
     <div class="wn-modal-card">
@@ -1444,6 +1559,90 @@
       <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:rgba(0,0,0,0.1)">
         <button type="button" id="btnCancel2FAModal" class="btn-sm-text" style="padding:6px 14px">Hủy</button>
         <button type="button" id="btnSave2FAModal" class="btn-primary-big" style="padding:7px 18px;font-size:13px;border-radius:8px">💾 Lưu mã 2FA</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: THÊM / CHỈNH SỬA BÀI VIẾT TRONG KHO NỘI DUNG DÙNG CHUNG -->
+  <div id="modalContentTemplateOverlay" class="wn-modal-overlay" style="display:none">
+    <div class="wn-modal-card" style="max-width:620px">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-weight:700;font-size:15px;color:var(--text)" id="modalTemplateHeading">➕ Thêm bài viết mới vào Kho dùng chung</div>
+        <button type="button" id="btnCloseTemplateModal" style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:20px;max-height:75vh;overflow-y:auto">
+        <input type="hidden" id="inputModalTemplateId" value="">
+
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:5px">Tiêu đề gợi nhớ bài viết:</label>
+          <input type="text" id="inputModalTemplateTitle" placeholder="Ví dụ: Chào buổi sáng & Năng lượng tích cực..." style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:5px">Chủ đề / Danh mục:</label>
+            <select id="selectModalTemplateCategory" style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+              <option value="doi_song">☕ Đời sống & Chào ngày mới</option>
+              <option value="kinh_nghiem">💡 Kinh nghiệm & Mẹo thực chiến</option>
+              <option value="tuong_tac">💬 Thảo luận & Tương tác cao</option>
+              <option value="uy_tin">⭐ Uy tín & Tri ân đối tác</option>
+              <option value="dong_luc">🚀 Động lực & Cảm hứng</option>
+              <option value="ban_hang">🛍️ Bán hàng & Khéo léo</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:5px">Nhãn nổi bật:</label>
+            <input type="text" id="inputModalTemplateBadge" placeholder="Ví dụ: Tương tác cao, Tăng Trust..." style="width:100%;box-sizing:border-box;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <label style="font-size:12.5px;font-weight:700">Nội dung bài viết (Hỗ trợ Spin-tax {A|B|C}):</label>
+            <button type="button" id="btnTestModalSpintax" class="btn-sm-text" style="padding:0">🎲 Thử đảo từ Spin</button>
+          </div>
+          <textarea id="textareaModalTemplateContent" rows="5" placeholder="Nhập nội dung, dùng cú pháp {Chào cả nhà|Chúc mọi người} ngày mới {tràn đầy năng lượng|thật nhiều may mắn}..." style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;line-height:1.5;resize:vertical"></textarea>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px">
+            💡 Mỗi khi đăng, hệ thống sẽ tự động bốc ngẫu nhiên 1 từ trong mỗi cụm <code>{từ 1|từ 2|từ 3}</code> để đảm bảo 100% không bài nào bị trùng lặp.
+          </div>
+        </div>
+
+        <!-- Khung xem thử kết quả Spin-tax -->
+        <div id="boxModalSpintaxPreview" style="display:none;padding:10px 12px;background:rgba(59,130,246,0.1);border:1px dashed rgba(59,130,246,0.3);border-radius:8px;margin-bottom:8px">
+          <div style="font-size:11.5px;font-weight:700;color:#93c5fd;margin-bottom:4px">🎲 Biến thể mẫu ngẫu nhiên:</div>
+          <div id="textModalSpintaxPreview" style="font-size:12.5px;color:var(--text);white-space:pre-wrap;line-height:1.45"></div>
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:rgba(0,0,0,0.1)">
+        <button type="button" id="btnCancelTemplateModal" class="btn-sm-text" style="padding:6px 14px">Hủy</button>
+        <button type="button" id="btnSaveTemplateModal" class="btn-primary-big" style="padding:7px 18px;font-size:13px;border-radius:8px">💾 Lưu bài viết vào Kho</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: XEM TRƯỚC BIẾN THỂ NGẪU NHIÊN (SPIN PREVIEW) -->
+  <div id="modalSpinPreviewOverlay" class="wn-modal-overlay" style="display:none">
+    <div class="wn-modal-card" style="max-width:540px">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-weight:700;font-size:15px;color:var(--text)" id="modalSpinPreviewHeading">🎲 Xem thử biến thể Spin-tax</div>
+        <button type="button" id="btnCloseSpinPreviewModal" style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="padding:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span class="badge badge-done" id="modalSpinPreviewCategory">Đời sống</span>
+          <span style="font-size:11.5px;color:var(--text-muted)">Bấm "Đổi biến thể" để xem biến thể khác</span>
+        </div>
+        <div id="modalSpinPreviewContent" style="padding:14px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;font-size:13.5px;line-height:1.6;color:var(--text);white-space:pre-wrap;min-height:90px">
+        </div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;background:rgba(0,0,0,0.1)">
+        <button type="button" id="btnRerollSpinPreview" class="btn-sm-text" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--border);border-radius:8px">
+          <span>🎲</span> <span>Đổi biến thể khác</span>
+        </button>
+        <div style="display:flex;gap:8px">
+          <button type="button" id="btnCopySpinPreview" class="btn-sm-text" style="padding:6px 14px;border:1px solid var(--border);border-radius:8px">📋 Sao chép</button>
+          <button type="button" id="btnDoneSpinPreview" class="btn-primary-big" style="padding:7px 18px;font-size:13px;border-radius:8px">Đóng</button>
+        </div>
       </div>
     </div>
   </div>

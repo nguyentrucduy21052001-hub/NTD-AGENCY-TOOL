@@ -1,7 +1,13 @@
 // warmup.js – Quản lý giao diện và điều phối tiến trình nuôi tài khoản Facebook
 import { getTodayDateStr } from './core.js';
 import { checkCurrentLicense } from './license.js';
-import { supabaseClearReportScope } from './supabase.js?v=20261112_1000';
+import {
+  supabaseClearReportScope,
+  resolveSpintax,
+  fetchSharedContentLibrary,
+  pushSharedContentLibrary,
+  DEFAULT_SHARED_CONTENT_LIBRARY
+} from './supabase.js?v=20261112_1000';
 
 const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -9,6 +15,9 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 let personalAccounts = [];
 let currentWarmupAccountId = null;
 let currentWarmupAccountName = null;
+let currentContentCategoryFilter = 'all';
+let currentEditingTemplateId = null;
+let currentSpinPreviewTemplate = null;
 
 // ── Quản lý tiến trình & đồng hồ đếm ngược từng nick trực tiếp trên Web ─────
 const warmupState = {
@@ -82,7 +91,68 @@ async function loadConfig() {
   if (cfg.reels !== undefined) $('chkReels').checked = cfg.reels;
   if (cfg.notif !== undefined) $('chkNotif').checked = cfg.notif;
 
+  // Cấu hình đăng bài lên Trang cá nhân (Timeline)
+  if (cfg.personalPost !== undefined && $('chkPersonalPost')) {
+    $('chkPersonalPost').checked = Boolean(cfg.personalPost);
+  }
+  if (cfg.postCondition && $('selectPostCondition')) {
+    $('selectPostCondition').value = cfg.postCondition;
+  }
+  if (cfg.postContentSource && $('selectPostContentSource')) {
+    $('selectPostContentSource').value = cfg.postContentSource;
+  }
+  if (cfg.customPostContent && $('txtCustomPostContent')) {
+    $('txtCustomPostContent').value = cfg.customPostContent;
+  }
+
   updateSliderLabels();
+  updatePersonalPostVisibility();
+
+  $('chkPersonalPost')?.addEventListener('change', () => {
+    updatePersonalPostVisibility();
+    saveCurrentConfig();
+  });
+  $('selectPostContentSource')?.addEventListener('change', () => {
+    updatePersonalPostVisibility();
+    saveCurrentConfig();
+  });
+  $('selectPostCondition')?.addEventListener('change', saveCurrentConfig);
+  $('txtCustomPostContent')?.addEventListener('input', saveCurrentConfig);
+
+  $('btnJumpToContentTab')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const tabBtn = document.querySelector('.wn-tab[data-tab="tab-content"]');
+    if (tabBtn) tabBtn.click();
+  });
+
+  $('btnPreviewCustomSpintax')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const text = ($('txtCustomPostContent')?.value || '').trim();
+    if (!text) {
+      alert('Vui lòng nhập nội dung bài viết trước khi xem thử.');
+      return;
+    }
+    openSpinPreviewModal({
+      title: 'Bài viết tùy chỉnh của bạn',
+      categoryName: 'Tự soạn riêng',
+      content: text
+    });
+  });
+}
+
+function updatePersonalPostVisibility() {
+  const chk = $('chkPersonalPost');
+  const optBox = $('personalPostOptionsBox');
+  if (!chk || !optBox) return;
+
+  const isEnabled = chk.checked;
+  optBox.style.display = isEnabled ? 'block' : 'none';
+
+  const sourceVal = $('selectPostContentSource')?.value || 'random_all';
+  const customWrap = $('customContentWrap');
+  if (customWrap) {
+    customWrap.style.display = (isEnabled && sourceVal === 'custom') ? 'block' : 'none';
+  }
 }
 
 function updateSliderLabels() {
@@ -98,13 +168,17 @@ async function saveCurrentConfig() {
   const { warmupConfig: oldCfg = {} } = await chrome.storage.local.get('warmupConfig');
   const cfg = {
     ...oldCfg,
-    duration: parseInt($('rangeDuration').value || '3'),
-    breakDelay: parseInt($('rangeBreakDelay').value || '15'),
-    feed: $('chkFeed').checked,
-    like: $('chkLike').checked,
-    maxLikes: parseInt($('selectMaxLikes').value || '5'),
-    reels: $('chkReels').checked,
-    notif: $('chkNotif').checked
+    duration: parseInt($('rangeDuration')?.value || '3'),
+    breakDelay: parseInt($('rangeBreakDelay')?.value || '15'),
+    feed: $('chkFeed')?.checked !== false,
+    like: $('chkLike')?.checked !== false,
+    maxLikes: parseInt($('selectMaxLikes')?.value || '5'),
+    reels: $('chkReels')?.checked !== false,
+    notif: $('chkNotif')?.checked !== false,
+    personalPost: Boolean($('chkPersonalPost')?.checked),
+    postCondition: $('selectPostCondition')?.value || 'days_1',
+    postContentSource: $('selectPostContentSource')?.value || 'random_all',
+    customPostContent: $('txtCustomPostContent')?.value || ''
   };
   await chrome.storage.local.set({ warmupConfig: cfg });
 }
@@ -1382,7 +1456,8 @@ async function renderContentManagementDashboard() {
     'Hình ảnh góc làm việc hoặc hậu trường hàng ngày',
     'Câu hỏi thảo luận / Thăm dò ý kiến cộng đồng',
     'Lời cảm ơn khách hàng & Kết quả đạt được',
-    'Cập nhật tin tức chuyên ngành & Góc nhìn cá nhân'
+    'Cập nhật tin tức chuyên ngành & Góc nhìn cá nhân',
+    'Động lực & Năng lượng tích cực mỗi ngày'
   ];
 
   let html = '';
@@ -1461,6 +1536,414 @@ async function renderContentManagementDashboard() {
       await renderContentManagementDashboard();
       appendLog(`Đã ghi nhận bài đăng cá nhân mới cho "${targetAcc?.name}".`, '📝');
     });
+  });
+}
+
+// ── 9.6.1. Quản lý & Hiển thị Kho nội dung dùng chung (Cloud Shared Content) ──
+async function renderSharedContentLibrary() {
+  const grid = $('sharedContentGrid');
+  if (!grid) return;
+
+  const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+  let library = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
+    ? ntd_shared_content_library
+    : DEFAULT_SHARED_CONTENT_LIBRARY;
+
+  // Cập nhật tổng số bài trong Kho
+  if ($('countAllTemplates')) {
+    $('countAllTemplates').textContent = library.length;
+  }
+
+  // Lọc theo Danh mục chủ đề
+  let filtered = library;
+  if (currentContentCategoryFilter !== 'all') {
+    filtered = filtered.filter(item => item.category === currentContentCategoryFilter);
+  }
+
+  // Lọc theo Từ khóa tìm kiếm
+  const query = ($('searchSharedContent')?.value || '').trim().toLowerCase();
+  if (query) {
+    filtered = filtered.filter(item => {
+      const t = (item.title || '').toLowerCase();
+      const c = (item.content || '').toLowerCase();
+      const cn = (item.categoryName || '').toLowerCase();
+      const b = (item.badge || '').toLowerCase();
+      const tags = Array.isArray(item.tags) ? item.tags.join(' ').toLowerCase() : '';
+      return t.includes(query) || c.includes(query) || cn.includes(query) || b.includes(query) || tags.includes(query);
+    });
+  }
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:36px;color:var(--text-muted)">
+        Không tìm thấy bài viết nào phù hợp với bộ lọc hiện tại.
+      </div>
+    `;
+    return;
+  }
+
+  const categoryIcons = {
+    doi_song: '☕',
+    kinh_nghiem: '💡',
+    tuong_tac: '💬',
+    uy_tin: '⭐',
+    dong_luc: '🚀',
+    ban_hang: '🛍️'
+  };
+
+  let html = '';
+  filtered.forEach(item => {
+    const icon = categoryIcons[item.category] || '📝';
+    const samplePreview = resolveSpintax(item.content);
+
+    html += `
+      <div class="template-card" id="card_${item.id}">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="badge badge-done" style="font-size:11px;background:rgba(59,130,246,0.12);color:#60a5fa;border:1px solid rgba(59,130,246,0.25)">
+              ${icon} ${escapeHtml(item.categoryName || 'Chủ đề')}
+            </span>
+            ${item.badge ? `<span class="badge badge-running" style="font-size:10.5px">${escapeHtml(item.badge)}</span>` : ''}
+            <span class="template-spintax-tag">{Spin-tax}</span>
+          </div>
+          <div style="display:flex;gap:4px">
+            <button type="button" class="btn-sm-text btn-edit-template" data-id="${item.id}" title="Chỉnh sửa bài viết">✏️</button>
+            <button type="button" class="btn-sm-text btn-delete-template" data-id="${item.id}" style="color:#ef4444" title="Xóa bài viết">🗑️</button>
+          </div>
+        </div>
+
+        <div class="template-title">${escapeHtml(item.title || 'Bài viết mẫu')}</div>
+
+        <div class="template-body">${escapeHtml(item.content || '')}</div>
+
+        <!-- Biến thể ví dụ ngẫu nhiên từ Spin-tax -->
+        <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border:1px dashed var(--border);border-radius:6px;font-size:12px;color:var(--text);line-height:1.4">
+          <div style="font-size:10.5px;font-weight:700;color:var(--accent);margin-bottom:3px">🎲 Ví dụ biến thể khi đăng:</div>
+          <div style="font-style:italic">"${escapeHtml(samplePreview)}"</div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;gap:6px">
+            <button type="button" class="btn-sm-text btn-preview-spin" data-id="${item.id}" style="border:1px solid var(--border);border-radius:6px;padding:4px 9px">
+              🎲 Xem thử Spin
+            </button>
+            <button type="button" class="btn-sm-text btn-copy-template" data-id="${item.id}" style="border:1px solid var(--border);border-radius:6px;padding:4px 9px">
+              📋 Sao chép
+            </button>
+          </div>
+          <button type="button" class="btn-sm-text btn-choose-template" data-id="${item.id}" style="background:var(--accent);color:#ffffff;border-radius:6px;padding:4px 12px;text-decoration:none">
+            ✨ Dùng cho nick nuôi
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  grid.innerHTML = html;
+
+  // Gán sự kiện nút bấm cho từng thẻ
+  grid.querySelectorAll('.btn-preview-spin').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      const item = library.find(x => x.id === id);
+      if (item) openSpinPreviewModal(item);
+    });
+  });
+
+  grid.querySelectorAll('.btn-copy-template').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const item = library.find(x => x.id === id);
+      if (!item) return;
+
+      try {
+        await navigator.clipboard.writeText(item.content);
+        const oldText = btn.innerHTML;
+        btn.innerHTML = '✅ Đã sao chép!';
+        setTimeout(() => { btn.innerHTML = oldText; }, 1800);
+      } catch (_) {
+        alert('Nội dung đã được chọn: \n\n' + item.content);
+      }
+    });
+  });
+
+  grid.querySelectorAll('.btn-choose-template').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const item = library.find(x => x.id === id);
+      if (!item) return;
+
+      // Đặt vào ô custom post text trong Tab 1 và bật chế độ đăng cá nhân
+      if ($('chkPersonalPost')) $('chkPersonalPost').checked = true;
+      if ($('selectPostContentSource')) $('selectPostContentSource').value = 'custom';
+      if ($('txtCustomPostContent')) $('txtCustomPostContent').value = item.content;
+
+      updatePersonalPostVisibility();
+      await saveCurrentConfig();
+
+      // Chuyển sang Tab 1
+      const tab1Btn = document.querySelector('.wn-tab[data-tab="tab-warmup"]');
+      if (tab1Btn) tab1Btn.click();
+
+      appendLog(`Đã chọn mẫu bài viết "${item.title}" làm kịch bản đăng cá nhân cho phiên nuôi.`, '✨');
+      alert(`✅ Đã thiết lập mẫu bài viết:\n"${item.title}"\n\nvào kịch bản Nuôi tài khoản tự động (Tab 1)!`);
+    });
+  });
+
+  grid.querySelectorAll('.btn-edit-template').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      const item = library.find(x => x.id === id);
+      if (item) openTemplateModal(item);
+    });
+  });
+
+  grid.querySelectorAll('.btn-delete-template').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const item = library.find(x => x.id === id);
+      if (!item) return;
+
+      if (confirm(`Bạn có chắc chắn muốn xóa bài viết mẫu "${item.title}" khỏi Kho nội dung?`)) {
+        const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+        const updated = ntd_shared_content_library.filter(x => x.id !== id);
+        await chrome.storage.local.set({ ntd_shared_content_library: updated });
+        appendLog(`Đã xóa bài viết "${item.title}" khỏi Kho nội dung.`, '🗑️');
+        renderSharedContentLibrary();
+      }
+    });
+  });
+}
+
+function openSpinPreviewModal(template) {
+  currentSpinPreviewTemplate = template;
+  $('modalSpinPreviewHeading').textContent = `🎲 Xem thử biến thể: ${template.title || 'Bài viết'}`;
+  $('modalSpinPreviewCategory').textContent = template.categoryName || 'Nội dung';
+
+  const reroll = () => {
+    const rolled = resolveSpintax(template.content);
+    $('modalSpinPreviewContent').textContent = rolled;
+  };
+
+  reroll();
+
+  const modal = $('modalSpinPreviewOverlay');
+  if (modal) modal.style.display = 'flex';
+}
+
+function openTemplateModal(template = null) {
+  currentEditingTemplateId = template ? template.id : null;
+  const isEdit = Boolean(template);
+
+  $('modalTemplateHeading').textContent = isEdit ? '✏️ Chỉnh sửa bài viết trong Kho' : '➕ Thêm bài viết mới vào Kho dùng chung';
+  $('inputModalTemplateId').value = template ? template.id : '';
+  $('inputModalTemplateTitle').value = template ? template.title || '' : '';
+  $('selectModalTemplateCategory').value = template ? template.category || 'doi_song' : 'doi_song';
+  $('inputModalTemplateBadge').value = template ? template.badge || '' : '';
+  $('textareaModalTemplateContent').value = template ? template.content || '' : '';
+  $('boxModalSpintaxPreview').style.display = 'none';
+
+  const modal = $('modalContentTemplateOverlay');
+  if (modal) modal.style.display = 'flex';
+}
+
+function initSharedContentLibrary() {
+  // 1. Phân loại theo danh mục qua Pills
+  const pills = document.querySelectorAll('#pillsContentCategory .content-pill');
+  pills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      pills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentContentCategoryFilter = pill.getAttribute('data-category') || 'all';
+      renderSharedContentLibrary();
+    });
+  });
+
+  // 2. Ô tìm kiếm
+  const searchInput = $('searchSharedContent');
+  const clearBtn = $('btnClearContentSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      if (clearBtn) clearBtn.style.display = searchInput.value ? 'inline-block' : 'none';
+      renderSharedContentLibrary();
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (searchInput) searchInput.value = '';
+      clearBtn.style.display = 'none';
+      renderSharedContentLibrary();
+    });
+  }
+
+  // 3. Nút Cập nhật từ Cloud
+  $('btnSyncCloudContent')?.addEventListener('click', async () => {
+    const btn = $('btnSyncCloudContent');
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = '<span>⏳</span> <span>Đang kết nối Cloud...</span>';
+    btn.disabled = true;
+
+    try {
+      const lib = await fetchSharedContentLibrary();
+      await renderSharedContentLibrary();
+      appendLog(`Đã tải và đồng bộ thành công ${lib.length} bài viết mẫu từ Cloud Supabase.`, '🔄');
+      alert(`✅ Cập nhật hoàn tất!\nĐã đồng bộ ${lib.length} bài viết mới nhất từ Cloud Supabase cho toàn bộ khách hàng.`);
+    } catch (err) {
+      appendLog(`Lỗi cập nhật từ Cloud: ${err.message}`, '⚠️');
+      alert('Không thể kết nối Cloud: ' + err.message);
+    } finally {
+      btn.innerHTML = oldHtml;
+      btn.disabled = false;
+    }
+  });
+
+  // 4. Nút Thêm bài viết mới vào Kho
+  $('btnAddContentTemplate')?.addEventListener('click', () => {
+    openTemplateModal();
+  });
+
+  // 5. Nút Đồng bộ lên Cloud
+  $('btnPushCloudContent')?.addEventListener('click', async () => {
+    const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+    const library = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
+      ? ntd_shared_content_library
+      : DEFAULT_SHARED_CONTENT_LIBRARY;
+
+    if (!confirm(`Bạn có chắc chắn muốn đẩy ${library.length} bài viết trong Kho nội dung này lên Cloud Supabase để chia sẻ cho TOÀN BỘ KHÁCH HÀNG sử dụng chung?`)) {
+      return;
+    }
+
+    const btn = $('btnPushCloudContent');
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = '<span>⏳</span> <span>Đang đẩy lên Cloud...</span>';
+    btn.disabled = true;
+
+    try {
+      const res = await pushSharedContentLibrary(library);
+      if (res.ok) {
+        appendLog(`Đã đồng bộ thành công ${library.length} bài viết lên Cloud Supabase.`, '☁️');
+        alert(`🎉 Thành công!\n\nĐã đồng bộ ${library.length} bài viết mẫu lên Cloud Supabase. Tất cả khách hàng khác khi bấm "Cập nhật từ Cloud" sẽ nhận được toàn bộ các bài viết này!`);
+      } else {
+        alert('Đã lưu nội bộ trên máy, cảnh báo đẩy Cloud: ' + (res.error || 'Lỗi không xác định'));
+      }
+    } catch (err) {
+      alert('Lỗi đẩy lên Cloud: ' + err.message);
+    } finally {
+      btn.innerHTML = oldHtml;
+      btn.disabled = false;
+    }
+  });
+
+  // 6. Xử lý Modal Thêm / Chỉnh sửa bài viết
+  const modalTemplate = $('modalContentTemplateOverlay');
+  const closeTemplateModal = () => {
+    if (modalTemplate) modalTemplate.style.display = 'none';
+    currentEditingTemplateId = null;
+  };
+
+  $('btnCloseTemplateModal')?.addEventListener('click', closeTemplateModal);
+  $('btnCancelTemplateModal')?.addEventListener('click', closeTemplateModal);
+
+  // Thử nghiệm Spin-tax trong Modal
+  $('btnTestModalSpintax')?.addEventListener('click', () => {
+    const raw = ($('textareaModalTemplateContent')?.value || '').trim();
+    if (!raw) {
+      alert('Vui lòng nhập nội dung bài viết trước khi thử nghiệm.');
+      return;
+    }
+    const rolled = resolveSpintax(raw);
+    $('boxModalSpintaxPreview').style.display = 'block';
+    $('textModalSpintaxPreview').textContent = `"${rolled}"`;
+  });
+
+  // Lưu bài viết vào Kho
+  $('btnSaveTemplateModal')?.addEventListener('click', async () => {
+    const title = ($('inputModalTemplateTitle')?.value || '').trim();
+    const category = $('selectModalTemplateCategory')?.value || 'doi_song';
+    const badge = ($('inputModalTemplateBadge')?.value || '').trim();
+    const content = ($('textareaModalTemplateContent')?.value || '').trim();
+
+    if (!title || !content) {
+      alert('Vui lòng nhập đầy đủ Tiêu đề và Nội dung bài viết.');
+      return;
+    }
+
+    const categoryNames = {
+      doi_song: '☕ Đời sống & Chào ngày mới',
+      kinh_nghiem: '💡 Kinh nghiệm & Mẹo thực chiến',
+      tuong_tac: '💬 Thảo luận & Tương tác cao',
+      uy_tin: '⭐ Uy tín & Tri ân đối tác',
+      dong_luc: '🚀 Động lực & Cảm hứng',
+      ban_hang: '🛍️ Bán hàng & Khéo léo'
+    };
+
+    const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+    let lib = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
+      ? [...ntd_shared_content_library]
+      : [...DEFAULT_SHARED_CONTENT_LIBRARY];
+
+    if (currentEditingTemplateId) {
+      const idx = lib.findIndex(x => x.id === currentEditingTemplateId);
+      if (idx !== -1) {
+        lib[idx] = {
+          ...lib[idx],
+          title,
+          category,
+          categoryName: categoryNames[category] || 'Chủ đề',
+          badge,
+          content,
+          updatedAt: Date.now()
+        };
+      }
+    } else {
+      const newTemplate = {
+        id: 'tmpl_custom_' + Date.now(),
+        category,
+        categoryName: categoryNames[category] || 'Chủ đề',
+        title,
+        badge: badge || 'Bài viết mới',
+        content,
+        tags: [categoryNames[category] || 'Chủ đề'],
+        updatedAt: Date.now()
+      };
+      lib.unshift(newTemplate);
+    }
+
+    await chrome.storage.local.set({ ntd_shared_content_library: lib });
+    closeTemplateModal();
+    await renderSharedContentLibrary();
+    appendLog(`Đã lưu bài viết "${title}" vào Kho nội dung dùng chung.`, '💾');
+  });
+
+  // 7. Xử lý Modal Xem thử biến thể (Spin Preview)
+  const modalSpin = $('modalSpinPreviewOverlay');
+  const closeSpinModal = () => {
+    if (modalSpin) modalSpin.style.display = 'none';
+    currentSpinPreviewTemplate = null;
+  };
+
+  $('btnCloseSpinPreviewModal')?.addEventListener('click', closeSpinModal);
+  $('btnDoneSpinPreview')?.addEventListener('click', closeSpinModal);
+
+  $('btnRerollSpinPreview')?.addEventListener('click', () => {
+    if (currentSpinPreviewTemplate) {
+      const rolled = resolveSpintax(currentSpinPreviewTemplate.content);
+      $('modalSpinPreviewContent').textContent = rolled;
+    }
+  });
+
+  $('btnCopySpinPreview')?.addEventListener('click', async () => {
+    const text = ($('modalSpinPreviewContent')?.textContent || '').trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      const btn = $('btnCopySpinPreview');
+      const old = btn.innerHTML;
+      btn.innerHTML = '✅ Đã sao chép!';
+      setTimeout(() => { btn.innerHTML = old; }, 1800);
+    } catch (_) {
+      alert('Nội dung:\n\n' + text);
+    }
   });
 }
 
@@ -1808,6 +2291,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await renderReportTable();
   initSubNavTabs();
   initIdeaCopyButtons();
+  initSharedContentLibrary();
   init2FAModal();
   initAuditLogFilters();
   renderHealthDashboard();
@@ -1816,6 +2300,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderContentManagementDashboard();
   renderSecurityDashboard();
   renderAuditLogsDashboard();
+  await renderSharedContentLibrary();
+
+  // Tự động kết nối Cloud Supabase để kiểm tra cập nhật mới nhất cho Kho nội dung dùng chung
+  fetchSharedContentLibrary().then(lib => {
+    if (Array.isArray(lib) && lib.length > 0) {
+      renderSharedContentLibrary();
+    }
+  }).catch(() => {});
 
   // Kiểm tra trạng thái đã lưu trong localStorage của Web trước
   const savedStr = localStorage.getItem('ntd_web_warmup_state');

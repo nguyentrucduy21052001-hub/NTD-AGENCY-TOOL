@@ -516,6 +516,195 @@
     }
   }
 
+  // ── 7.1. Tự động đăng bài viết lên Trang cá nhân (Timeline) ─────────────────
+  async function runPersonalTimelinePost(postText, stats) {
+    if (isCancelled || !postText || !postText.trim()) return;
+    dismissObstructingDialogs();
+    sendLog('📝 Bắt đầu chuẩn bị đăng bài viết lên Trang cá nhân (Timeline)...', '📝');
+
+    try {
+      // 1. Cuộn trang lên đầu để thấy ô soạn bài nếu đang ở giữa trang
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      await delay(1200);
+      dismissObstructingDialogs();
+
+      // 2. Tìm nút mở hộp thoại soạn bài "Bạn đang nghĩ gì thế?"
+      const OPENER_RE = /Bạn đang nghĩ gì|Bạn viết gì đi|Viết gì đó|Tạo bài viết|What's on your mind|Create a post|Write something/i;
+      const findOpener = () => {
+        const candidates = [...document.querySelectorAll('[role="button"], button, [role="combobox"], [tabindex="0"]')];
+        for (const el of candidates) {
+          if (el.closest('nav, header, [role="banner"], [role="navigation"]')) continue;
+          const t = (el.innerText || el.textContent || '').trim();
+          const aria = (el.getAttribute('aria-label') || '').trim();
+          if (OPENER_RE.test(t) || OPENER_RE.test(aria)) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0 && r.top < window.innerHeight + 150) {
+              return el;
+            }
+          }
+        }
+        return null;
+      };
+
+      let opener = findOpener();
+      if (!opener) {
+        // Thử tìm trong feed header
+        const feedMain = document.querySelector('div[role="feed"], div[role="main"]');
+        if (feedMain) {
+          const btn = feedMain.querySelector('[role="button"]');
+          if (btn) opener = btn;
+        }
+      }
+
+      if (!opener) {
+        sendLog('⚠️ Không tìm thấy ô mở soạn bài "Bạn đang nghĩ gì thế?" trên trang cá nhân.', '⚠️');
+        return;
+      }
+
+      sendLog('Đang bấm mở hộp thoại tạo bài viết mới...', '✍️');
+      triggerHumanClick(opener);
+      await delay(1800);
+
+      // 3. Chờ hộp thoại soạn bài (dialog) mở ra
+      let dialog = null;
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 15000 && !isCancelled) {
+        dialog = [...document.querySelectorAll('[role="dialog"]')].find(d => {
+          return d.offsetParent !== null && d.querySelector('[contenteditable="true"]');
+        });
+        if (dialog) break;
+        await delay(500);
+      }
+
+      if (!dialog) {
+        sendLog('⚠️ Không mở được hộp thoại tạo bài viết Facebook sau 15 giây.', '⚠️');
+        return;
+      }
+
+      // 4. Tìm ô soạn bài Lexical editor trong hộp thoại
+      const editor = dialog.querySelector('[contenteditable="true"][role="textbox"]') || dialog.querySelector('[contenteditable="true"]');
+      if (!editor) {
+        sendLog('⚠️ Không tìm thấy ô nhập nội dung bên trong hộp thoại tạo bài.', '⚠️');
+        return;
+      }
+
+      // 5. Điền nội dung bài viết mô phỏng thao tác chuẩn
+      sendLog('Đang điền nội dung bài viết vào ô soạn thảo...', '⌨️');
+      editor.focus();
+      await delay(400);
+
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (_) {}
+
+      // Dispatch beforeinput
+      try {
+        editor.dispatchEvent(new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: postText,
+          bubbles: true,
+          cancelable: true,
+          composed: true
+        }));
+      } catch (_) {}
+
+      // execCommand insertText
+      try {
+        document.execCommand('insertText', false, postText);
+      } catch (_) {}
+
+      // Dispatch input
+      try {
+        editor.dispatchEvent(new InputEvent('input', {
+          inputType: 'insertText',
+          data: postText,
+          bubbles: true,
+          composed: true
+        }));
+      } catch (_) {}
+
+      await delay(1500);
+
+      // Nudge editor để kích hoạt re-render trạng thái nút Đăng
+      try {
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }));
+        document.execCommand('insertText', false, ' ');
+        await delay(200);
+        document.execCommand('delete', false, null);
+        editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
+      } catch (_) {}
+
+      await delay(1200);
+
+      // 6. Tìm và bấm nút Đăng (Post)
+      sendLog('Đang tìm nút Đăng bài viết...', '🔍');
+      const POST_RE = /^(Đăng|Post|Đăng bài|Đăng bài viết|Publish)$/i;
+      let postBtn = null;
+      const postWaitStart = Date.now();
+
+      while (Date.now() - postWaitStart < 15000 && !isCancelled) {
+        const allBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(b => b.offsetParent !== null);
+        const candidate = allBtns.find(b => {
+          const lbl = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim();
+          return POST_RE.test(lbl);
+        });
+
+        if (candidate) {
+          const isDisabled = candidate.disabled || candidate.getAttribute('aria-disabled') === 'true';
+          if (!isDisabled) {
+            postBtn = candidate;
+            break;
+          }
+        }
+        await delay(600);
+      }
+
+      if (!postBtn) {
+        sendLog('⚠️ Nút Đăng chưa sẵn sàng hoặc bị vô hiệu hóa.', '⚠️');
+        return;
+      }
+
+      sendLog('Đang bấm nút Đăng bài viết...', '🚀');
+      triggerHumanClick(postBtn);
+      await delay(1500);
+
+      // 7. Chờ hộp thoại tạo bài đóng lại xác nhận thành công
+      const closeWaitStart = Date.now();
+      let isClosed = false;
+      while (Date.now() - closeWaitStart < 25000 && !isCancelled) {
+        if (!dialog.isConnected || dialog.offsetParent === null) {
+          isClosed = true;
+          break;
+        }
+        await delay(800);
+      }
+
+      if (isClosed) {
+        stats.personalPostDone = true;
+        stats.personalPostText = postText;
+        sendLog(`🎉 ĐÃ ĐĂNG BÀI VIẾT LÊN TRANG CÁ NHÂN THÀNH CÔNG: "${postText.slice(0, 60)}..."`, '🎉');
+      } else {
+        // Nếu hộp thoại chưa đóng, kiểm tra xem có thông báo lỗi từ Facebook không
+        const alertBox = dialog.querySelector('[role="alert"]');
+        const alertText = alertBox ? (alertBox.innerText || alertBox.textContent || '').trim() : '';
+        if (alertText) {
+          sendLog(`⚠️ Facebook thông báo khi đăng bài: ${alertText}`, '⚠️');
+        } else {
+          stats.personalPostDone = true;
+          stats.personalPostText = postText;
+          sendLog(`✅ Đã gửi lệnh Đăng bài viết cá nhân thành công!`, '✅');
+        }
+      }
+    } catch (err) {
+      sendLog(`Lỗi khi đăng bài cá nhân: ${err.message}`, '⚠️');
+    }
+  }
+
   // ── 8. Lắng nghe lệnh từ Extension (warmup.js hoặc worker) ───────────────────
   const warmupMessageListener = (msg, sender, sendResponse) => {
     if (msg.type === 'START_WARMUP_SESSION') {
@@ -542,7 +731,9 @@
           reelsLiked: 0,
           reelsSec: 0,
           notifsChecked: 0,
-          notifSec: 0
+          notifSec: 0,
+          personalPostDone: false,
+          personalPostText: ''
         };
 
         try {
@@ -583,6 +774,19 @@
               }
             }
             await runCheckNotifications(stats);
+          }
+
+          // Bước 3.5: Tự động đăng 1 bài viết lên Trang cá nhân (Timeline) nếu được bật
+          if (cfg.enablePersonalPost && cfg.personalPostText && !isCancelled) {
+            // Đảm bảo tab quay về trang chính Facebook trước khi mở ô soạn bài
+            if (window.location.pathname.includes('/reel') || window.location.pathname.includes('/watch')) {
+              const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i]');
+              if (homeLink) {
+                triggerHumanClick(homeLink);
+                await delay(2500);
+              }
+            }
+            await runPersonalTimelinePost(cfg.personalPostText, stats);
           }
 
           // Bước 4: Phát sóng báo cáo chi tiết về các hành động đã thực hiện
