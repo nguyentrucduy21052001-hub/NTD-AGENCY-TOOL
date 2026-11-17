@@ -107,10 +107,72 @@
     }
   }
 
-  // Khởi chạy bộ giám sát pop-up định kỳ mỗi 1.5 giây trong suốt phiên nuôi
+  // ── 2.1. Giám sát an ninh, phiên đăng nhập và phát hiện Checkpoint/Hạn chế tính năng ──
+  function checkAccountSecurityAndCheckpoint() {
+    try {
+      const url = (window.location.href || '').toLowerCase();
+      
+      // 1. Nhận diện qua URL Checkpoint hoặc Login/Recover
+      if (url.includes('/checkpoint/') || url.includes('checkpoint') || url.includes('/two_step_verification') || url.includes('login_attempt') || url.includes('/recover/')) {
+        return { isAlert: true, type: 'checkpoint', reason: 'Phát hiện trang Checkpoint / Yêu cầu xác thực danh tính Facebook' };
+      }
+      if (url.includes('facebook.com/login') || url.includes('/login.php')) {
+        return { isAlert: true, type: 'session_expired', reason: 'Phiên đăng nhập đã hết hạn hoặc bị đăng xuất khỏi Facebook' };
+      }
+
+      // 2. Nhận diện các thông điệp cảnh báo Checkpoint/Đình chỉ từ Meta
+      const bodyText = (document.body ? document.body.innerText || '' : '').toLowerCase();
+      if (bodyText.includes('tài khoản của bạn tạm thời bị khóa') ||
+          bodyText.includes('chúng tôi đã đình chỉ tài khoản') ||
+          bodyText.includes('your account has been disabled') ||
+          bodyText.includes('your account has been suspended') ||
+          bodyText.includes('tài khoản đã bị vô hiệu hóa') ||
+          bodyText.includes('xác nhận đây là tài khoản của bạn') ||
+          document.querySelector('#checkpointSubmitButton') !== null) {
+        return { isAlert: true, type: 'checkpoint', reason: 'Tài khoản Facebook bị Checkpoint hoặc đình chỉ tạm thời' };
+      }
+
+      // 3. Nhận diện hạn chế tính năng / chặn thao tác tạm thời
+      if (bodyText.includes('bạn tạm thời bị hạn chế') ||
+          bodyText.includes('bạn đã bị chặn') ||
+          bodyText.includes('tính năng này tạm thời bị khóa') ||
+          bodyText.includes('action blocked') ||
+          bodyText.includes('you’re temporarily blocked') ||
+          bodyText.includes('tài khoản của bạn bị hạn chế')) {
+        return { isAlert: true, type: 'restriction', reason: 'Tài khoản bị Facebook hạn chế tính năng / chặn tạm thời' };
+      }
+
+      return { isAlert: false };
+    } catch (_) {
+      return { isAlert: false };
+    }
+  }
+
+  function reportCheckpointAndHalt(secAlert) {
+    if (isCancelled) return;
+    isCancelled = true;
+    clearInterval(popupGuardInterval);
+    sendLog(`🚨 ${secAlert.reason}! Tự động ngắt phiên ngay để bảo vệ an toàn cho nick.`, '⛔');
+    try {
+      chrome.runtime.sendMessage({
+        type: 'WARMUP_CHECKPOINT_DETECTED',
+        reason: secAlert.reason,
+        alertType: secAlert.type,
+        url: window.location.href,
+        timestamp: Date.now()
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  // Khởi chạy bộ giám sát pop-up & checkpoint định kỳ mỗi 1.5 giây trong suốt phiên nuôi
   const popupGuardInterval = setInterval(() => {
     if (isCancelled) {
       clearInterval(popupGuardInterval);
+      return;
+    }
+    const secAlert = checkAccountSecurityAndCheckpoint();
+    if (secAlert.isAlert) {
+      reportCheckpointAndHalt(secAlert);
       return;
     }
     dismissObstructingDialogs();
@@ -231,6 +293,11 @@
     const likedElements = new WeakSet();
 
     while (Date.now() < endTime && !isCancelled) {
+      const secAlert = checkAccountSecurityAndCheckpoint();
+      if (secAlert.isAlert) {
+        reportCheckpointAndHalt(secAlert);
+        break;
+      }
       dismissObstructingDialogs();
 
       // 1. Cuộn trang mượt mà
@@ -364,6 +431,11 @@
       const endTime = startTime + durationMs;
 
       while (Date.now() < endTime && !isCancelled) {
+        const secAlert = checkAccountSecurityAndCheckpoint();
+        if (secAlert.isAlert) {
+          reportCheckpointAndHalt(secAlert);
+          break;
+        }
         dismissObstructingDialogs();
         stats.reelsWatched++;
 

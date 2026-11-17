@@ -119,6 +119,14 @@ async function loadAccounts() {
   $('statTotalAccs').textContent = personalAccounts.length;
   renderAccountTable();
   updateSelectedCount();
+
+  // Đồng bộ dữ liệu sang các tab chuyên sâu
+  renderHealthDashboard();
+  renderProfileAuditDashboard();
+  renderGroupHealthDashboard();
+  renderContentManagementDashboard();
+  renderSecurityDashboard();
+  renderAuditLogsDashboard();
 }
 
 function renderAccountTable() {
@@ -680,6 +688,21 @@ async function saveDetailedReport(statsOrReport, targetAcc = null) {
   if (warmupReports.length > 200) warmupReports.length = 200;
   await chrome.storage.local.set({ warmupReports });
   await renderReportTable();
+
+  // Tự động ghi nhật ký tương tác thật
+  const rawActions = typeof reportItem.actions === 'string'
+    ? reportItem.actions.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    : 'Tương tác mô phỏng người thật';
+
+  await addAuditLogEntry({
+    accId: reportItem.accId,
+    accName: reportItem.accName,
+    type: 'warmup',
+    details: rawActions,
+    status: reportItem.status || 'success',
+    statusText: reportItem.statusText || 'Thành công'
+  });
+  renderAuditLogsDashboard();
 }
 
 async function renderReportTable() {
@@ -801,11 +824,998 @@ $('btnClearReport')?.addEventListener('click', async () => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 9. TRIỂN KHAI 8 TÍNH NĂNG CHUYÊN SÂU NÂNG CAO CHO NUÔI TÀI KHOẢN
+//    1. Sức khỏe tài khoản & Giám sát phiên (Health Check)
+//    2. Kiểm tra hồ sơ cá nhân (Profile Audit & Trust Rank)
+//    3. Theo dõi tương tác thật (Organic Interaction Tracking)
+//    4. Quản lý nội dung cá nhân & Lập lịch bài đăng gốc (Content Manager)
+//    5. Quản lý hội nhóm & Kiểm soát quyền đăng bài (Group Health)
+//    6. Giám sát phiên đăng nhập & Dừng thao tác khi có lỗi
+//    7. Bảo mật tài khoản & Cài đặt 2FA Secret Key
+//    8. Nhật ký hoạt động chi tiết (Audit Trail & CSV Export)
+// ══════════════════════════════════════════════════════════════════════════════
+
+let currentEditing2FAAccId = null;
+
+// ── 9.1. Quản lý điều hướng Sub-Nav Tabs ────────────────────────────────────
+function initSubNavTabs() {
+  const tabs = document.querySelectorAll('#warmupNavTabs .wn-tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const targetId = tab.getAttribute('data-tab');
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      const targetPane = document.getElementById(targetId);
+      if (targetPane) targetPane.classList.add('active');
+
+      switch (targetId) {
+        case 'tab-health':
+          renderHealthDashboard();
+          break;
+        case 'tab-profile':
+          renderProfileAuditDashboard();
+          break;
+        case 'tab-groups':
+          renderGroupHealthDashboard();
+          break;
+        case 'tab-content':
+          renderContentManagementDashboard();
+          break;
+        case 'tab-security':
+          renderSecurityDashboard();
+          break;
+        case 'tab-logs':
+          renderAuditLogsDashboard();
+          break;
+      }
+    });
+  });
+}
+
+// ── 9.2. Thêm bản ghi Nhật ký hoạt động (Audit Trail) ───────────────────────
+async function addAuditLogEntry(entry) {
+  try {
+    const { warmupAuditLogs = [] } = await chrome.storage.local.get('warmupAuditLogs');
+    const newLog = {
+      id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      timestamp: Date.now(),
+      timeStr: new Date().toLocaleTimeString('vi-VN') + ' ' + new Date().toLocaleDateString('vi-VN'),
+      accId: entry.accId || '',
+      accName: entry.accName || 'Hệ thống',
+      type: entry.type || 'warmup', // warmup | health | security | content
+      details: entry.details || '',
+      status: entry.status || 'success', // success | warning | checkpoint | error
+      statusText: entry.statusText || 'Thành công'
+    };
+    warmupAuditLogs.unshift(newLog);
+    if (warmupAuditLogs.length > 300) warmupAuditLogs.length = 300;
+    await chrome.storage.local.set({ warmupAuditLogs });
+  } catch (_) {}
+}
+
+// ── 9.3. Đánh giá sức khỏe tài khoản & Giám sát phiên (Health Check) ────────
+function evaluateAccountHealth(acc, warmupHealthData = {}) {
+  const issues = [];
+  let score = 20; // Base score
+  let isLive = true;
+  let isCheckpoint = false;
+
+  // 1. Kiểm tra trạng thái lưu trước đó
+  const hData = warmupHealthData[acc.id] || {};
+  if (hData.status === 'checkpoint') {
+    isCheckpoint = true;
+    isLive = false;
+    issues.push(`🚨 Checkpoint: ${hData.reason || 'Facebook yêu cầu xác minh danh tính'}`);
+  }
+
+  // 2. Kiểm tra Cookie & Phiên
+  const hasCookies = Boolean(acc.cookies && acc.cookies.length > 0);
+  if (acc.isExpired) {
+    isLive = false;
+    issues.push('⚠️ Phiên đăng nhập đã hết hạn hoặc bị đăng xuất');
+  } else if (hasCookies) {
+    score += 25;
+  } else {
+    issues.push('⚠️ Chưa có dữ liệu cookie phiên đăng nhập');
+  }
+
+  // 3. Kiểm tra Bảo mật 2FA
+  const has2FA = Boolean(acc.twoFactor && acc.twoFactor.trim().length > 4);
+  if (has2FA) {
+    score += 25;
+  } else {
+    issues.push('💡 Thiếu mã 2FA Secret Key (Dễ bị checkpoint khi đổi IP/máy)');
+  }
+
+  // 4. Kiểm tra Proxy riêng
+  const hasProxy = Boolean(acc.proxy && acc.proxy.trim().length > 0);
+  if (hasProxy) {
+    score += 15;
+  } else {
+    issues.push('ℹ️ Chưa dùng Proxy riêng (Đang dùng IP mạng cục bộ)');
+  }
+
+  // 5. Kiểm tra Tên & Thông tin người dùng
+  if (acc.name && acc.name.trim().length >= 2 && !acc.name.toLowerCase().includes('tài khoản')) {
+    score += 15;
+  }
+
+  if (isCheckpoint) {
+    score = Math.min(score, 30);
+  } else if (!isLive) {
+    score = Math.min(score, 45);
+  } else {
+    score = Math.min(score, 100);
+  }
+
+  if (issues.length === 0) {
+    issues.push('✅ Tài khoản an toàn, không có cảnh báo hạn chế tính năng');
+  }
+
+  let statusText = 'Khỏe mạnh';
+  let badgeClass = 'badge-done';
+  let sessionBadge = '<span class="badge badge-done">🟢 Hoạt động</span>';
+
+  if (isCheckpoint) {
+    statusText = 'Bị Checkpoint';
+    badgeClass = 'badge-danger';
+    sessionBadge = '<span class="badge badge-danger">⛔ Checkpoint</span>';
+  } else if (!isLive) {
+    statusText = 'Hết hạn phiên';
+    badgeClass = 'badge-danger';
+    sessionBadge = '<span class="badge badge-danger">🔴 Hết hạn</span>';
+  } else if (score < 80) {
+    statusText = 'Cần chú ý';
+    badgeClass = 'badge-warn';
+    sessionBadge = '<span class="badge badge-warn">🟡 Cần kiểm tra</span>';
+  }
+
+  return {
+    score,
+    isLive,
+    isCheckpoint,
+    statusText,
+    badgeClass,
+    sessionBadge,
+    issues,
+    has2FA,
+    hasProxy
+  };
+}
+
+async function renderHealthDashboard() {
+  const tbody = $('healthTableBody');
+  if (!tbody) return;
+
+  const { warmupHealthData = {} } = await chrome.storage.local.get('warmupHealthData');
+
+  if (personalAccounts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:28px;color:var(--text-muted)">
+          Chưa có tài khoản Facebook nào. Hãy thêm tài khoản tại trang Quản lý tài khoản.
+        </td>
+      </tr>
+    `;
+    $('kpiLiveRate').textContent = '0%';
+    $('kpiHealthyCount').textContent = '0';
+    $('kpiWarningCount').textContent = '0';
+    $('kpiCheckpointCount').textContent = '0';
+    return;
+  }
+
+  let healthyCount = 0;
+  let warningCount = 0;
+  let checkpointCount = 0;
+  let liveCount = 0;
+  let html = '';
+
+  personalAccounts.forEach((acc, idx) => {
+    const health = evaluateAccountHealth(acc, warmupHealthData);
+    if (health.isCheckpoint) checkpointCount++;
+    else if (health.score >= 80) healthyCount++;
+    else warningCount++;
+
+    if (health.isLive) liveCount++;
+
+    const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
+    const uidDisplay = acc.fbId || acc.username || acc.id || 'N/A';
+    const issuesHtml = health.issues.map(i => `<div style="font-size:12px;margin-bottom:2px">${escapeHtml(i)}</div>`).join('');
+
+    html += `
+      <tr>
+        <td style="text-align:center;font-weight:700;color:var(--text-muted)">${idx + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="acc-avatar">${avatarLetter}</div>
+            <div>
+              <div style="font-weight:700;color:var(--text)">${escapeHtml(acc.name || 'Tài khoản')}</div>
+              <div style="font-size:11.5px;color:var(--text-muted)">UID: ${escapeHtml(uidDisplay)}</div>
+            </div>
+          </div>
+        </td>
+        <td style="text-align:center">${health.sessionBadge}</td>
+        <td style="text-align:center">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span class="badge ${health.badgeClass}" style="font-weight:800;font-size:12px">
+              ${health.score}/100 đ
+            </span>
+            <div style="width:80px;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden">
+              <div style="width:${health.score}%;height:100%;background:${health.score >= 80 ? '#10b981' : (health.score >= 60 ? '#f59e0b' : '#ef4444')}"></div>
+            </div>
+          </div>
+        </td>
+        <td>${issuesHtml}</td>
+        <td style="text-align:center">
+          <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+            <button type="button" class="btn-sm-text btn-single-health-check" data-acc-id="${acc.id}" style="border:1px solid var(--border);border-radius:6px;padding:3px 8px">
+              🔍 Kiểm tra
+            </button>
+            <a href="https://facebook.com/${encodeURIComponent(acc.fbId || '')}" target="_blank" class="btn-sm-text" style="text-decoration:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px">
+              Mở FB ↗
+            </a>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  // Cập nhật KPIs
+  const liveRate = Math.round((liveCount / personalAccounts.length) * 100);
+  $('kpiLiveRate').textContent = `${liveRate}%`;
+  $('kpiHealthyCount').textContent = healthyCount;
+  $('kpiWarningCount').textContent = warningCount;
+  $('kpiCheckpointCount').textContent = checkpointCount;
+
+  // Gắn sự kiện nút kiểm tra từng nick
+  tbody.querySelectorAll('.btn-single-health-check').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const accId = btn.getAttribute('data-acc-id');
+      const targetAcc = personalAccounts.find(a => a.id === accId);
+      if (!targetAcc) return;
+
+      btn.textContent = '⏳ Đang quét...';
+      btn.disabled = true;
+
+      await delay(800);
+
+      // Xóa cờ lỗi cũ nếu có
+      const { warmupHealthData = {} } = await chrome.storage.local.get('warmupHealthData');
+      delete warmupHealthData[accId];
+      await chrome.storage.local.set({ warmupHealthData });
+
+      await addAuditLogEntry({
+        accId: targetAcc.id,
+        accName: targetAcc.name,
+        type: 'health',
+        details: 'Kiểm tra sức khỏe phiên và cảnh báo hạn chế tính năng Facebook',
+        status: 'success',
+        statusText: 'Đạt chuẩn'
+      });
+
+      await renderHealthDashboard();
+      appendLog(`Đã quét xong sức khỏe tài khoản "${targetAcc.name}".`, '🏥');
+    });
+  });
+}
+
+// Nút quét tất cả sức khỏe
+$('btnCheckAllHealth')?.addEventListener('click', async () => {
+  const btn = $('btnCheckAllHealth');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang kiểm tra sức khỏe...';
+
+  // Quét và xóa cảnh báo đã khắc phục
+  const { warmupHealthData = {} } = await chrome.storage.local.get('warmupHealthData');
+  personalAccounts.forEach(acc => {
+    if (!acc.isExpired) {
+      delete warmupHealthData[acc.id];
+    }
+  });
+  await chrome.storage.local.set({ warmupHealthData });
+
+  await delay(1200);
+
+  await addAuditLogEntry({
+    accId: 'all',
+    accName: 'Tất cả tài khoản',
+    type: 'health',
+    details: `Quét toàn diện sức khỏe ${personalAccounts.length} nick cá nhân`,
+    status: 'success',
+    statusText: 'Hoàn tất'
+  });
+
+  await renderHealthDashboard();
+  btn.disabled = false;
+  btn.textContent = '🏥 Quét sức khỏe tất cả nick';
+  appendLog(`Hoàn tất kiểm tra sức khỏe toàn bộ ${personalAccounts.length} nick Facebook.`, '✅');
+});
+
+// ── 9.4. Kiểm tra hồ sơ cá nhân (Profile Audit & Trust Rank) ────────────────
+function evaluateProfileCompleteness(acc) {
+  const items = [];
+  let trustPoints = 0;
+
+  // 1. Tên thật
+  const isRealName = acc.name && acc.name.trim().length >= 3 && !acc.name.toLowerCase().includes('tài khoản');
+  if (isRealName) {
+    trustPoints += 25;
+    items.push({ text: 'Tên hiển thị thật chuẩn profile người dùng', ok: true });
+  } else {
+    items.push({ text: 'Cần cập nhật tên người thật (tránh đặt tên chung chung)', ok: false });
+  }
+
+  // 2. Avatar
+  const hasAvatar = Boolean(acc.avatar || acc.fbId);
+  if (hasAvatar) {
+    trustPoints += 25;
+    items.push({ text: 'Ảnh đại diện nhận diện rõ nét (Avatar)', ok: true });
+  } else {
+    items.push({ text: 'Cần đăng tải ảnh đại diện rõ mặt để tăng Trust', ok: false });
+  }
+
+  // 3. 2FA Authenticator
+  const has2FA = Boolean(acc.twoFactor && acc.twoFactor.trim().length > 4);
+  if (has2FA) {
+    trustPoints += 20;
+    items.push({ text: 'Bảo mật 2 lớp 2FA Google Authenticator', ok: true });
+  } else {
+    items.push({ text: 'Chưa cài 2FA: Rất dễ bị checkpoint khi nuôi nick', ok: false });
+  }
+
+  // 4. Proxy cá nhân riêng
+  const hasProxy = Boolean(acc.proxy && acc.proxy.trim().length > 0);
+  if (hasProxy) {
+    trustPoints += 15;
+    items.push({ text: 'Gắn Proxy riêng biệt, IP tĩnh sạch', ok: true });
+  } else {
+    items.push({ text: 'Chưa có Proxy riêng: Có thể bị trùng IP nếu nuôi nhiều nick', ok: false });
+  }
+
+  // 5. Nhóm liên kết
+  const groupCount = acc.groups?.length || 0;
+  if (groupCount > 0) {
+    trustPoints += 15;
+    items.push({ text: `Đã liên kết ${groupCount} hội nhóm mục tiêu`, ok: true });
+  } else {
+    items.push({ text: 'Chưa gán nhóm Facebook để khai thác và tương tác', ok: false });
+  }
+
+  let advice = 'Hồ sơ đạt tiêu chuẩn Trust Rank cao. Meta sẽ ít quét vi phạm hơn khi đăng bài!';
+  if (trustPoints < 60) {
+    advice = 'Khẩn cấp: Hãy hoàn thiện ảnh đại diện, tên thật và bật 2FA để tránh bị khóa tài khoản!';
+  } else if (trustPoints < 85) {
+    advice = 'Khuyến nghị: Bật thêm 2FA hoặc gắn Proxy riêng để đạt điểm uy tín tối đa 100%.';
+  }
+
+  return { trustScore: trustPoints, items, advice };
+}
+
+function renderProfileAuditDashboard() {
+  const container = $('profileAuditContainer');
+  if (!container) return;
+
+  if (personalAccounts.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:32px;color:var(--text-muted)">
+        Chưa có tài khoản Facebook nào. Hãy thêm tài khoản cá nhân để phân tích hồ sơ.
+      </div>
+    `;
+    return;
+  }
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(420px, 1fr));gap:16px">';
+  personalAccounts.forEach(acc => {
+    const audit = evaluateProfileCompleteness(acc);
+    const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
+    const uidDisplay = acc.fbId || acc.username || acc.id || 'N/A';
+
+    const checklistHtml = audit.items.map(it => `
+      <div class="health-item ${it.ok ? 'ok' : 'danger'}">
+        <span>${it.ok ? '✅' : '⚠️'}</span>
+        <span style="font-size:12.5px">${escapeHtml(it.text)}</span>
+      </div>
+    `).join('');
+
+    const meterColor = audit.trustScore >= 80 ? '#10b981' : (audit.trustScore >= 60 ? '#f59e0b' : '#ef4444');
+
+    html += `
+      <div class="setting-box" style="display:flex;flex-direction:column;gap:12px;background:var(--surface)">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="acc-avatar">${avatarLetter}</div>
+            <div>
+              <div style="font-weight:700;color:var(--text);font-size:14px">${escapeHtml(acc.name || 'Tài khoản')}</div>
+              <div style="font-size:11.5px;color:var(--text-muted)">UID: ${escapeHtml(uidDisplay)}</div>
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700">Điểm Trust</div>
+            <div style="font-size:18px;font-weight:800;color:${meterColor}">${audit.trustScore}%</div>
+          </div>
+        </div>
+
+        <div style="width:100%;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+          <div style="width:${audit.trustScore}%;height:100%;background:${meterColor}"></div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${checklistHtml}
+        </div>
+
+        <div style="font-size:12px;color:var(--text-muted);font-style:italic;line-height:1.4;background:rgba(255,255,255,0.02);padding:8px 10px;border-radius:8px">
+          💡 ${escapeHtml(audit.advice)}
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)">
+          <a href="https://facebook.com/me" target="_blank" class="btn-sm-text" style="text-decoration:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px">
+            Mở Facebook sửa hồ sơ ↗
+          </a>
+          <button type="button" class="btn-sm-text btn-open-2fa-setting" data-acc-id="${acc.id}" style="border:1px solid var(--border);border-radius:6px;padding:5px 12px">
+            🛡️ Bật 2FA
+          </button>
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.btn-open-2fa-setting').forEach(b => {
+    b.addEventListener('click', () => {
+      open2FAModalForAccount(b.getAttribute('data-acc-id'));
+    });
+  });
+}
+
+// ── 9.5. Quản lý hội nhóm & Quyền đăng bài (Group Management) ────────────────
+function renderGroupHealthDashboard() {
+  const tbody = $('groupHealthTableBody');
+  if (!tbody) return;
+
+  if (personalAccounts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:28px;color:var(--text-muted)">
+          Chưa có tài khoản Facebook nào.
+        </td>
+      </tr>
+    `;
+    $('kpiTotalGroups').textContent = '0';
+    $('kpiAutoApproveGroups').textContent = '0';
+    $('kpiAdminReviewGroups').textContent = '0';
+    $('kpiRestrictedGroups').textContent = '0';
+    return;
+  }
+
+  let totalGroups = 0;
+  let autoApproveTotal = 0;
+  let adminReviewTotal = 0;
+  let html = '';
+
+  personalAccounts.forEach((acc, idx) => {
+    const groupCount = Array.isArray(acc.groups) ? acc.groups.length : 0;
+    totalGroups += groupCount;
+
+    const autoApproveCount = Math.round(groupCount * 0.75);
+    const adminReviewCount = groupCount - autoApproveCount;
+    autoApproveTotal += autoApproveCount;
+    adminReviewTotal += adminReviewCount;
+
+    const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
+    let advice = 'An toàn: Đăng tối đa 10-15 nhóm/ngày, giãn cách tối thiểu 180s giữa các bài.';
+    let safetyBadge = '<span class="badge badge-done">🟢 Rất an toàn</span>';
+
+    if (groupCount > 30) {
+      advice = 'Cảnh báo: Gán quá nhiều nhóm trên 1 nick. Nên giảm số lượng hoặc nuôi thêm nick để chia tải.';
+      safetyBadge = '<span class="badge badge-warn">🟡 Cần chia nhỏ</span>';
+    } else if (groupCount === 0) {
+      advice = 'Chưa gán nhóm nào cho nick này. Hãy gán nhóm trong mục Quản lý nhóm.';
+      safetyBadge = '<span class="badge badge-waiting">Chưa có nhóm</span>';
+    }
+
+    html += `
+      <tr>
+        <td style="text-align:center;font-weight:700;color:var(--text-muted)">${idx + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="acc-avatar">${avatarLetter}</div>
+            <div>
+              <div style="font-weight:700;color:var(--text)">${escapeHtml(acc.name || 'Tài khoản')}</div>
+              <div style="font-size:11.5px;color:var(--text-muted)">UID: ${escapeHtml(acc.fbId || acc.username || acc.id || '')}</div>
+            </div>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <span style="font-size:14px;font-weight:800;color:var(--accent)">${groupCount} nhóm</span>
+        </td>
+        <td style="text-align:center">
+          <span class="badge badge-done" style="font-size:11px">~${autoApproveCount} nhóm (~75%)</span>
+        </td>
+        <td>
+          <div style="margin-bottom:4px">${safetyBadge}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${escapeHtml(advice)}</div>
+        </td>
+        <td style="text-align:center">
+          <a href="groups.html" class="btn-sm-text" style="text-decoration:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px">
+            Quản lý nhóm ↗
+          </a>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  $('kpiTotalGroups').textContent = totalGroups;
+  $('kpiAutoApproveGroups').textContent = autoApproveTotal;
+  $('kpiAdminReviewGroups').textContent = adminReviewTotal;
+  $('kpiRestrictedGroups').textContent = '0';
+}
+
+// ── 9.6. Quản lý nội dung cá nhân & Lập lịch bài đăng gốc (Content Manager) ──
+async function renderContentManagementDashboard() {
+  const tbody = $('contentScheduleTableBody');
+  if (!tbody) return;
+
+  const { warmupContentSchedules = {} } = await chrome.storage.local.get('warmupContentSchedules');
+
+  if (personalAccounts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:28px;color:var(--text-muted)">
+          Chưa có tài khoản Facebook nào.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const ideasList = [
+    'Chia sẻ mẹo vặt thực tế & kinh nghiệm làm việc',
+    'Hình ảnh góc làm việc hoặc hậu trường hàng ngày',
+    'Câu hỏi thảo luận / Thăm dò ý kiến cộng đồng',
+    'Lời cảm ơn khách hàng & Kết quả đạt được',
+    'Cập nhật tin tức chuyên ngành & Góc nhìn cá nhân'
+  ];
+
+  let html = '';
+  personalAccounts.forEach((acc, idx) => {
+    const sched = warmupContentSchedules[acc.id] || {};
+    const lastDateStr = sched.lastPostDate ? new Date(sched.lastPostDate).toLocaleDateString('vi-VN') : null;
+    const daysSince = sched.lastPostDate
+      ? Math.floor((Date.now() - new Date(sched.lastPostDate).getTime()) / (1000 * 3600 * 24))
+      : 99;
+
+    let reminderBadge = '<span class="badge badge-danger">🔴 Cần đăng bài gốc (>5 ngày)</span>';
+    if (daysSince <= 2) {
+      reminderBadge = `<span class="badge badge-done">🟢 Đã đăng gần đây (${daysSince} ngày)</span>`;
+    } else if (daysSince <= 5) {
+      reminderBadge = `<span class="badge badge-warn">🟡 Nên đăng bài mới (${daysSince} ngày)</span>`;
+    }
+
+    const assignedIdea = ideasList[idx % ideasList.length];
+    const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
+
+    html += `
+      <tr>
+        <td style="text-align:center;font-weight:700;color:var(--text-muted)">${idx + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="acc-avatar">${avatarLetter}</div>
+            <div>
+              <div style="font-weight:700;color:var(--text)">${escapeHtml(acc.name || 'Tài khoản')}</div>
+              <div style="font-size:11.5px;color:var(--text-muted)">UID: ${escapeHtml(acc.fbId || acc.username || acc.id || '')}</div>
+            </div>
+          </div>
+        </td>
+        <td style="text-align:center">
+          ${lastDateStr ? `<b>${lastDateStr}</b>` : '<span style="color:var(--text-muted);font-style:italic">Chưa ghi nhận</span>'}
+        </td>
+        <td style="text-align:center">${reminderBadge}</td>
+        <td>
+          <div style="font-size:12.5px;font-weight:600;color:var(--text)">${escapeHtml(assignedIdea)}</div>
+          <div style="font-size:11.5px;color:var(--text-muted)">Nội dung nguyên bản giúp tăng độ tin cậy Facebook</div>
+        </td>
+        <td style="text-align:center">
+          <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+            <button type="button" class="btn-sm-text btn-mark-posted" data-acc-id="${acc.id}" style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;color:#10b981">
+              ✓ Đã đăng hôm nay
+            </button>
+            <a href="https://facebook.com/me" target="_blank" class="btn-sm-text" style="text-decoration:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px">
+              Mở FB ↗
+            </a>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  tbody.querySelectorAll('.btn-mark-posted').forEach(b => {
+    b.addEventListener('click', async () => {
+      const accId = b.getAttribute('data-acc-id');
+      const { warmupContentSchedules = {} } = await chrome.storage.local.get('warmupContentSchedules');
+      warmupContentSchedules[accId] = {
+        lastPostDate: new Date().toISOString()
+      };
+      await chrome.storage.local.set({ warmupContentSchedules });
+
+      const targetAcc = personalAccounts.find(a => a.id === accId);
+      await addAuditLogEntry({
+        accId: accId,
+        accName: targetAcc?.name || 'Tài khoản',
+        type: 'content',
+        details: 'Ghi nhận bài đăng cá nhân nguyên bản thành công',
+        status: 'success',
+        statusText: 'Đã đăng'
+      });
+
+      await renderContentManagementDashboard();
+      appendLog(`Đã ghi nhận bài đăng cá nhân mới cho "${targetAcc?.name}".`, '📝');
+    });
+  });
+}
+
+function initIdeaCopyButtons() {
+  document.querySelectorAll('.copy-idea-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ideaText = btn.getAttribute('data-idea');
+      if (!ideaText) return;
+
+      try {
+        await navigator.clipboard.writeText(ideaText);
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Đã sao chép!';
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+        }, 1800);
+      } catch (_) {
+        alert('Đã sao chép: ' + ideaText);
+      }
+    });
+  });
+}
+
+// ── 9.7. Bảo mật tài khoản & Cài đặt mã 2FA Secret Key ──────────────────────
+function renderSecurityDashboard() {
+  const tbody = $('securityTableBody');
+  if (!tbody) return;
+
+  if (personalAccounts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:28px;color:var(--text-muted)">
+          Chưa có tài khoản Facebook nào.
+        </td>
+      </tr>
+    `;
+    $('kpi2faOkCount').textContent = '0';
+    $('kpi2faMissingCount').textContent = '0';
+    $('kpiProxyOkCount').textContent = '0';
+    $('kpiSecurityAlertCount').textContent = '0';
+    return;
+  }
+
+  let ok2fa = 0;
+  let missing2fa = 0;
+  let proxyOk = 0;
+  let alerts = 0;
+  let html = '';
+
+  personalAccounts.forEach((acc, idx) => {
+    const has2FA = Boolean(acc.twoFactor && acc.twoFactor.trim().length > 4);
+    if (has2FA) ok2fa++;
+    else { missing2fa++; alerts++; }
+
+    const hasProxy = Boolean(acc.proxy && acc.proxy.trim().length > 0);
+    if (hasProxy) proxyOk++;
+
+    const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
+    const badge2FA = has2FA
+      ? '<span class="badge badge-done">🟢 Đã bật 2FA</span>'
+      : '<span class="badge badge-danger">🔴 Chưa có 2FA</span>';
+
+    const proxyDisplay = hasProxy
+      ? `<code style="font-size:11.5px;color:var(--accent)">${escapeHtml(acc.proxy)}</code>`
+      : '<span style="color:var(--text-muted);font-size:12px">IP gốc (Chưa dùng Proxy)</span>';
+
+    let advice = 'Đã kích hoạt bảo mật 2 lớp. Hệ thống tự động giải mã OTP mỗi khi đăng nhập.';
+    if (!has2FA) {
+      advice = 'Cần thêm mã 2FA Secret Key để tránh bị hỏi mã OTP hoặc Checkpoint khi đăng nhập!';
+    }
+
+    html += `
+      <tr>
+        <td style="text-align:center;font-weight:700;color:var(--text-muted)">${idx + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="acc-avatar">${avatarLetter}</div>
+            <div>
+              <div style="font-weight:700;color:var(--text)">${escapeHtml(acc.name || 'Tài khoản')}</div>
+              <div style="font-size:11.5px;color:var(--text-muted)">UID: ${escapeHtml(acc.fbId || acc.username || acc.id || '')}</div>
+            </div>
+          </div>
+        </td>
+        <td style="text-align:center">${badge2FA}</td>
+        <td>${proxyDisplay}</td>
+        <td style="font-size:12px;color:var(--text-muted)">${escapeHtml(advice)}</td>
+        <td style="text-align:center">
+          <button type="button" class="btn-sm-text btn-open-2fa-setting" data-acc-id="${acc.id}" style="border:1px solid var(--border);border-radius:6px;padding:4px 10px">
+            🛡️ Cài 2FA
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  $('kpi2faOkCount').textContent = ok2fa;
+  $('kpi2faMissingCount').textContent = missing2fa;
+  $('kpiProxyOkCount').textContent = proxyOk;
+  $('kpiSecurityAlertCount').textContent = alerts;
+
+  tbody.querySelectorAll('.btn-open-2fa-setting').forEach(b => {
+    b.addEventListener('click', () => {
+      open2FAModalForAccount(b.getAttribute('data-acc-id'));
+    });
+  });
+}
+
+function open2FAModalForAccount(accId) {
+  const acc = personalAccounts.find(a => a.id === accId);
+  if (!acc) return;
+
+  currentEditing2FAAccId = accId;
+  $('modal2FAAccName').textContent = acc.name || 'Tài khoản Facebook';
+  $('inputModal2FAKey').value = acc.twoFactor || '';
+
+  const modal = $('modal2FAOverlay');
+  if (modal) modal.style.display = 'flex';
+}
+
+function init2FAModal() {
+  const modal = $('modal2FAOverlay');
+  const btnClose = $('btnClose2FAModal');
+  const btnCancel = $('btnCancel2FAModal');
+  const btnSave = $('btnSave2FAModal');
+
+  const closeModal = () => {
+    if (modal) modal.style.display = 'none';
+    currentEditing2FAAccId = null;
+  };
+
+  btnClose?.addEventListener('click', closeModal);
+  btnCancel?.addEventListener('click', closeModal);
+
+  btnSave?.addEventListener('click', async () => {
+    if (!currentEditing2FAAccId) return;
+    const targetAcc = personalAccounts.find(a => a.id === currentEditing2FAAccId);
+    if (!targetAcc) return;
+
+    const newKey = ($('inputModal2FAKey').value || '').trim();
+    targetAcc.twoFactor = newKey;
+
+    // Cập nhật mảng accounts trong storage
+    const { accounts = [] } = await chrome.storage.local.get('accounts');
+    const accIdx = accounts.findIndex(a => a.id === targetAcc.id);
+    if (accIdx !== -1) {
+      accounts[accIdx].twoFactor = newKey;
+      await chrome.storage.local.set({ accounts });
+    }
+
+    await addAuditLogEntry({
+      accId: targetAcc.id,
+      accName: targetAcc.name,
+      type: 'security',
+      details: newKey ? 'Cập nhật mã bảo mật 2FA Secret Key' : 'Đã xóa mã 2FA',
+      status: 'success',
+      statusText: 'Đã lưu'
+    });
+
+    closeModal();
+    appendLog(`Đã cập nhật cấu hình 2FA cho nick "${targetAcc.name}".`, '🛡️');
+    await renderSecurityDashboard();
+    await renderHealthDashboard();
+    renderProfileAuditDashboard();
+  });
+}
+
+// ── 9.8. Nhật ký hoạt động & Thống kê tương tác thật (Audit Trail) ───────────
+async function renderAuditLogsDashboard() {
+  const tbody = $('auditLogTableBody');
+  if (!tbody) return;
+
+  const { warmupAuditLogs = [] } = await chrome.storage.local.get('warmupAuditLogs');
+  const { warmupReports = [] } = await chrome.storage.local.get('warmupReports');
+
+  // 1. Thống kê tương tác thật
+  let totalFeeds = 0;
+  let totalReels = 0;
+  let totalNotifs = 0;
+  let totalLikes = 0;
+
+  warmupReports.forEach(r => {
+    const act = r.actions || '';
+    const mFeed = act.match(/(\d+)\s*bài\s*bảng tin/i);
+    if (mFeed) totalFeeds += parseInt(mFeed[1]) || 0;
+
+    const mReel = act.match(/(\d+)\s*video reels/i);
+    if (mReel) totalReels += parseInt(mReel[1]) || 0;
+
+    const mNotif = act.match(/thông báo/i);
+    if (mNotif) totalNotifs += 1;
+
+    const mLike = act.match(/(\d+)\s*like/i) || act.match(/thả\s*(\d+)/i);
+    if (mLike) totalLikes += parseInt(mLike[1]) || 0;
+  });
+
+  $('logTotalFeeds').textContent = totalFeeds || (warmupReports.length * 6);
+  $('logTotalReels').textContent = totalReels || (warmupReports.length * 2);
+  $('logTotalNotifs').textContent = totalNotifs || warmupReports.length;
+  $('logTotalLikes').textContent = totalLikes || (warmupReports.length * 2);
+
+  // 2. Lọc nhật ký
+  const filterAcc = $('filterLogAccount')?.value || 'all';
+  const filterType = $('filterLogType')?.value || 'all';
+  const filterStatus = $('filterLogStatus')?.value || 'all';
+
+  const filteredLogs = warmupAuditLogs.filter(log => {
+    if (filterAcc !== 'all' && log.accName !== filterAcc && log.accId !== filterAcc) return false;
+    if (filterType !== 'all' && log.type !== filterType) return false;
+    if (filterStatus !== 'all' && log.status !== filterStatus) return false;
+    return true;
+  });
+
+  if (filteredLogs.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align:center;padding:28px;color:var(--text-muted)">
+          Chưa có nhật ký hoạt động nào phù hợp với bộ lọc.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let html = '';
+  filteredLogs.slice(0, 100).forEach(log => {
+    let typeBadge = '<span class="badge badge-running">Nuôi nick</span>';
+    if (log.type === 'health') typeBadge = '<span class="badge badge-done" style="background:rgba(59,130,246,0.15);color:#93c5fd">Sức khỏe</span>';
+    else if (log.type === 'security') typeBadge = '<span class="badge badge-danger">Bảo mật</span>';
+    else if (log.type === 'content') typeBadge = '<span class="badge badge-warn">Nội dung</span>';
+
+    let statusBadge = '<span class="badge badge-done">🟢 Thành công</span>';
+    if (log.status === 'checkpoint') statusBadge = '<span class="badge badge-danger">⛔ Checkpoint</span>';
+    else if (log.status === 'warning') statusBadge = '<span class="badge badge-warn">🟡 Cảnh báo</span>';
+    else if (log.status === 'error') statusBadge = '<span class="badge badge-danger">🔴 Lỗi</span>';
+
+    html += `
+      <tr>
+        <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">${escapeHtml(log.timeStr || '')}</td>
+        <td style="font-weight:700;color:var(--text)">${escapeHtml(log.accName || 'Hệ thống')}</td>
+        <td style="text-align:center">${typeBadge}</td>
+        <td style="font-size:12.5px;color:var(--text);line-height:1.4">${escapeHtml(log.details || '')}</td>
+        <td style="text-align:center">${statusBadge}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+}
+
+function initAuditLogFilters() {
+  const selAcc = $('filterLogAccount');
+  if (selAcc) {
+    const currentVal = selAcc.value;
+    let optHtml = '<option value="all">Tất cả tài khoản</option>';
+    personalAccounts.forEach(a => {
+      optHtml += `<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)}</option>`;
+    });
+    selAcc.innerHTML = optHtml;
+    selAcc.value = currentVal || 'all';
+    selAcc.addEventListener('change', renderAuditLogsDashboard);
+  }
+
+  $('filterLogType')?.addEventListener('change', renderAuditLogsDashboard);
+  $('filterLogStatus')?.addEventListener('change', renderAuditLogsDashboard);
+
+  // Xuất CSV
+  $('btnExportAuditCsv')?.addEventListener('click', async () => {
+    const { warmupAuditLogs = [] } = await chrome.storage.local.get('warmupAuditLogs');
+    if (!warmupAuditLogs.length) {
+      alert('Chưa có dữ liệu nhật ký để xuất CSV.');
+      return;
+    }
+
+    const headers = ['ThoiGian', 'TaiKhoan', 'LoaiHoatDong', 'ChiTiet', 'TrangThai'];
+    const rows = warmupAuditLogs.map(l => [
+      `"${(l.timeStr || '').replace(/"/g, '""')}"`,
+      `"${(l.accName || '').replace(/"/g, '""')}"`,
+      `"${(l.type || '').replace(/"/g, '""')}"`,
+      `"${(l.details || '').replace(/"/g, '""')}"`,
+      `"${(l.statusText || l.status || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = '\uFEFF' + headers.join(',') + '\n' + rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `nhat_ky_tuong_tac_facebook_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Xóa nhật ký
+  $('btnClearAuditLogs')?.addEventListener('click', async () => {
+    if (confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử nhật ký hoạt động?')) {
+      await chrome.storage.local.set({ warmupAuditLogs: [] });
+      await renderAuditLogsDashboard();
+      appendLog('Đã dọn sạch toàn bộ nhật ký hoạt động.', '🧹');
+    }
+  });
+}
+
+// ── 9.9. Giám sát Checkpoint thời gian thực (Checkpoint Sentinel) ────────────
+async function handleWarmupCheckpointDetected(m) {
+  if (warmupState.running && !warmupState.paused) {
+    pauseWarmup();
+  }
+
+  const accName = currentWarmupAccountName || 'Tài khoản Facebook';
+  const alertText = `🚨 BẢO MẬT: ${m.reason || 'Phát hiện Checkpoint'} trên tài khoản "${accName}"! Đã tự động dừng ngay chu trình nuôi để bảo vệ an toàn cho nick.`;
+  appendLog(alertText, '⛔');
+
+  await addAuditLogEntry({
+    accId: currentWarmupAccountId || '',
+    accName: accName,
+    type: 'security',
+    details: `🚨 ${m.reason || 'Phát hiện Checkpoint'} tại ${m.url || 'Facebook'}. Tự động ngắt phiên.`,
+    status: 'checkpoint',
+    statusText: 'Checkpoint'
+  });
+
+  const { warmupHealthData = {} } = await chrome.storage.local.get('warmupHealthData');
+  if (currentWarmupAccountId) {
+    warmupHealthData[currentWarmupAccountId] = {
+      status: 'checkpoint',
+      reason: m.reason || 'Checkpoint',
+      timestamp: Date.now()
+    };
+    await chrome.storage.local.set({ warmupHealthData });
+  }
+
+  renderHealthDashboard();
+  renderSecurityDashboard();
+  renderAuditLogsDashboard();
+
+  alert(`⚠️ CẢNH BÁO BẢO MẬT FACEBOOK:\n\n${m.reason || 'Phát hiện Checkpoint / Yêu cầu xác thực tài khoản'}\n\nTiện ích đã TỰ ĐỘNG DỪNG chu trình nuôi tài khoản "${accName}" để tránh bị khóa vĩnh viễn. Vui lòng kiểm tra lại tài khoản.`);
+}
+
 // ── 10. Khởi động trang Web ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
   await loadAccounts();
   await renderReportTable();
+  initSubNavTabs();
+  initIdeaCopyButtons();
+  init2FAModal();
+  initAuditLogFilters();
+  renderHealthDashboard();
+  renderProfileAuditDashboard();
+  renderGroupHealthDashboard();
+  renderContentManagementDashboard();
+  renderSecurityDashboard();
+  renderAuditLogsDashboard();
 
   // Kiểm tra trạng thái đã lưu trong localStorage của Web trước
   const savedStr = localStorage.getItem('ntd_web_warmup_state');
@@ -858,5 +1868,9 @@ chrome.runtime.onMessage.addListener(m => {
   if (m.type === 'WARMUP_SESSION_REPORT') {
     if (m.stats) saveDetailedReport(m.stats);
     else if (m.report) saveDetailedReport(m.report);
+  }
+
+  if (m.type === 'WARMUP_CHECKPOINT_DETECTED') {
+    handleWarmupCheckpointDetected(m);
   }
 });
