@@ -897,7 +897,7 @@ if (!activeLicense) {
     const keys = Array.from(_pendingCloudSyncKeys);
     _pendingCloudSyncKeys.clear();
     try {
-      const sb = await import('./supabase.js?v=20261112_1000');
+      const sb = await import('./supabase.js?v=20261117_1900');
       if (typeof sb.pushLocalChangesToSupabase === 'function') {
         await sb.pushLocalChangesToSupabase(username, keys);
       }
@@ -910,7 +910,7 @@ if (!activeLicense) {
     const username = getActiveUsernameForSync();
     if (!username) return;
     try {
-      const sb = await import('./supabase.js?v=20261112_1000');
+      const sb = await import('./supabase.js?v=20261117_1900');
       if (typeof sb.hydrateLocalFromSupabase !== 'function') return;
 
       _applyingRemoteSupabaseSync = true;

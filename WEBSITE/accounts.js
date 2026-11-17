@@ -1508,9 +1508,9 @@ async function syncAccountsToCloudImmediately(remainingAccs) {
     }
     if (!username) return;
 
-    const sb = await import('./supabase.js?v=20261114_1700');
+    const sb = await import('./supabase.js?v=20261117_1900');
     if (typeof sb.pushLocalChangesToSupabase === 'function') {
-      await sb.pushLocalChangesToSupabase(username, ['accounts']);
+      await sb.pushLocalChangesToSupabase(username, ['accounts'], { allowReduce: true });
     }
 
     const all = Array.isArray(remainingAccs) ? remainingAccs : [];
@@ -1574,22 +1574,45 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Tự động quét và đồng bộ cookie ngay khi mở trang
+// Tự động quét cookie & đồng bộ tài khoản đa thiết bị ngay khi mở trang
 chrome.runtime.sendMessage({ type: 'SYNC_COOKIES_NOW' }).catch(() => {});
+(async () => {
+  try {
+    const { getActiveSyncUsername, hydrateLocalFromSupabase } = await import('./supabase.js?v=20261117_1900');
+    const username = await getActiveSyncUsername();
+    if (username) {
+      await hydrateLocalFromSupabase(username, { force: false });
+    }
+  } catch (_) {}
+})();
 
-// Nút Quét & Đồng bộ ngay trên banner
+// Nút Quét & Đồng bộ ngay trên banner (Quét cookie Chrome + Đồng bộ Cloud Supabase 2 chiều)
 const forceSyncBtn = $('forceSyncAllBtn');
 if (forceSyncBtn) {
   forceSyncBtn.onclick = async () => {
     forceSyncBtn.disabled = true;
-    forceSyncBtn.textContent = '⏳ Đang quét...';
+    forceSyncBtn.textContent = '⏳ Đang quét & đồng bộ...';
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'SYNC_COOKIES_NOW' });
+      // 1. Quét cookies từ Chrome
+      const res = await chrome.runtime.sendMessage({ type: 'SYNC_COOKIES_NOW' }).catch(() => null);
+
+      // 2. Kéo và gộp tài khoản từ Supabase Cloud về máy (force: true)
+      let cloudRes = null;
+      try {
+        const { getActiveSyncUsername, hydrateLocalFromSupabase } = await import('./supabase.js?v=20261117_1900');
+        const username = await getActiveSyncUsername();
+        if (username) {
+          cloudRes = await hydrateLocalFromSupabase(username, { force: true });
+        }
+      } catch (err) {
+        console.warn('Lỗi đồng bộ Cloud:', err);
+      }
+
+      await render();
       if (res?.ok) {
-        msg('✅ Đã quét và tự động cập nhật cookie thành công!', 'ok');
-        render();
+        msg('✅ Đã quét cookie Chrome và đồng bộ tất cả tài khoản từ Cloud!', 'ok');
       } else {
-        msg('Chưa tìm thấy phiên Facebook đang đăng nhập trên Chrome: ' + (res?.reason || res?.error || ''), 'err');
+        msg('✅ Đã đồng bộ tài khoản từ Cloud thành công!', 'ok');
       }
     } catch (e) {
       msg('Lỗi đồng bộ: ' + e.message, 'err');

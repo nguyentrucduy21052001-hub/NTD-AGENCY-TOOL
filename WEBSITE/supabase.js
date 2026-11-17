@@ -954,7 +954,7 @@ const SIMPLE_KEY_CLEAR_SCOPE = {
   scheduledPostJobs: 'scheduled_post_jobs'
 };
 
-async function resolveActiveSyncUsername(explicitUsername = '') {
+export async function resolveActiveSyncUsername(explicitUsername = '') {
   const direct = String(explicitUsername || '').trim().toLowerCase();
   if (direct) return direct;
   try {
@@ -974,6 +974,8 @@ async function resolveActiveSyncUsername(explicitUsername = '') {
   } catch (_) {}
   return '';
 }
+
+export const getActiveSyncUsername = resolveActiveSyncUsername;
 
 export async function readCloudClearLedger() {
   try {
@@ -1330,7 +1332,7 @@ export async function supabaseFetchScannedGroups(username, limit = 1500) {
 /**
  * Đẩy toàn bộ dữ liệu hiện có trên máy (hoặc chỉ danh sách key truyền vào) lên Supabase
  */
-export async function pushLocalChangesToSupabase(username, changedKeys = null) {
+export async function pushLocalChangesToSupabase(username, changedKeys = null, options = {}) {
   const u = (username || '').trim().toLowerCase();
   if (!u || !(await isSupabaseConfigured())) return { ok: false, skipped: true };
 
@@ -1351,6 +1353,23 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null) {
       if (simpleScope && startLedger[simpleScope]?.pending) continue;
       wsMap[k] = local[k];
     }
+  }
+
+  // BẢO VỆ CHỐNG ĐÈ MẤT NICK:
+  // Nếu máy hiện tại đang có ít nick hơn Cloud (ví dụ Laptop vừa thêm 3 nick mới mà PC chưa kịp kéo về)
+  // và đây KHÔNG PHẢI là thao tác xóa chủ động của người dùng (options.allowReduce !== true):
+  // Tự động gộp dữ liệu từ Cloud vào trước khi đẩy lên Supabase!
+  if (wsMap.accounts !== undefined && Array.isArray(wsMap.accounts) && !options?.allowReduce) {
+    try {
+      const cloudWs = await supabaseFetchWorkspace(u);
+      const remoteRow = cloudWs.find(r => r && r.data_key === 'accounts');
+      const remoteAccs = Array.isArray(remoteRow?.payload) ? remoteRow.payload : [];
+      if (remoteAccs.length > wsMap.accounts.length) {
+        const mergedAccs = mergeAccountLists(wsMap.accounts, remoteAccs, false);
+        wsMap.accounts = mergedAccs;
+        await chrome.storage.local.set({ accounts: mergedAccs });
+      }
+    } catch (_) {}
   }
 
   let totalRecords = 0;
@@ -1448,6 +1467,83 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null) {
   return { ok: !needTables, needTables, count: totalRecords };
 }
 
+export function getAccountKey(a) {
+  if (!a || typeof a !== 'object') return '';
+  const fbId = String(a.fbId || a.cUser || a.uid || '').trim();
+  if (fbId && fbId !== '0') return `fb_${fbId}`;
+  const email = String(a.email || '').trim().toLowerCase();
+  if (email) return `em_${email}`;
+  const id = String(a.id || '').trim();
+  if (id) return `id_${id}`;
+  return '';
+}
+
+function mergeAccountObjects(localAcc, remoteAcc) {
+  if (!localAcc) return remoteAcc;
+  if (!remoteAcc) return localAcc;
+
+  const localSync = Number(localAcc.lastCookieSync) || 0;
+  const remoteSync = Number(remoteAcc.lastCookieSync) || 0;
+  const useRemoteCookies = (!localAcc.cookies && Boolean(remoteAcc.cookies)) ||
+    (Boolean(remoteAcc.cookies) && remoteSync > localSync);
+
+  let mergedGroups = localAcc.groups;
+  if (!mergedGroups || (typeof mergedGroups === 'string' && !mergedGroups.trim())) {
+    mergedGroups = remoteAcc.groups || '';
+  } else if (remoteAcc.groups && typeof remoteAcc.groups === 'string' && remoteAcc.groups.length > String(mergedGroups).length) {
+    mergedGroups = remoteAcc.groups;
+  }
+
+  return {
+    ...remoteAcc,
+    ...localAcc,
+    cookies: useRemoteCookies ? remoteAcc.cookies : (localAcc.cookies || remoteAcc.cookies || ''),
+    lastCookieSync: Math.max(localSync, remoteSync) || Date.now(),
+    password: localAcc.password || remoteAcc.password || '',
+    twoFactor: localAcc.twoFactor || remoteAcc.twoFactor || '',
+    proxy: localAcc.proxy || remoteAcc.proxy || '',
+    token: localAcc.token || remoteAcc.token || '',
+    fbId: localAcc.fbId || remoteAcc.fbId || '',
+    groups: mergedGroups,
+    status: (localAcc.status === 'active' || remoteAcc.status === 'active') ? 'active' : (localAcc.status || remoteAcc.status || 'active')
+  };
+}
+
+export function mergeAccountLists(localList, remoteList, force = false) {
+  const localArr = Array.isArray(localList) ? localList : [];
+  const remoteArr = Array.isArray(remoteList) ? remoteList : [];
+
+  if (localArr.length === 0) return [...remoteArr];
+  if (remoteArr.length === 0) return [...localArr];
+
+  const resultMap = new Map();
+  const remoteKeyMap = new Map();
+
+  for (const r of remoteArr) {
+    const k = getAccountKey(r);
+    if (k) remoteKeyMap.set(k, r);
+  }
+
+  for (const l of localArr) {
+    const k = getAccountKey(l);
+    if (k && remoteKeyMap.has(k)) {
+      resultMap.set(k, mergeAccountObjects(l, remoteKeyMap.get(k)));
+    } else {
+      const fallbackKey = k || `item_${Math.random()}`;
+      resultMap.set(fallbackKey, l);
+    }
+  }
+
+  for (const r of remoteArr) {
+    const k = getAccountKey(r);
+    if (k && !resultMap.has(k)) {
+      resultMap.set(k, r);
+    }
+  }
+
+  return Array.from(resultMap.values());
+}
+
 function mergeByKey(localList, remoteList, keyFn, preferRemote = false) {
   const localArr = Array.isArray(localList) ? localList : [];
   const remoteArr = Array.isArray(remoteList) ? remoteList : [];
@@ -1506,22 +1602,21 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
     if (row && row.data_key) wsMap.set(row.data_key, row.payload);
   }
 
-  // 1. Tài khoản Facebook / Fanpage
+  // 1. Tài khoản Facebook / Fanpage (Tự động gộp đa thiết bị Laptop - PC)
   const remoteAccs = wsMap.get('accounts');
   if (Array.isArray(remoteAccs) && remoteAccs.length > 0) {
-    const hasLocalAccountsState = local.accounts !== undefined;
-    if (!hasLocalAccountsState || force) {
-      // Máy cài mới tinh (chưa từng có key accounts) hoặc Admin/User chủ động bấm "Đồng bộ từ Supabase"
+    const localAccs = Array.isArray(local.accounts) ? local.accounts : [];
+    if (localAccs.length === 0) {
+      // Máy chưa có tài khoản hoặc vừa cài mới: Kéo toàn bộ từ Cloud về
       toSet.accounts = remoteAccs;
-    } else if (Array.isArray(local.accounts) && local.accounts.length > 0) {
-      // Máy đã có tài khoản: Chỉ bổ sung nếu có tài khoản mới từ máy khác khi force = true
-      // Tuyệt đối không tự ý hồi sinh các tài khoản đã bị người dùng xóa ở máy này
-      if (force) {
-        const merged = mergeByKey(local.accounts, remoteAccs, a => a?.uid || a?.id || a?.email || a?.cookie, true);
-        if (merged.length !== local.accounts.length) toSet.accounts = merged;
+    } else {
+      // Máy đã có tài khoản (ví dụ PC có 17, Laptop có 20):
+      // Tự động gộp để bổ sung ngay lập tức các nick mới thêm từ máy khác
+      const merged = mergeAccountLists(localAccs, remoteAccs, force);
+      if (merged.length !== localAccs.length || force) {
+        toSet.accounts = merged;
       }
     }
-    // Nếu local.accounts là mảng rỗng [] (người dùng đã chủ động xóa/đăng xuất hết), KHÔNG kéo từ remote về!
   }
 
   // 2. Danh mục nhóm
