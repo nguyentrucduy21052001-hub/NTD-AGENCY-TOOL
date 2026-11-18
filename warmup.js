@@ -7,7 +7,7 @@ import {
   fetchSharedContentLibrary,
   pushSharedContentLibrary,
   DEFAULT_SHARED_CONTENT_LIBRARY
-} from './supabase.js?v=20261112_1000';
+} from './supabase.js?v=20261118_0745';
 
 const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -315,12 +315,24 @@ async function startWarmup() {
   if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
   $('progressSection').style.display = 'block';
 
-  // Đồng bộ sang Tiện ích mở rộng
+  // Đồng bộ sang Tiện ích mở rộng (kèm Kho nội dung dùng chung & Lịch đăng cá nhân)
   if (window.chrome?.runtime?.sendToExtension) {
-    const { accounts = [] } = await chrome.storage.local.get('accounts');
+    const {
+      accounts = [],
+      ntd_shared_content_library = [],
+      warmupContentSchedules = {}
+    } = await chrome.storage.local.get(['accounts', 'ntd_shared_content_library', 'warmupContentSchedules']);
+    const sharedLib = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
+      ? ntd_shared_content_library
+      : DEFAULT_SHARED_CONTENT_LIBRARY;
     await window.chrome.runtime.sendToExtension({
       type: 'SYNC_DATA_TO_EXTENSION',
-      data: { accounts, warmupConfig: { ...cfg, backgroundMode: false } }
+      data: {
+        accounts,
+        warmupConfig: { ...cfg, backgroundMode: false },
+        ntd_shared_content_library: sharedLib,
+        warmupContentSchedules
+      }
     }).catch(() => {});
   }
 
