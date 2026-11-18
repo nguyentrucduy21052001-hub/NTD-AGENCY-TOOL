@@ -1,5 +1,5 @@
 // worker.js – Background service worker (multi-account parallel)
-import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, hasCompleteFacebookCookies, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, recordPostedGroupUrl, resolveAssignedPostForAccount, shouldAttemptSessionRelogin, parseProxyString, formatProxyDisplay, normalizeProxyString} from './core.js';
+import {validate, groups, getTodayDateStr, parseUniversalCookies, cookiesObjToStr, hasCompleteFacebookCookies, findBannedWords, activateAccountSessionDirectly, generate2FACode, fetchTokenEAAG, fetchTokenEAAB, getAccountDailyLimit, normalizeAccountDailyLimits, recordPostedGroupUrl, resolveAssignedPostForAccount, shouldAttemptSessionRelogin, parseProxyString, formatProxyDisplay, normalizeProxyString} from './core.js';
 import { checkCurrentLicense } from './license.js';
 import { mapsExtract } from './maps_extract.js';
 import {
@@ -312,6 +312,9 @@ async function executeScheduledJobUnlocked(jobId, { manual = false } = {}) {
     );
     payload.at = Date.now();
     payload.when = '';
+    if (!payload.accountDailyLimits && currentDraft?.accountDailyLimits) {
+      payload.accountDailyLimits = currentDraft.accountDailyLimits;
+    }
 
     await executeStartAllCampaign(payload, { preserveDraft: true });
 
@@ -4963,6 +4966,7 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
   const maxPosts = raw.maxPosts ? Math.max(0, Number(raw.maxPosts)) : 0;
   const enableDailyLimit = raw.enableDailyLimit !== undefined ? !!raw.enableDailyLimit : true;
   const dailyLimit = raw.dailyLimit ? Math.max(1, Number(raw.dailyLimit)) : 20;
+  const accountDailyLimits = normalizeAccountDailyLimits(raw.accountDailyLimits);
   const randomTag = raw.randomTag !== undefined ? !!raw.randomTag : true;
   const humanBehavior = raw.humanBehavior !== undefined ? !!raw.humanBehavior : true;
   const enableBreak = raw.enableBreak !== undefined ? !!raw.enableBreak : true;
@@ -4985,7 +4989,8 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
     breakMinutes,
     maxPosts,
     enableDailyLimit,
-    dailyLimit
+    dailyLimit,
+    accountDailyLimits
   };
   if (!Number.isFinite(d.at)) throw new Error('Thời gian không hợp lệ.');
 
@@ -5055,7 +5060,7 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
     if (urls.length > 0) {
       if (d.enableDailyLimit !== false) {
         const todayCount = await getDailyCount(acc.id);
-        const accountDailyLimit = getAccountDailyLimit(acc, d.dailyLimit);
+        const accountDailyLimit = getAccountDailyLimit(acc, d.dailyLimit, d.accountDailyLimits);
         if (todayCount >= accountDailyLimit) {
           skippedDueToLimit.push({ acc, todayCount, limit: accountDailyLimit });
           continue;
@@ -5160,7 +5165,7 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
       breakMinutes: d.breakMinutes,
       maxPosts: d.maxPosts,
       enableDailyLimit: d.enableDailyLimit,
-      dailyLimit: getAccountDailyLimit(acc, d.dailyLimit),
+      dailyLimit: getAccountDailyLimit(acc, d.dailyLimit, d.accountDailyLimits),
       accountType: acc.type || 'personal',
       pageId: acc.pageId || null,
       postedCount: 0,
@@ -5206,7 +5211,7 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
       breakMinutes: d.breakMinutes,
       maxPosts: d.maxPosts,
       enableDailyLimit: d.enableDailyLimit,
-      dailyLimit: getAccountDailyLimit(item.acc, d.dailyLimit),
+      dailyLimit: getAccountDailyLimit(item.acc, d.dailyLimit, d.accountDailyLimits),
       accountType: item.acc.type || 'personal',
       pageId: item.acc.pageId || null,
       postedCount: 0,
@@ -6908,6 +6913,7 @@ function handleRuntimeMessage(m, sender, reply) {
       const maxPosts = rawD.maxPosts ? Math.max(0, Number(rawD.maxPosts)) : 0;
       const enableDailyLimit = rawD.enableDailyLimit !== undefined ? !!rawD.enableDailyLimit : true;
       const dailyLimit = rawD.dailyLimit ? Math.max(1, Number(rawD.dailyLimit)) : 20;
+      const accountDailyLimits = normalizeAccountDailyLimits(rawD.accountDailyLimits);
       const randomTag = rawD.randomTag !== undefined ? !!rawD.randomTag : true;
       const humanBehavior = rawD.humanBehavior !== undefined ? !!rawD.humanBehavior : true;
       const enableBreak = rawD.enableBreak !== undefined ? !!rawD.enableBreak : true;
@@ -6925,7 +6931,8 @@ function handleRuntimeMessage(m, sender, reply) {
         breakMinutes,
         maxPosts,
         enableDailyLimit,
-        dailyLimit
+        dailyLimit,
+        accountDailyLimits
       };
       if (!Number.isFinite(d.at)) throw new Error('Thời gian không hợp lệ.');
 
@@ -6942,7 +6949,7 @@ function handleRuntimeMessage(m, sender, reply) {
       }
       let urls = groups(groupLinks);
 
-      const accountDailyLimit = getAccountDailyLimit(acc, d.dailyLimit);
+      const accountDailyLimit = getAccountDailyLimit(acc, d.dailyLimit, d.accountDailyLimits);
       if (d.enableDailyLimit !== false) {
         const todayCount = await getDailyCount(accountId);
         if (todayCount >= accountDailyLimit) {

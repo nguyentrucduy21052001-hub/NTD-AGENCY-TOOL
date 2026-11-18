@@ -646,6 +646,167 @@
     padding: 4px 6px
   }
 
+  /* ── Tùy chỉnh giới hạn bài/ngày cho từng tài khoản ── */
+  .limit-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap
+  }
+
+  .btn-per-acc-limit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid #16a34a;
+    background: #ffffff;
+    color: #15803d;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease
+  }
+
+  .btn-per-acc-limit:hover {
+    background: #dcfce7
+  }
+
+  .btn-per-acc-limit.has-custom {
+    background: #15803d;
+    color: #ffffff;
+    border-color: #15803d
+  }
+
+  .per-acc-limit-panel {
+    margin-bottom: 10px;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 10px;
+    padding: 12px 14px
+  }
+
+  .per-acc-limit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px
+  }
+
+  .per-acc-limit-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px
+  }
+
+  .per-acc-limit-toolbar input[type="text"] {
+    flex: 1;
+    min-width: 160px;
+    margin-top: 0;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 8px
+  }
+
+  .per-acc-limit-toolbar input[type="number"] {
+    width: 64px;
+    margin-top: 0;
+    padding: 5px 8px;
+    font-size: 12px;
+    text-align: center;
+    font-weight: 700;
+    border-radius: 8px
+  }
+
+  .per-acc-limit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding-right: 4px
+  }
+
+  .per-acc-limit-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    transition: border-color 0.15s ease
+  }
+
+  .per-acc-limit-item.is-custom {
+    border-color: #16a34a;
+    background: #f7fee7;
+    box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.2)
+  }
+
+  .per-acc-limit-info {
+    min-width: 0;
+    flex: 1
+  }
+
+  .per-acc-limit-name {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 5px
+  }
+
+  .per-acc-limit-meta {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px
+  }
+
+  .per-acc-limit-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0
+  }
+
+  .per-acc-limit-input {
+    width: 56px !important;
+    margin-top: 0 !important;
+    padding: 4px 6px !important;
+    text-align: center;
+    font-weight: 700;
+    font-size: 12.5px !important;
+    border-radius: 6px !important
+  }
+
+  .per-acc-limit-clear {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 4px;
+    line-height: 1;
+    border-radius: 4px
+  }
+
+  .per-acc-limit-clear:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1)
+  }
+
   .as-maxposts-row {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
@@ -2317,6 +2478,54 @@
     color: #34d399 !important;
   }
 
+  body.ntd-dark-theme .btn-per-acc-limit,
+  html.ntd-dark-theme .btn-per-acc-limit {
+    background: rgba(16, 185, 129, 0.14) !important;
+    border-color: rgba(52, 211, 153, 0.45) !important;
+    color: #34d399 !important;
+  }
+
+  body.ntd-dark-theme .btn-per-acc-limit:hover,
+  html.ntd-dark-theme .btn-per-acc-limit:hover {
+    background: rgba(16, 185, 129, 0.28) !important;
+  }
+
+  body.ntd-dark-theme .btn-per-acc-limit.has-custom,
+  html.ntd-dark-theme .btn-per-acc-limit.has-custom {
+    background: #10b981 !important;
+    color: #022c22 !important;
+    border-color: #10b981 !important;
+  }
+
+  body.ntd-dark-theme .per-acc-limit-panel,
+  html.ntd-dark-theme .per-acc-limit-panel {
+    background: rgba(16, 185, 129, 0.08) !important;
+    border-color: rgba(16, 185, 129, 0.3) !important;
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .per-acc-limit-item,
+  html.ntd-dark-theme .per-acc-limit-item {
+    background: rgba(15, 23, 42, 0.85) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  body.ntd-dark-theme .per-acc-limit-item.is-custom,
+  html.ntd-dark-theme .per-acc-limit-item.is-custom {
+    background: rgba(16, 185, 129, 0.15) !important;
+    border-color: rgba(52, 211, 153, 0.55) !important;
+  }
+
+  body.ntd-dark-theme .per-acc-limit-name,
+  html.ntd-dark-theme .per-acc-limit-name {
+    color: #f8fafc !important;
+  }
+
+  body.ntd-dark-theme .per-acc-limit-meta,
+  html.ntd-dark-theme .per-acc-limit-meta {
+    color: #94a3b8 !important;
+  }
+
   body.ntd-dark-theme .as-maxposts-row,
   html.ntd-dark-theme .as-maxposts-row {
     background: rgba(15, 23, 42, 0.75) !important;
@@ -3789,14 +3998,50 @@
               </div>
 
               <div class="as-break-box as-limit-box">
-                <label class="as-check-label" style="margin:0">
-                  <input type="checkbox" id="enableDailyLimit" checked>
-                  <span><b style="color:#15803d">Giới hạn mỗi ngày:</b></span>
-                </label>
+                <div class="limit-header-row">
+                  <label class="as-check-label" style="margin:0">
+                    <input type="checkbox" id="enableDailyLimit" checked>
+                    <span><b style="color:#15803d">Giới hạn mỗi ngày:</b></span>
+                  </label>
+                  <button type="button" class="btn-per-acc-limit" id="btnTogglePerAccLimit" title="Thiết lập số bài/ngày riêng cho từng tài khoản">
+                    <span>⚙️</span>
+                    <span id="btnTogglePerAccLimitText">Tùy chỉnh từng nick</span>
+                  </button>
+                </div>
                 <div class="break-inputs" id="dailyLimitRow">
-                  <span>Tối đa</span>
-                  <input id="dailyLimit" type="number" min="1" max="100" value="20" style="width:55px;font-weight:700">
-                  <span>bài/ngày (Nick cá nhân: 20 · Fanpage: tối đa 5 bài/ngày).</span>
+                  <span>Mặc định</span>
+                  <input id="dailyLimit" type="number" min="1" max="200" value="20" style="width:55px;font-weight:700">
+                  <span>bài/ngày (Nick cá nhân: 20 · Fanpage: 5).</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bảng tùy chỉnh giới hạn bài/ngày cho từng tài khoản -->
+            <div class="per-acc-limit-panel" id="perAccountDailyLimitPanel" style="display:none">
+              <div class="per-acc-limit-header">
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#15803d" id="perAccLimitTitle">
+                    🎯 Tùy chỉnh giới hạn bài/ngày cho từng tài khoản
+                  </div>
+                  <div style="font-size:11.5px;color:#64748b;margin-top:2px">
+                    Nhập số bài tối đa mỗi ngày riêng cho từng nick (ví dụ: Acc 1 = 10, Acc 2 = 5, Acc 3 = 15...). Ô để trống sẽ dùng mức mặc định ở trên.
+                  </div>
+                </div>
+                <button type="button" class="btn-per-acc-limit" id="btnResetAllAccDailyLimits" title="Xóa tất cả tùy chỉnh riêng, quay về dùng giới hạn mặc định">
+                  🔄 Đặt lại mặc định
+                </button>
+              </div>
+              <div class="per-acc-limit-toolbar">
+                <input type="text" id="perAccLimitSearch" placeholder="🔍 Tìm tên tài khoản / Fanpage...">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:12px;font-weight:600;white-space:nowrap">Đặt nhanh tất cả:</span>
+                  <input type="number" id="bulkAccDailyLimit" min="1" max="200" placeholder="VD: 10">
+                  <button type="button" class="btn-per-acc-limit" id="btnApplyBulkDailyLimit">Áp dụng</button>
+                </div>
+              </div>
+              <div class="per-acc-limit-grid" id="perAccountDailyLimitGrid">
+                <div style="grid-column:1/-1;text-align:center;padding:12px;font-size:12px;color:#64748b">
+                  Đang tải danh sách tài khoản...
                 </div>
               </div>
             </div>
@@ -4377,8 +4622,8 @@
     </div>
 
   </main>
-  <script type="module" src="panel.js?v=20261112_1000"></script>
-  <script type="module" src="sidebar.js?v=20261112_1000"></script>
+  <script type="module" src="panel.js?v=20261118_0835"></script>
+  <script type="module" src="sidebar.js?v=20261118_0835"></script>
 </body>
 
 </html>

@@ -134,6 +134,7 @@ export function validate(d){
  const maxPosts = d.maxPosts ? Math.max(0, Number(d.maxPosts)) : 0;
  const enableDailyLimit = d.enableDailyLimit !== undefined ? !!d.enableDailyLimit : true;
  const dailyLimit = d.dailyLimit ? Math.max(1, Number(d.dailyLimit)) : 20;
+ const accountDailyLimits = normalizeAccountDailyLimits(d.accountDailyLimits);
  const accountOrder = ['round_robin', 'sequential', 'parallel'].includes(d.accountOrder) ? d.accountOrder : 'round_robin';
  const splitSharedGroups = !!d.splitSharedGroups;
  return {
@@ -152,7 +153,8 @@ export function validate(d){
   autoSkipOnError: d.autoSkipOnError !== undefined ? !!d.autoSkipOnError : true,
   maxPosts,
   enableDailyLimit,
-  dailyLimit
+  dailyLimit,
+  accountDailyLimits
  };
 }
 
@@ -945,15 +947,48 @@ export async function fetchTokenEAAB(timeoutMs = 4000) {
 }
 
 /**
- * Giới hạn đăng bài mỗi ngày cho tài khoản:
- * - Fanpage: Cố định 5 bài/ngày (chống checkpoint Fanpage)
- * - Tài khoản cá nhân: Theo cài đặt (mặc định 20 bài/ngày)
+ * Chuẩn hóa bản đồ giới hạn bài/ngày theo từng tài khoản: { [accountId]: positiveInteger }
  */
-export function getAccountDailyLimit(acc, globalLimit = 20) {
+export function normalizeAccountDailyLimits(rawMap) {
+  const out = {};
+  if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) return out;
+  for (const [accId, rawVal] of Object.entries(rawMap)) {
+    if (!accId || rawVal === '' || rawVal === null || rawVal === undefined) continue;
+    const n = Number(rawVal);
+    if (Number.isFinite(n) && n >= 1) {
+      out[accId] = Math.floor(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * Giới hạn đăng bài mỗi ngày cho tài khoản:
+ * 1. Ưu tiên giới hạn tùy chỉnh riêng từng nick (accountDailyLimits[acc.id] hoặc acc.dailyLimit)
+ * 2. Fanpage mặc định: 5 bài/ngày (chống checkpoint Fanpage)
+ * 3. Tài khoản cá nhân mặc định: Theo cài đặt chung (mặc định 20 bài/ngày)
+ */
+export function getAccountDailyLimit(acc, globalLimit = 20, accountDailyLimits = null) {
+  const accId = acc?.id;
+  const mapRaw = (accountDailyLimits && accId && Object.prototype.hasOwnProperty.call(accountDailyLimits, accId))
+    ? accountDailyLimits[accId]
+    : undefined;
+  if (mapRaw !== undefined && mapRaw !== '' && mapRaw !== null) {
+    const mapNum = Number(mapRaw);
+    if (Number.isFinite(mapNum) && mapNum >= 1) {
+      return Math.floor(mapNum);
+    }
+  }
+  if (acc && acc.dailyLimit !== undefined && acc.dailyLimit !== '' && acc.dailyLimit !== null) {
+    const accNum = Number(acc.dailyLimit);
+    if (Number.isFinite(accNum) && accNum >= 1) {
+      return Math.floor(accNum);
+    }
+  }
   if (acc && acc.type === 'fanpage') {
     return 5;
   }
-  return Math.max(1, Number(globalLimit || 20));
+  return Math.max(1, Math.floor(Number(globalLimit || 20)));
 }
 
 /**

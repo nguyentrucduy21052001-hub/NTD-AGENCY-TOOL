@@ -1,4 +1,4 @@
-import {validate, groups, spinText, getTodayDateStr, findBannedWords, highlightBannedWordsHtml, removeBannedWords, getGroupKey, getAllPostedGroupKeys} from './core.js';
+import {validate, groups, spinText, getTodayDateStr, findBannedWords, highlightBannedWordsHtml, removeBannedWords, getGroupKey, getAllPostedGroupKeys, getAccountDailyLimit, normalizeAccountDailyLimits} from './core.js';
 import {validateKey, getMachineId, checkCurrentLicense, enforceLicenseGate} from './license.js';
 import {initSyncModal, parseJsonFile, applyRestoredData, exportJsonBackup} from './sync_helper.js';
 import {
@@ -65,6 +65,7 @@ let posts = [
 ];
 let currentPostIndex = 0;
 let accountPostMap = {}; // { [accountId]: postIndex }
+let accountDailyLimits = {}; // { [accountId]: number } — Giới hạn bài/ngày riêng từng tài khoản
 
 // ── Facebook Post Background Themes & Swatches ──────────────────────────────
 const FB_BACKGROUNDS = [
@@ -591,6 +592,7 @@ const draft = () => {
     maxPosts: $('maxPosts')?.value || '',
     enableDailyLimit: $('enableDailyLimit')?.checked ?? true,
     dailyLimit: $('dailyLimit')?.value || '20',
+    accountDailyLimits: normalizeAccountDailyLimits(accountDailyLimits),
     mode: $('mode').value,
     when: $('when').value,
   };
@@ -820,13 +822,255 @@ $('enableBreak')?.addEventListener('change', () => {
   }
 });
 
-$('enableDailyLimit')?.addEventListener('change', () => {
+function syncDailyLimitControlsEnabledState() {
+  const isEnabled = $('enableDailyLimit')?.checked !== false;
   const row = $('dailyLimitRow');
   if (row) {
-    row.style.opacity = $('enableDailyLimit').checked ? '1' : '0.4';
-    row.style.pointerEvents = $('enableDailyLimit').checked ? 'auto' : 'none';
+    row.style.opacity = isEnabled ? '1' : '0.4';
+    row.style.pointerEvents = isEnabled ? 'auto' : 'none';
   }
+  const toggleBtn = $('btnTogglePerAccLimit');
+  if (toggleBtn) {
+    toggleBtn.style.opacity = isEnabled ? '1' : '0.45';
+    toggleBtn.style.pointerEvents = isEnabled ? 'auto' : 'none';
+  }
+  const panel = $('perAccountDailyLimitPanel');
+  if (panel && !isEnabled) {
+    panel.style.display = 'none';
+  }
+}
+
+$('enableDailyLimit')?.addEventListener('change', () => {
+  syncDailyLimitControlsEnabledState();
+  chrome.storage.local.set({ draft: draft() });
+  render();
 });
+
+// ── Tùy chỉnh giới hạn bài/ngày cho từng tài khoản ───────────────────────────
+let _perAccLimitRenderTimer = null;
+function scheduleProgRenderForLimitChange() {
+  clearTimeout(_perAccLimitRenderTimer);
+  _perAccLimitRenderTimer = setTimeout(() => {
+    try { render(); } catch (_) {}
+  }, 150);
+}
+
+function getActiveCustomLimitCount(accountsList = null) {
+  const normalized = normalizeAccountDailyLimits(accountDailyLimits);
+  if (Array.isArray(accountsList) && accountsList.length > 0) {
+    const validIds = new Set(accountsList.map(a => a.id));
+    return Object.keys(normalized).filter(id => validIds.has(id)).length;
+  }
+  return Object.keys(normalized).length;
+}
+
+function updatePerAccLimitToggleButton(accountsList = null) {
+  const btn = $('btnTogglePerAccLimit');
+  const txt = $('btnTogglePerAccLimitText');
+  if (!btn || !txt) return;
+  const count = getActiveCustomLimitCount(accountsList || (cachedAccounts.length ? cachedAccounts : null));
+  if (count > 0) {
+    txt.textContent = `Tùy chỉnh từng nick (${count})`;
+    btn.classList.add('has-custom');
+  } else {
+    txt.textContent = 'Tùy chỉnh từng nick';
+    btn.classList.remove('has-custom');
+  }
+}
+
+async function renderPerAccountDailyLimits(forceAccounts = null, forceStatsMap = null) {
+  const grid = $('perAccountDailyLimitGrid');
+  const panel = $('perAccountDailyLimitPanel');
+  let accs = Array.isArray(forceAccounts) ? forceAccounts : cachedAccounts;
+  let statsMap = forceStatsMap;
+
+  if (!accs || !accs.length || !statsMap) {
+    try {
+      const st = await chrome.storage.local.get(['accounts', 'dailyPostStats']);
+      if (!accs || !accs.length) accs = st.accounts || [];
+      if (!statsMap) statsMap = st.dailyPostStats || {};
+    } catch (_) {
+      accs = accs || [];
+      statsMap = statsMap || {};
+    }
+  }
+
+  updatePerAccLimitToggleButton(accs);
+  window.updateAntiSpamSummaryBadge?.();
+
+  if (!grid || !panel || panel.style.display === 'none') return;
+
+  // Không re-render phá mất focus nếu người dùng đang gõ trong 1 ô giới hạn
+  const activeEl = document.activeElement;
+  if (activeEl && grid.contains(activeEl) && activeEl.classList.contains('per-acc-limit-input')) {
+    return;
+  }
+
+  const globalVal = Math.max(1, Number($('dailyLimit')?.value || 20));
+  const search = ($('perAccLimitSearch')?.value || '').trim().toLowerCase();
+  const todayStr = getTodayDateStr();
+
+  const filtered = accs.filter(a => {
+    if (!search) return true;
+    const name = String(a.name || '').toLowerCase();
+    const uid = String(a.fbId || a.username || a.pageId || '').toLowerCase();
+    return name.includes(search) || uid.includes(search);
+  });
+
+  if (!accs.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:12px;font-size:12px;color:#64748b">Chưa có tài khoản Facebook nào. Hãy thêm tài khoản ở mục Quản lý tài khoản trước.</div>`;
+    return;
+  }
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:12px;font-size:12px;color:#64748b">Không tìm thấy tài khoản phù hợp với từ khóa "${search}".</div>`;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  filtered.forEach((acc, idx) => {
+    const isFp = acc.type === 'fanpage';
+    const defaultForAcc = isFp ? 5 : globalVal;
+    const customVal = accountDailyLimits[acc.id];
+    const hasCustom = customVal !== undefined && customVal !== '' && customVal !== null && Number(customVal) >= 1;
+    const effLimit = getAccountDailyLimit(acc, globalVal, accountDailyLimits);
+    const todayRec = statsMap[acc.id];
+    const todayPosted = (todayRec && todayRec.date === todayStr) ? (Number(todayRec.count) || 0) : 0;
+
+    const item = document.createElement('div');
+    item.className = `per-acc-limit-item${hasCustom ? ' is-custom' : ''}`;
+    item.innerHTML = `
+      <div class="per-acc-limit-info">
+        <div class="per-acc-limit-name" title="${String(acc.name || '').replace(/"/g, '&quot;')}">
+          <span style="opacity:0.55;font-size:11px">#${idx + 1}</span>
+          <span>${String(acc.name || 'Tài khoản').replace(/</g, '&lt;')}</span>
+          ${isFp ? '<span style="font-size:10px;background:#fee2e2;color:#dc2626;padding:1px 5px;border-radius:4px;font-weight:700">Page</span>' : ''}
+        </div>
+        <div class="per-acc-limit-meta">
+          Hôm nay: <b style="color:${todayPosted >= effLimit ? '#dc2626' : '#16a34a'}">${todayPosted}/${effLimit}</b> bài
+          ${hasCustom ? ' · <span style="color:#16a34a;font-weight:700">Riêng</span>' : ` · Mặc định (${defaultForAcc})`}
+        </div>
+      </div>
+      <div class="per-acc-limit-ctrl">
+        <input type="number" class="per-acc-limit-input" data-acc-id="${acc.id}" min="1" max="200" placeholder="${defaultForAcc}" value="${hasCustom ? Math.floor(Number(customVal)) : ''}" title="Nhập số bài tối đa mỗi ngày cho ${String(acc.name || '').replace(/"/g, '&quot;')}">
+        <span style="font-size:11px;color:#64748b">bài</span>
+        ${hasCustom ? `<button type="button" class="per-acc-limit-clear" data-acc-id="${acc.id}" title="Quay về mức mặc định (${defaultForAcc} bài/ngày)">✕</button>` : ''}
+      </div>
+    `;
+
+    const inputEl = item.querySelector('.per-acc-limit-input');
+    inputEl?.addEventListener('input', () => {
+      const rawStr = inputEl.value.trim();
+      const metaEl = item.querySelector('.per-acc-limit-meta');
+      if (rawStr === '') {
+        delete accountDailyLimits[acc.id];
+        item.classList.remove('is-custom');
+      } else {
+        const num = Math.max(1, Math.min(200, Math.floor(Number(rawStr))));
+        if (Number.isFinite(num) && num >= 1) {
+          accountDailyLimits[acc.id] = num;
+          item.classList.add('is-custom');
+        }
+      }
+      const nextEff = getAccountDailyLimit(acc, globalVal, accountDailyLimits);
+      const nextHasCustom = accountDailyLimits[acc.id] !== undefined;
+      if (metaEl) {
+        metaEl.innerHTML = `Hôm nay: <b style="color:${todayPosted >= nextEff ? '#dc2626' : '#16a34a'}">${todayPosted}/${nextEff}</b> bài${nextHasCustom ? ' · <span style="color:#16a34a;font-weight:700">Riêng</span>' : ` · Mặc định (${defaultForAcc})`}`;
+      }
+      updatePerAccLimitToggleButton(accs);
+      window.updateAntiSpamSummaryBadge?.();
+      debouncedSaveDraft();
+      scheduleProgRenderForLimitChange();
+    });
+
+    inputEl?.addEventListener('change', () => {
+      chrome.storage.local.set({ draft: draft() });
+      renderPerAccountDailyLimits(accs, statsMap);
+    });
+
+    const clearBtn = item.querySelector('.per-acc-limit-clear');
+    clearBtn?.addEventListener('click', () => {
+      delete accountDailyLimits[acc.id];
+      chrome.storage.local.set({ draft: draft() });
+      renderPerAccountDailyLimits(accs, statsMap);
+      scheduleProgRenderForLimitChange();
+    });
+
+    frag.appendChild(item);
+  });
+
+  grid.innerHTML = '';
+  grid.appendChild(frag);
+}
+
+function initPerAccountDailyLimitControls() {
+  const toggleBtn = $('btnTogglePerAccLimit');
+  const panel = $('perAccountDailyLimitPanel');
+
+  toggleBtn?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!panel) return;
+    const isHidden = panel.style.display === 'none' || !panel.style.display;
+    panel.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+      await renderPerAccountDailyLimits();
+    }
+  });
+
+  $('perAccLimitSearch')?.addEventListener('input', debounce(() => {
+    renderPerAccountDailyLimits();
+  }, 150));
+
+  $('btnApplyBulkDailyLimit')?.addEventListener('click', async () => {
+    const raw = ($('bulkAccDailyLimit')?.value || '').trim();
+    const num = Math.floor(Number(raw));
+    if (!raw || !Number.isFinite(num) || num < 1 || num > 200) {
+      msg('Vui lòng nhập số bài/ngày hợp lệ (từ 1 đến 200).', 'err');
+      $('bulkAccDailyLimit')?.focus();
+      return;
+    }
+    const { accounts = [] } = await chrome.storage.local.get('accounts');
+    const search = ($('perAccLimitSearch')?.value || '').trim().toLowerCase();
+    const targetAccs = accounts.filter(a => {
+      if (!search) return true;
+      const name = String(a.name || '').toLowerCase();
+      const uid = String(a.fbId || a.username || a.pageId || '').toLowerCase();
+      return name.includes(search) || uid.includes(search);
+    });
+    if (!targetAccs.length) {
+      msg('Không có tài khoản nào để áp dụng.', 'err');
+      return;
+    }
+    targetAccs.forEach(a => {
+      accountDailyLimits[a.id] = num;
+    });
+    await chrome.storage.local.set({ draft: draft() });
+    await renderPerAccountDailyLimits(accounts);
+    render();
+    msg(`✅ Đã đặt giới hạn ${num} bài/ngày cho ${targetAccs.length} tài khoản.`);
+  });
+
+  $('btnResetAllAccDailyLimits')?.addEventListener('click', async () => {
+    const count = getActiveCustomLimitCount();
+    if (count === 0) {
+      msg('Tất cả tài khoản hiện đang dùng giới hạn mặc định.');
+      return;
+    }
+    accountDailyLimits = {};
+    await chrome.storage.local.set({ draft: draft() });
+    await renderPerAccountDailyLimits();
+    render();
+    msg('🔄 Đã đặt lại tất cả tài khoản về giới hạn mặc định.');
+  });
+
+  $('dailyLimit')?.addEventListener('input', () => {
+    debouncedSaveDraft();
+    renderPerAccountDailyLimits();
+    scheduleProgRenderForLimitChange();
+  });
+}
+initPerAccountDailyLimitControls();
 
 // ── Anti-Spam Collapsible Toggle & Live Summary Badge ─────────────────────────
 function initAntiSpamToggle() {
@@ -846,8 +1090,15 @@ function initAntiSpamToggle() {
     const max = $('gapMax')?.value || 90;
     const isDaily = $('enableDailyLimit')?.checked !== false;
     const limit = $('dailyLimit')?.value || 20;
+    const customCount = getActiveCustomLimitCount(cachedAccounts.length ? cachedAccounts : null);
     const parts = [`${min}-${max}s`];
-    if (isDaily) parts.push(`Nick: ${limit} bài/ngày · Fanpage: 5 bài/ngày`);
+    if (isDaily) {
+      parts.push(
+        customCount > 0
+          ? `Nick: ${limit} bài/ngày (${customCount} nick riêng) · Fanpage: 5`
+          : `Nick: ${limit} bài/ngày · Fanpage: 5 bài/ngày`
+      );
+    }
     if ($('autoSkipOnError')?.checked) parts.push('Auto-skip');
     badge.textContent = parts.join(' · ');
   }
@@ -918,6 +1169,9 @@ if (saved) {
   if (saved.accountPostMap && typeof saved.accountPostMap === 'object') {
     accountPostMap = saved.accountPostMap;
   }
+  if (saved.accountDailyLimits && typeof saved.accountDailyLimits === 'object') {
+    accountDailyLimits = normalizeAccountDailyLimits(saved.accountDailyLimits);
+  }
   if (saved.currentPostIndex !== undefined && saved.currentPostIndex >= 0 && saved.currentPostIndex < 3) {
     currentPostIndex = saved.currentPostIndex;
   }
@@ -944,12 +1198,8 @@ if (saved) {
   }
   if ($('enableDailyLimit') && saved.enableDailyLimit !== undefined) {
     $('enableDailyLimit').checked = !!saved.enableDailyLimit;
-    const row = $('dailyLimitRow');
-    if (row) {
-      row.style.opacity = $('enableDailyLimit').checked ? '1' : '0.4';
-      row.style.pointerEvents = $('enableDailyLimit').checked ? 'auto' : 'none';
-    }
   }
+  syncDailyLimitControlsEnabledState();
 
   // Nạp bài viết hiện tại vào ô soạn thảo
   const curP = posts[currentPostIndex] || posts[0];
@@ -962,6 +1212,8 @@ updatePostTabsUi();
 renderFbBackgroundSwatches();
 setFbBackground(currentFbBg, false);
 updatePostLinkModeUI(!!posts[currentPostIndex]?.postLinkMode);
+syncDailyLimitControlsEnabledState();
+updatePerAccLimitToggleButton();
 window.updateAntiSpamSummaryBadge?.();
 updateLinksStatsDisplay();
 
@@ -2422,7 +2674,8 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
   const todayRecord = statsMap[acc.id];
   const todayPosted = (todayRecord && todayRecord.date === todayStr) ? (Number(todayRecord.count) || 0) : 0;
   const isFanpage = acc.type === 'fanpage';
-  const dailyLimitNum = isFanpage ? 5 : ($('dailyLimit')?.value ? Number($('dailyLimit').value) : 20);
+  const hasCustomDailyLimit = accountDailyLimits && accountDailyLimits[acc.id] !== undefined && Number(accountDailyLimits[acc.id]) >= 1;
+  const dailyLimitNum = getAccountDailyLimit(acc, $('dailyLimit')?.value ? Number($('dailyLimit').value) : 20, accountDailyLimits);
   const isDailyLimitActive = isFanpage || ($('enableDailyLimit')?.checked !== false);
   const isHitDailyLimit = isDailyLimitActive && todayPosted >= dailyLimitNum;
 
@@ -2529,7 +2782,7 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
             ${c?.postTitle || `Bài ${(accountPostMap[acc.id] ?? 0) + 1}`}
           </span>
           <span class="prog-daily-tag ${isHitDailyLimit ? 'limit-hit' : ''}">
-            Hôm nay: <b>${todayPosted}/${dailyLimitNum}</b> bài ${isFanpage ? '(Max 5/ngày)' : ''}
+            Hôm nay: <b>${todayPosted}/${dailyLimitNum}</b> bài ${hasCustomDailyLimit ? '(Tùy chỉnh)' : (isFanpage ? '(Max 5/ngày)' : '')}
           </span>
           ${breakInfo}
         </div>
@@ -2637,9 +2890,11 @@ async function render() {
 
   const {accounts, campaigns, coordinator, dailyPostStats} = await chrome.storage.local.get(['accounts', 'campaigns', 'coordinator', 'dailyPostStats']);
   const accs = accounts || [];
+  cachedAccounts = accs;
   const cMap = extCampaigns || campaigns || {};
   const statsMap = dailyPostStats || {};
   const todayStr = getTodayDateStr();
+  renderPerAccountDailyLimits(accs, statsMap);
 
   // Tách riêng tài khoản cá nhân và trang Fanpage
   const personalAccs = accs.filter(a => a.type !== 'fanpage');
@@ -2947,7 +3202,7 @@ async function render() {
         if (d.enableDailyLimit !== false) {
           const {dailyPostStats = {}} = await chrome.storage.local.get('dailyPostStats');
           const todayCount = (dailyPostStats[accountId]?.date === getTodayDateStr()) ? (Number(dailyPostStats[accountId]?.count) || 0) : 0;
-          const limit = d.dailyLimit || 20;
+          const limit = getAccountDailyLimit(acc, d.dailyLimit, d.accountDailyLimits);
           if (todayCount >= limit) {
             throw Error(`Tài khoản "${acc?.name}" đã đạt giới hạn ${limit} bài group hôm nay (${todayCount}/${limit}).\n\nNếu muốn tiếp tục đăng bài, bạn có thể bấm nút "🔄 Đặt lại hôm nay" của nick này trước.`);
           }

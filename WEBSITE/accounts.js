@@ -4,6 +4,7 @@ await enforceLicenseGate();
 import { initSyncModal, exportJsonBackup, parseJsonFile, applyRestoredData } from './sync_helper.js';
 import {
   getTodayDateStr,
+  getAccountDailyLimit,
   parseUniversalCookies,
   cookiesObjToStr,
   hasCompleteFacebookCookies,
@@ -1097,10 +1098,12 @@ async function render() {
   const accounts = await loadAccounts();
   const personalAccounts = accounts.filter(a => a.type !== 'fanpage');
 
-  const { campaigns, groupCategories, dailyPostStats } = await chrome.storage.local.get(['campaigns', 'groupCategories', 'dailyPostStats']);
+  const { campaigns, groupCategories, dailyPostStats, draft: savedDraft } = await chrome.storage.local.get(['campaigns', 'groupCategories', 'dailyPostStats', 'draft']);
   const cats = groupCategories || [];
   const statsMap = dailyPostStats || {};
   const todayStr = getTodayDateStr();
+  const globalDailyLimit = savedDraft?.dailyLimit ? Number(savedDraft.dailyLimit) : 20;
+  const customDailyLimits = (savedDraft?.accountDailyLimits && typeof savedDraft.accountDailyLimits === 'object') ? savedDraft.accountDailyLimits : null;
 
   if ($('countBadge')) {
     $('countBadge').textContent = `${personalAccounts.length} tài khoản cá nhân`;
@@ -1148,8 +1151,9 @@ async function render() {
 
     const todayRecord = statsMap[acc.id];
     const todayCount = (todayRecord && todayRecord.date === todayStr) ? (Number(todayRecord.count) || 0) : 0;
-    const maxDaily = 20;
-    const dailyInfo = ` &nbsp;·&nbsp; Hôm nay: <b style="color:${todayCount >= maxDaily ? '#dc2626' : '#059669'}">${todayCount}/${maxDaily} bài</b> (Tối đa ${maxDaily} bài/ngày)`;
+    const maxDaily = getAccountDailyLimit(acc, globalDailyLimit, customDailyLimits);
+    const hasCustomLimit = Boolean(customDailyLimits && customDailyLimits[acc.id] !== undefined && Number(customDailyLimits[acc.id]) >= 1);
+    const dailyInfo = ` &nbsp;·&nbsp; Hôm nay: <b style="color:${todayCount >= maxDaily ? '#dc2626' : '#059669'}">${todayCount}/${maxDaily} bài</b> (Tối đa ${maxDaily} bài/ngày${hasCustomLimit ? ' · Riêng' : ''})`;
 
     const card = document.createElement('div');
     card.className = 'acc-card';
