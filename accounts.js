@@ -302,34 +302,49 @@ async function getCurrentFacebookSession() {
   };
 }
 
+// Biến theo dõi tiến trình đăng nhập hiện tại để chống pollInterval bắt nhầm cookie nick cũ
+let _activeLoginFlowState = null;
+
 // ── Helper: Lưu hoặc cập nhật tài khoản vào cơ sở dữ liệu ───────────────────
-async function saveOrUpdateAccountRecord({ name, email, pass, twoFactor, proxy, cookies, token, cUser, groups }) {
+async function saveOrUpdateAccountRecord({ accountId = null, name, email, pass, twoFactor, proxy, cookies, token, cUser, groups }) {
   const accounts = await loadAccounts();
   const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanCUser = String(cUser || '').trim();
+  const cleanAccId = String(accountId || '').trim();
+
+  // CHỈ tìm trong tài khoản cá nhân (a.type !== 'fanpage') để tuyệt đối không lưu đè vào bản ghi Fanpage bị ẩn!
   const existingIdx = accounts.findIndex(a =>
-    (cleanEmail && a.email && a.email.trim().toLowerCase() === cleanEmail) ||
-    (cUser && a.fbId && a.fbId === cUser)
+    a && a.type !== 'fanpage' && (
+      (cleanAccId && a.id === cleanAccId) ||
+      (cleanCUser && a.fbId && String(a.fbId).trim() === cleanCUser) ||
+      (cleanEmail && a.email && a.email.trim().toLowerCase() === cleanEmail)
+    )
   );
   const isExisting = existingIdx >= 0;
 
   if (isExisting) {
-    accounts[existingIdx].name = name || accounts[existingIdx].name;
-    if (pass) accounts[existingIdx].password = pass;
-    if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
-    if (proxy !== null && proxy !== undefined) accounts[existingIdx].proxy = proxy;
-    if (cookies) accounts[existingIdx].cookies = cookies;
-    if (token) accounts[existingIdx].token = token;
-    if (cUser) accounts[existingIdx].fbId = cUser;
-    accounts[existingIdx].status = 'active';
-    accounts[existingIdx].errorMsg = null;
-    accounts[existingIdx].lastCookieSync = Date.now();
-    if (groups) accounts[existingIdx].groups = groups;
+    const cur = accounts[existingIdx];
+    cur.type = 'personal';
+    cur.name = name || cur.name;
+    if (email) cur.email = email;
+    if (pass) cur.password = pass;
+    if (twoFactor) cur.twoFactor = twoFactor;
+    if (proxy !== null && proxy !== undefined) cur.proxy = proxy;
+    if (cookies) cur.cookies = cookies;
+    if (token) cur.token = token;
+    if (cleanCUser) cur.fbId = cleanCUser;
+    cur.status = 'active';
+    cur.errorMsg = null;
+    cur.lastCookieSync = Date.now();
+    if (groups) cur.groups = groups;
     await saveAccounts(accounts);
-    return { isExisting: true, account: accounts[existingIdx] };
+    syncAccountsToCloudImmediately(accounts).catch(() => {});
+    return { isExisting: true, account: cur };
   } else {
     const newAcc = {
-      id: crypto.randomUUID(),
-      name: name || (cUser ? `FB Nick (${cUser})` : 'Tài khoản FB'),
+      id: cleanAccId || crypto.randomUUID(),
+      type: 'personal',
+      name: name || (cleanCUser ? `FB Nick (${cleanCUser})` : 'Tài khoản FB'),
       email: email || '',
       password: pass || '',
       twoFactor: twoFactor || null,
@@ -338,11 +353,14 @@ async function saveOrUpdateAccountRecord({ name, email, pass, twoFactor, proxy, 
       token: token || null,
       groups: groups || '',
       addedVia: twoFactor ? 'via' : 'password',
-      fbId: cUser || '',
+      fbId: cleanCUser || '',
+      status: 'active',
+      errorMsg: null,
       lastCookieSync: Date.now()
     };
     accounts.push(newAcc);
     await saveAccounts(accounts);
+    syncAccountsToCloudImmediately(accounts).catch(() => {});
     return { isExisting: false, account: newAcc };
   }
 }
@@ -364,6 +382,16 @@ $('loginBtn').onclick = async () => {
     try { validateGroups(groups); } catch(e) { msg(e.message, 'err'); return; }
   }
 
+  // Ghi nhận phiên Facebook cũ đang mở trên Chrome (nếu có) trước khi bấm đăng nhập
+  // để vòng quét cookie TUYỆT ĐỐI KHÔNG bắt nhầm cookie nick cũ rồi ghi đè mất nick mới!
+  let preLoginCUser = '';
+  try {
+    const preSess = await getCurrentFacebookSession();
+    if (preSess?.hasSession && preSess.cUser) {
+      preLoginCUser = String(preSess.cUser).trim();
+    }
+  } catch (_) {}
+
   // Show progress
   $('loginProgress').classList.add('show');
   $('loginBtn').disabled = true;
@@ -377,25 +405,35 @@ $('loginBtn').onclick = async () => {
 
   let isDone = false;
   let pollInterval = null;
+  const loginStartedAt = Date.now();
+  const flowState = {
+    sessionClearedSeen: !preLoginCUser,
+    loginSubmittedSeen: false
+  };
+  _activeLoginFlowState = flowState;
 
-  const cleanupProgress = () => {
-    if (pollInterval) {
+  const cleanupProgress = (keepPolling = false) => {
+    if (!keepPolling && pollInterval) {
       clearInterval(pollInterval);
       pollInterval = null;
+    }
+    if (!keepPolling && _activeLoginFlowState === flowState) {
+      _activeLoginFlowState = null;
     }
     $('loginBtn').disabled = false;
   };
 
-  const finishLoginSuccessfully = async (cookies, cUser, token = null) => {
+  const finishLoginSuccessfully = async (cookies, cUser, token = null, accountId = null) => {
     if (isDone) return;
     isDone = true;
-    cleanupProgress();
+    cleanupProgress(false);
 
     ['step1','step2','step3','step4'].forEach(s => setStep(s, 'done'));
     if (el2fa && el2fa.style.display !== 'none') el2fa.className = 'step-done';
     setStep('step5', 'active');
 
     const saveRes = await saveOrUpdateAccountRecord({
+      accountId,
       name,
       email,
       pass,
@@ -432,7 +470,7 @@ $('loginBtn').onclick = async () => {
       if (el2fa) { el2fa.style.display = 'none'; el2fa.className = 'step-wait'; }
     }, 2500);
 
-    render();
+    await render();
   };
 
   // Nút 1: Hủy chờ đăng nhập
@@ -441,7 +479,7 @@ $('loginBtn').onclick = async () => {
     btnCancel.onclick = () => {
       if (isDone) return;
       isDone = true;
-      cleanupProgress();
+      cleanupProgress(false);
       $('loginProgress').classList.remove('show');
       msg('Đã dừng chờ đăng nhập.', 'ok');
     };
@@ -472,51 +510,84 @@ $('loginBtn').onclick = async () => {
     };
   }
 
-  // Khởi động vòng quét cookie chủ động (mỗi 1.5 giây một lần)
-  // Ngay khi tab Facebook đăng nhập thành công, accounts.js tự động nhận diện và lưu ngay lập tức!
+  // Vòng quét cookie dự phòng (CHỈ chấp nhận cookie mới SAU KHI phiên nick cũ đã bị xóa sạch)
   pollInterval = setInterval(async () => {
     if (isDone) return;
     try {
       const sess = await getCurrentFacebookSession();
-      if (sess.hasSession) {
-        await finishLoginSuccessfully(sess.cookieStr, sess.cUser);
+      if (!sess.hasSession) {
+        // Đã thấy Chrome xóa sạch cookie cũ!
+        flowState.sessionClearedSeen = true;
+        return;
       }
+      const curCUser = String(sess.cUser || '').trim();
+      const elapsed = Date.now() - loginStartedAt;
+      const isDifferentUser = Boolean(preLoginCUser && curCUser && curCUser !== preLoginCUser);
+
+      // Chặn tuyệt đối việc bắt nhầm cookie của nick cũ trước khi worker kịp xóa session cũ!
+      if (!flowState.sessionClearedSeen && !isDifferentUser) {
+        return;
+      }
+      // Nếu là cùng UID cũ đăng nhập lại, chỉ chấp nhận sau khi đã qua bước xóa phiên + gửi form (ít nhất 4s)
+      if (!isDifferentUser && (!flowState.loginSubmittedSeen || elapsed < 4000)) {
+        return;
+      }
+      // Chờ thêm ít nhất 3.5s để DO_LOGIN ưu tiên trả về đầy đủ cả Token + Cookies sạch từ worker
+      if (elapsed < 3500) return;
+
+      await finishLoginSuccessfully(sess.cookieStr, curCUser);
     } catch (_) {}
-  }, 1500);
+  }, 2000);
 
   try {
-    // Gửi lệnh DO_LOGIN tới Extension Background Worker có bọc timeout 25s
+    // Gửi lệnh DO_LOGIN tới Extension Background Worker (kèm autoSaveNewAccount: true làm lưới an toàn kép)
     const loginCmd = sendExtensionCommand({
       type: 'DO_LOGIN',
+      accountName: name,
       email,
       password: pass,
       twoFactor,
       proxy: normalizedProxy,
+      groups,
+      autoSaveNewAccount: true,
       keepSession: true,
       openFacebookTab: true
     });
 
-    const timeoutGuard = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 25000));
+    // Dù timeoutGuard có chạm ngưỡng trước, nếu DO_LOGIN hoàn tất trễ hơn vẫn tự động lưu nick mới!
+    loginCmd.then(async (lateRes) => {
+      if (!isDone && lateRes && lateRes.ok && lateRes.cookies) {
+        await finishLoginSuccessfully(lateRes.cookies, lateRes.cUser, lateRes.token, lateRes.accountId);
+      }
+    }).catch(() => {});
+
+    // Nâng ngưỡng chờ lên 125 giây (khớp với thời gian chờ 2FA của worker.js)
+    const timeoutGuard = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 125000));
     const result = await Promise.race([loginCmd, timeoutGuard]).catch(e => ({ ok: false, error: e?.message }));
 
     if (result && result.ok && result.cookies) {
-      await finishLoginSuccessfully(result.cookies, result.cUser, result.token);
+      await finishLoginSuccessfully(result.cookies, result.cUser, result.token, result.accountId);
       return;
     }
 
     // Nếu lệnh DO_LOGIN kết thúc hoặc timeout nhưng chưa xong:
     if (!isDone) {
-      // Quét session 1 lần nữa
+      // Quét session 1 lần nữa (CHỈ lấy nếu phiên cũ đã được xóa hoặc là UID khác)
       const finalSess = await getCurrentFacebookSession();
-      if (finalSess.hasSession) {
-        await finishLoginSuccessfully(finalSess.cookieStr, finalSess.cUser);
+      const finalCUser = String(finalSess.cUser || '').trim();
+      const canUseFinalSess = Boolean(
+        finalSess.hasSession &&
+        (flowState.sessionClearedSeen || (preLoginCUser && finalCUser && finalCUser !== preLoginCUser))
+      );
+      if (canUseFinalSess) {
+        await finishLoginSuccessfully(finalSess.cookieStr, finalCUser);
         return;
       }
 
-      // Vẫn lưu tài khoản để user không mất thông tin
+      // Vẫn lưu bản nháp tài khoản (không ghi đè Fanpage) để user không mất thông tin
       const accounts = await loadAccounts();
       const cleanEmail = email.trim().toLowerCase();
-      const existingIdx = accounts.findIndex(a => a.email && a.email.trim().toLowerCase() === cleanEmail);
+      const existingIdx = accounts.findIndex(a => a && a.type !== 'fanpage' && a.email && a.email.trim().toLowerCase() === cleanEmail);
       const isExisting = existingIdx >= 0;
 
       if (isExisting) {
@@ -530,6 +601,7 @@ $('loginBtn').onclick = async () => {
         const detectedFbId = email.match(/^\d+$/) ? email : '';
         accounts.push({
           id: crypto.randomUUID(),
+          type: 'personal',
           name,
           email,
           password: pass,
@@ -544,21 +616,25 @@ $('loginBtn').onclick = async () => {
         });
         await saveAccounts(accounts);
       }
+      syncAccountsToCloudImmediately(accounts).catch(() => {});
 
-      // Giữ bảng chờ mở để user có thể bấm nút "⚡ Tab Facebook đã đăng nhập? Bấm lấy Cookie ngay"
+      // Giữ bảng chờ & vòng quét mở để user hoàn tất đăng nhập thủ công là tự bắt cookie ngay
       setStep('step1', 'done');
       setStep('step2', 'done');
       $('progressTitle').textContent = '⚠️ Hãy đăng nhập trên tab Facebook vừa mở...';
-      msg('⚠️ Tab Facebook đã mở. Khi bạn đã vào được trang Facebook, hãy bấm nút xanh: [⚡ Tab Facebook đã đăng nhập? Bấm lấy Cookie ngay] phía trên!', 'err');
-      render();
+      const errDetail = (result && result.error && !result.timeout) ? ` (${result.error})` : '';
+      msg(`⚠️ Tab Facebook đã mở${errDetail}. Khi bạn đã vào được trang Facebook, hệ thống sẽ tự bắt hoặc bạn bấm nút xanh: [⚡ Tab Facebook đã đăng nhập? Bấm lấy Cookie ngay] phía trên!`, 'err');
+      await render();
     }
   } catch (e) {
     if (!isDone) {
+      cleanupProgress(false);
       $('loginProgress').classList.remove('show');
       msg('❌ ' + e.message, 'err');
     }
   } finally {
-    cleanupProgress();
+    // CHỈ tắt vòng quét nếu đã xong; nếu user đang đăng nhập tay trên tab thì giữ vòng quét tiếp tục chạy
+    cleanupProgress(!isDone);
   }
 };
 
@@ -860,8 +936,9 @@ $('addCookieBtn').onclick = async () => {
     if (!name) name = `Nick FB (${cUser || 'Mới'})`;
 
     const accounts = await loadAccounts();
-    // Kiểm tra xem tài khoản này đã có trong danh sách chưa (chỉ khớp đúng FB UID duy nhất)
+    // Kiểm tra xem tài khoản này đã có trong danh sách chưa (CHỈ khớp trong nick cá nhân, không đụng Fanpage)
     const existingIdx = accounts.findIndex(a => {
+      if (!a || a.type === 'fanpage') return false;
       if (cUser && a.fbId && String(a.fbId).trim() === String(cUser).trim()) return true;
       if (parsed.email && a.email && a.email.toLowerCase() === parsed.email.toLowerCase()) return true;
       return false;
@@ -869,6 +946,7 @@ $('addCookieBtn').onclick = async () => {
 
     let accId;
     if (existingIdx >= 0) {
+      accounts[existingIdx].type = 'personal';
       accounts[existingIdx].name = name;
       if (finalCookieStr) accounts[existingIdx].cookies = finalCookieStr;
       if (token) accounts[existingIdx].token = token;
@@ -881,11 +959,13 @@ $('addCookieBtn').onclick = async () => {
       if (groups) accounts[existingIdx].groups = groups;
       accId = accounts[existingIdx].id;
       await saveAccounts(accounts);
+      syncAccountsToCloudImmediately(accounts).catch(() => {});
       msg(`🔄 Đã cập nhật tài khoản "${name}" (FB ID: ${cUser || 'N/A'})!`);
     } else {
       accId = crypto.randomUUID();
       accounts.push({
         id: accId,
+        type: 'personal',
         name,
         email: cUser || parsed.email || '',
         password: password,
@@ -899,6 +979,7 @@ $('addCookieBtn').onclick = async () => {
         lastCookieSync: Date.now()
       });
       await saveAccounts(accounts);
+      syncAccountsToCloudImmediately(accounts).catch(() => {});
     }
 
     // 3. Tự động nạp cookies và đăng nhập Facebook trên Chrome nếu được chọn
@@ -1663,10 +1744,29 @@ chrome.runtime.onMessage.addListener(m => {
     render();
   }
   if (m.type === 'LOGIN_STEP' && m.step) {
-    if (m.step === 'step2') { setStep('step1', 'done'); setStep('step2', 'active'); }
-    else if (m.step === 'step3') { setStep('step2', 'done'); setStep('step3', 'active'); }
-    else if (m.step === 'step4') { setStep('step3', 'done'); setStep('step4', 'active'); }
+    if (m.step === 'session_cleared') {
+      if (_activeLoginFlowState) _activeLoginFlowState.sessionClearedSeen = true;
+    }
+    else if (m.step === 'step2') {
+      if (_activeLoginFlowState) _activeLoginFlowState.sessionClearedSeen = true;
+      setStep('step1', 'done'); setStep('step2', 'active');
+    }
+    else if (m.step === 'step3') {
+      if (_activeLoginFlowState) _activeLoginFlowState.sessionClearedSeen = true;
+      setStep('step2', 'done'); setStep('step3', 'active');
+    }
+    else if (m.step === 'step4') {
+      if (_activeLoginFlowState) {
+        _activeLoginFlowState.sessionClearedSeen = true;
+        _activeLoginFlowState.loginSubmittedSeen = true;
+      }
+      setStep('step3', 'done'); setStep('step4', 'active');
+    }
     else if (m.step === 'step_2fa') {
+      if (_activeLoginFlowState) {
+        _activeLoginFlowState.sessionClearedSeen = true;
+        _activeLoginFlowState.loginSubmittedSeen = true;
+      }
       const el = $('step_2fa');
       if (el) {
         el.style.display = 'flex';
@@ -1675,6 +1775,10 @@ chrome.runtime.onMessage.addListener(m => {
       $('progressTitle').textContent = '⚠️ Hãy nhập mã 2FA trên tab Facebook vừa mở...';
     }
     else if (m.step === 'step5') {
+      if (_activeLoginFlowState) {
+        _activeLoginFlowState.sessionClearedSeen = true;
+        _activeLoginFlowState.loginSubmittedSeen = true;
+      }
       const el = $('step_2fa');
       if (el && el.style.display !== 'none') el.className = 'step-done';
       setStep('step4', 'done');

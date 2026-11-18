@@ -5520,6 +5520,7 @@ async function performFacebookLogin(m) {
 
     // ── 1. Xóa sạch session và cookies Facebook hiện có trên trình duyệt ─
     await clearAllFacebookSession();
+    broadcastLoginStep('session_cleared');
     await new Promise(r => setTimeout(r, 700));
 
     // ── 2. Mở hoặc điều hướng tab tới trang đăng nhập Facebook ─────────
@@ -5793,17 +5794,71 @@ async function performFacebookLogin(m) {
       activeToken = tokenEAAG || tokenEAAB || null;
     } catch (_) {}
 
+    let savedAccountId = m.existingAccountId || null;
     if (m.existingAccountId) {
       const { accounts } = await chrome.storage.local.get('accounts');
-      const accList = accounts || [];
+      const accList = Array.isArray(accounts) ? accounts : [];
       const targetAcc = accList.find(a => a.id === m.existingAccountId);
       if (targetAcc) {
         targetAcc.cookies = cookieStr;
         if (activeToken) targetAcc.token = activeToken;
         targetAcc.fbId = cUser.value;
+        targetAcc.status = 'active';
+        targetAcc.errorMsg = null;
         targetAcc.lastCookieSync = Date.now();
         await chrome.storage.local.set({ accounts: accList });
       }
+    } else if (m.autoSaveNewAccount) {
+      // Dự phòng an toàn tuyệt đối: tự lưu/cập nhật ngay tài khoản cá nhân mới vào chrome.storage.local
+      // để dù trang Web/UI có timeout hoặc đóng giữa chừng vẫn không bao giờ mất nick mới đăng nhập!
+      const { accounts } = await chrome.storage.local.get('accounts');
+      const accList = Array.isArray(accounts) ? accounts : [];
+      const cleanEmail = String(m.email || '').trim().toLowerCase();
+      const cleanCUser = String(cUser.value || '').trim();
+      const existingIdx = accList.findIndex(a =>
+        a && a.type !== 'fanpage' && (
+          (cleanCUser && String(a.fbId || '').trim() === cleanCUser) ||
+          (cleanEmail && String(a.email || '').trim().toLowerCase() === cleanEmail)
+        )
+      );
+      if (existingIdx >= 0) {
+        const cur = accList[existingIdx];
+        if (m.accountName) cur.name = m.accountName;
+        if (m.email) cur.email = m.email;
+        if (m.password) cur.password = m.password;
+        if (m.twoFactor) cur.twoFactor = m.twoFactor;
+        if (m.proxy !== null && m.proxy !== undefined) cur.proxy = m.proxy;
+        if (m.groups) cur.groups = m.groups;
+        cur.cookies = cookieStr;
+        if (activeToken) cur.token = activeToken;
+        cur.fbId = cleanCUser;
+        cur.type = 'personal';
+        cur.status = 'active';
+        cur.errorMsg = null;
+        cur.lastCookieSync = Date.now();
+        savedAccountId = cur.id;
+      } else {
+        const newAcc = {
+          id: crypto.randomUUID(),
+          type: 'personal',
+          name: (m.accountName || '').trim() || `FB Nick (${cleanCUser})`,
+          email: m.email || '',
+          password: m.password || '',
+          twoFactor: m.twoFactor || null,
+          proxy: m.proxy || null,
+          cookies: cookieStr,
+          token: activeToken || null,
+          groups: m.groups || '',
+          addedVia: m.twoFactor ? 'via' : 'password',
+          fbId: cleanCUser,
+          status: 'active',
+          errorMsg: null,
+          lastCookieSync: Date.now()
+        };
+        accList.push(newAcc);
+        savedAccountId = newAcc.id;
+      }
+      await chrome.storage.local.set({ accounts: accList });
     }
 
     broadcastLoginStep('step5');
@@ -5815,7 +5870,7 @@ async function performFacebookLogin(m) {
       tabId = null;
     }
 
-    return { ok: true, cookies: cookieStr, cUser: cUser.value, token: activeToken, tabId };
+    return { ok: true, cookies: cookieStr, cUser: cUser.value, token: activeToken, tabId, accountId: savedAccountId };
   } catch (e) {
     if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
     return { ok: false, error: e.message };
