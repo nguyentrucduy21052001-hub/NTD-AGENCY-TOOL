@@ -617,11 +617,76 @@ if (chrome.action?.onClicked?.addListener) {
  * Inject cookies for a specific account into facebook.com domain.
  * Supports string format ("c_user=...; xs=..."), JSON array format, and maps.
  */
+// Các cookie tạm thời / đánh dấu đăng xuất / gây xung đột phiên đa tài khoản trên Facebook
+const TOXIC_FB_COOKIE_NAMES = new Set([
+  'oo',
+  'dbln',
+  'i_user',
+  'm_page_voice',
+  'presence',
+  'wd',
+  'dpr',
+  'ps_l',
+  'ps_n',
+  'spin',
+  'usida',
+  'fbl_st',
+  'vpd',
+  'wl_cbv',
+  'act',
+  'checkpoint',
+  'ar_debug',
+  'm_ls',
+  'x-referer',
+  'sfiu',
+  'cppo'
+]);
+
+function sanitizeFacebookCookieObj(rawObj) {
+  const clean = {};
+  if (!rawObj || typeof rawObj !== 'object') return clean;
+  for (const [k, v] of Object.entries(rawObj)) {
+    const name = String(k || '').trim();
+    if (!name || v === undefined || v === null) continue;
+    if (TOXIC_FB_COOKIE_NAMES.has(name.toLowerCase())) continue;
+    const val = String(v).trim();
+    if (!val) continue;
+    clean[name] = val;
+  }
+  return clean;
+}
+
+/**
+ * Xóa sạch localStorage / indexedDB / serviceWorkers / cacheStorage của Facebook
+ * khi chuyển giữa các nick để tránh Comet Relay dính viewer ID của nick cũ gây văng ra trang đăng nhập.
+ */
+async function clearFacebookStorageForSwitch() {
+  if (!chrome.browsingData?.remove) return;
+  try {
+    await chrome.browsingData.remove({
+      origins: [
+        'https://www.facebook.com',
+        'https://facebook.com',
+        'https://m.facebook.com',
+        'https://web.facebook.com',
+        'http://www.facebook.com',
+        'http://facebook.com'
+      ]
+    }, {
+      localStorage: true,
+      indexedDB: true,
+      serviceWorkers: true,
+      cacheStorage: true
+    });
+  } catch (_) {}
+}
+
 async function injectCookies(cookieInput) {
   if (!cookieInput) return [];
-  const cookieObj = typeof cookieInput === 'object' && !Array.isArray(cookieInput)
+  const rawObj = typeof cookieInput === 'object' && !Array.isArray(cookieInput)
     ? { ...cookieInput }
     : parseUniversalCookies(cookieInput);
+  const cookieObj = sanitizeFacebookCookieObj(rawObj);
 
   const keys = Object.keys(cookieObj);
   if (!keys.length) return [];
@@ -651,6 +716,8 @@ async function injectCookies(cookieInput) {
 
   const injected = [];
   const httpOnlyCookies = new Set(['xs', 'fr', 'datr', 'sb']);
+  // Facebook đặt SameSite=None; Secure (no_restriction) cho toàn bộ cookie auth/phiên cốt lõi
+  const crossSiteCookies = new Set(['c_user', 'xs', 'datr', 'fr', 'sb', 'csm', 'pl', 'lu']);
   const expDate = Math.floor(Date.now() / 1000) + (365 * 24 * 3600); // 1 năm
 
   for (const [name, rawValue] of Object.entries(cookieObj)) {
@@ -660,10 +727,7 @@ async function injectCookies(cookieInput) {
 
     const lowerName = name.toLowerCase();
     const isHttpOnly = httpOnlyCookies.has(lowerName);
-
-    // datr và fr trên Facebook dùng no_restriction (SameSite=None), các cookie auth khác (c_user, xs, sb) dùng lax
-    const isCrossSite = ['datr', 'fr'].includes(lowerName);
-    const sameSiteVal = isCrossSite ? 'no_restriction' : 'lax';
+    const sameSiteVal = crossSiteCookies.has(lowerName) ? 'no_restriction' : 'lax';
 
     let success = false;
 
@@ -879,7 +943,10 @@ async function autoSyncFacebookCookies(preferredAccountId = null) {
 
     const currentCUser = String(cUserCookie.value).trim();
     const currentXs = String(xsCookie.value).trim();
-    const newCookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+    const newCookieStr = [...cookieMap.values()]
+      .filter(c => !TOXIC_FB_COOKIE_NAMES.has(String(c.name || '').toLowerCase()))
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ');
 
     const accounts = await readAccounts();
     if (!accounts.length) return { ok: false, reason: 'no_accounts' };
@@ -952,15 +1019,41 @@ async function autoSyncFacebookCookies(preferredAccountId = null) {
   }
 }
 
+function cancelPendingCookieSync() {
+  if (cookieSyncDebounceTimer) {
+    clearTimeout(cookieSyncDebounceTimer);
+    cookieSyncDebounceTimer = null;
+  }
+}
+
 function triggerDebouncedCookieSync(preferredAccountId = null, delayMs = 1200) {
-  if (cookieSyncDebounceTimer) clearTimeout(cookieSyncDebounceTimer);
+  if (isSwitchingSession) return;
+  cancelPendingCookieSync();
   cookieSyncDebounceTimer = setTimeout(() => {
+    cookieSyncDebounceTimer = null;
+    if (isSwitchingSession) return;
     autoSyncFacebookCookies(preferredAccountId).catch(() => {});
   }, delayMs);
 }
 
 // ── Lắng nghe thay đổi cookie Facebook thời gian thực trên Chrome ───────────
 let isSwitchingSession = false;
+let sessionSwitchSeq = 0;
+
+function beginSessionSwitch() {
+  cancelPendingCookieSync();
+  sessionSwitchSeq++;
+  isSwitchingSession = true;
+  return sessionSwitchSeq;
+}
+
+function endSessionSwitch(seq, cooldownMs = 2200) {
+  setTimeout(() => {
+    if (seq === sessionSwitchSeq) {
+      isSwitchingSession = false;
+    }
+  }, cooldownMs);
+}
 
 if (chrome.cookies?.onChanged?.addListener) {
   chrome.cookies.onChanged.addListener(changeInfo => {
@@ -1493,7 +1586,7 @@ async function prepareAccountSession(accountId, opts = {}) {
     return acc;
   }
 
-  isSwitchingSession = true;
+  const switchSeq = beginSessionSwitch();
   try {
     let parentAcc = null;
     if (acc.type === 'fanpage') {
@@ -1506,7 +1599,7 @@ async function prepareAccountSession(accountId, opts = {}) {
     }
 
     let rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : (parentAcc?.cookies || '');
-    let cookieObj = parseUniversalCookies(rawCookies);
+    let cookieObj = sanitizeFacebookCookieObj(parseUniversalCookies(rawCookies));
 
     // Áp dụng Proxy riêng của tài khoản (hoặc nick mẹ của Fanpage), nếu không có thì trở về Direct IP
     const proxyToUse = acc.proxy || parentAcc?.proxy || null;
@@ -1555,6 +1648,7 @@ async function prepareAccountSession(accountId, opts = {}) {
         password: loginPassword,
         twoFactor: credAcc?.twoFactor || null,
         existingAccountId: credAcc.id,
+        accountName: acc.name || credAcc?.name || '',
         targetTabId: opts.targetTabId || null,
         openFacebookTab: true,
         keepSession: true,
@@ -1574,7 +1668,7 @@ async function prepareAccountSession(accountId, opts = {}) {
         await saveAccounts(refreshedAccounts);
       }
       rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : (loginRes.cookies || '');
-      cookieObj = parseUniversalCookies(rawCookies);
+      cookieObj = sanitizeFacebookCookieObj(parseUniversalCookies(rawCookies));
       expectedCUser = acc.type === 'fanpage'
         ? (loginRes.cUser || cookieObj['c_user'] || parentAcc?.fbId || '')
         : (acc.fbId || loginRes.cUser || cookieObj['c_user'] || '');
@@ -1587,20 +1681,22 @@ async function prepareAccountSession(accountId, opts = {}) {
         throw new Error(`Tài khoản "${acc.name}" chưa có đủ Cookie đăng nhập (c_user/xs) hoặc chưa có Mật khẩu để tự động đăng nhập.`);
       }
 
-      if (needSwitchUser) {
-        console.log(`[AccountSwitch] Chuyển đổi phiên cá nhân sang "${acc.name}" (UID: ${expectedCUser || 'chưa rõ'})`);
+      if (needSwitchUser || opts.forceCleanSwitch) {
+        console.log(`[AccountSwitch] Chuyển đổi phiên sạch sang "${acc.name}" (UID: ${expectedCUser || 'chưa rõ'})`);
         const hasDatrInAcc = Boolean(cookieObj['datr']);
 
         // 0. Ngắt các tab Facebook nền (trừ tab quét/tab đang chạy) để tránh xung đột request khi đổi cookie
         await parkOpenFacebookTabs({ excludeTabIds: opts.targetTabId ? [opts.targetTabId] : [] });
 
-        // 1. Đăng xuất session cũ
+        // 1. Xóa sạch cookies cũ VÀ xóa sạch localStorage/indexedDB/serviceWorkers của nick cũ
+        //    (Tránh Facebook Comet phát hiện lệch viewer ID nick cũ -> văng về trang đăng nhập!)
         await clearFacebookCookiesOnly(!hasDatrInAcc);
-        await new Promise(r => setTimeout(r, 200));
+        await clearFacebookStorageForSwitch();
+        await new Promise(r => setTimeout(r, 250));
 
-        // 2. Nạp cookies tài khoản mới vào trình duyệt
+        // 2. Nạp cookies sạch tài khoản mới vào trình duyệt (SameSite=None; Secure)
         await injectCookies(cookieObj);
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 350));
       } else {
         // Đã đúng nick cá nhân, đảm bảo c_user & xs vẫn hiện diện
         const hasCUser = fbCookies.some(c => c.name === 'c_user');
@@ -1611,13 +1707,15 @@ async function prepareAccountSession(accountId, opts = {}) {
         }
       }
 
-      // 3. Xác minh c_user và xs đã được nạp thành công vào Chrome
+      // 3. Xác minh c_user và xs đã được nạp thành công và đúng UID vào Chrome
       let verifyCookies = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
       let verifiedCUser = verifyCookies.find(c => c.name === 'c_user')?.value;
       let verifiedXs = verifyCookies.find(c => c.name === 'xs')?.value;
-      if ((!verifiedCUser || !verifiedXs) && Object.keys(cookieObj).length > 0) {
+      const isWrongUser = Boolean(expectedCUser && verifiedCUser && String(verifiedCUser) !== String(expectedCUser));
+      if ((!verifiedCUser || !verifiedXs || isWrongUser) && Object.keys(cookieObj).length > 0) {
+        await clearFacebookCookiesOnly(!Boolean(cookieObj['datr']));
         await injectCookies(cookieObj);
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 350));
         verifyCookies = await chrome.cookies.getAll({ domain: 'facebook.com' }).catch(() => []);
         verifiedCUser = verifyCookies.find(c => c.name === 'c_user')?.value;
         verifiedXs = verifyCookies.find(c => c.name === 'xs')?.value;
@@ -1646,7 +1744,7 @@ async function prepareAccountSession(accountId, opts = {}) {
           value: pageId,
           path: '/',
           secure: true,
-          sameSite: 'lax'
+          sameSite: 'no_restriction'
         }).catch(() => {});
       }
 
@@ -1674,7 +1772,7 @@ async function prepareAccountSession(accountId, opts = {}) {
 
     return acc;
   } finally {
-    setTimeout(() => { isSwitchingSession = false; }, 2000);
+    endSessionSwitch(switchSeq, 2200);
   }
 }
 
@@ -5302,11 +5400,13 @@ async function inspectTabFacebookAuthState(tabId) {
   return await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
-      const hasPasswordInput = Boolean(
-        document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"]')
-      );
-      const hasEmailInput = Boolean(
-        document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[aria-label*="Email" i], input[aria-label*="di động" i]')
+      const passInputEl = document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"]');
+      const emailInputEl = document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[aria-label*="Email" i], input[aria-label*="di động" i]');
+      const hasPasswordInput = Boolean(passInputEl);
+      const hasEmailInput = Boolean(emailInputEl);
+      const hasEmptyLoginInputs = Boolean(
+        (passInputEl && !(passInputEl.value || '').trim()) ||
+        (emailInputEl && !(emailInputEl.value || '').trim())
       );
       const hasTwoFactorInput = Boolean(
         document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
@@ -5337,7 +5437,7 @@ async function inspectTabFacebookAuthState(tabId) {
         return /^(tạo tài khoản mới|create new account|tạo tài khoản|sign up)/i.test(t);
       });
       const pageText = (document.body ? document.body.innerText : '') || '';
-      const hasLoggedOutBanner = /Khám phá những điều bạn yêu thích|Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Đăng nhập hoặc đăng ký|Log in or sign up|You must log in to continue|Log into Facebook|Connect with friends/i.test(pageText);
+      const hasLoggedOutBanner = /Khám phá những điều bạn yêu thích|Đăng nhập vào Facebook|Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Đăng nhập hoặc đăng ký|Log in or sign up|You must log in to continue|Log into Facebook|Connect with friends/i.test(pageText);
 
       const hasSavedProfile = (hasContinueBtn || hasSwitchAccountBtn) && (hasCreateAccountBtn || hasLoggedOutBanner || !document.querySelector('[role="feed"]'));
 
@@ -5357,6 +5457,7 @@ async function inspectTabFacebookAuthState(tabId) {
         url: location.href,
         hasPasswordInput,
         hasEmailInput,
+        hasEmptyLoginInputs,
         hasTwoFactorInput,
         hasSwitchAccountBtn,
         hasContinueBtn,
@@ -5368,6 +5469,7 @@ async function inspectTabFacebookAuthState(tabId) {
     url: '',
     hasPasswordInput: false,
     hasEmailInput: false,
+    hasEmptyLoginInputs: false,
     hasTwoFactorInput: false,
     hasSwitchAccountBtn: false,
     hasContinueBtn: false,
@@ -5452,34 +5554,55 @@ async function performFacebookLogin(m) {
       await new Promise(r => setTimeout(r, 1200));
     }
 
-    // Inject script hỗ trợ đăng nhập
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] });
-    await new Promise(r => setTimeout(r, 500));
+    // Hàm phụ tiêm lại login_helper.js và gửi lệnh điền Email + Mật khẩu
+    const injectAndSubmitLogin = async () => {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['fb_login_guard.js'] }).catch(() => {});
+        await chrome.scripting.executeScript({ target: { tabId }, files: ['login_helper.js'] });
+        await new Promise(r => setTimeout(r, 450));
+        return await chrome.tabs.sendMessage(tabId, {
+          type: 'DO_LOGIN',
+          email: m.email,
+          password: m.password,
+          accountName: m.accountName || ''
+        }).catch(e => {
+          if (e.message && e.message.includes('message channel closed')) {
+            return { ok: true, submitted: false, channelClosed: true };
+          }
+          return { ok: false, error: 'Không thể gửi lệnh vào tab: ' + e.message };
+        });
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    };
 
     broadcastLoginStep('step3');
 
-    const loginResult = await chrome.tabs.sendMessage(tabId, {
-      type: 'DO_LOGIN',
-      email: m.email,
-      password: m.password,
-      accountName: m.accountName || ''
-    }).catch(e => {
-      if (e.message && e.message.includes('message channel closed')) {
-        return { ok: true, submitted: true };
-      }
-      return { ok: false, error: 'Không thể gửi lệnh vào tab: ' + e.message };
-    });
+    let loginSubmitAttempts = 1;
+    let needsResubmitCheck = false;
+    const loginResult = await injectAndSubmitLogin();
+    if (loginResult?.channelClosed) {
+      needsResubmitCheck = true;
+    }
 
     if (!loginResult?.ok) {
-      if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
-      return { ok: false, error: loginResult?.error || 'Đăng nhập thất bại.' };
+      // Nếu lỗi do trang vừa redirect giữa chừng, thử đợi trang ổn định rồi gửi lại 1 lần
+      await waitForTabLoadComplete(tabId, 10000);
+      await new Promise(r => setTimeout(r, 900));
+      loginSubmitAttempts++;
+      const retryRes = await injectAndSubmitLogin();
+      if (retryRes?.channelClosed) needsResubmitCheck = true;
+      if (!retryRes?.ok) {
+        if (createdFreshTab && tabId) await chrome.tabs.remove(tabId).catch(() => {});
+        return { ok: false, error: retryRes?.error || loginResult?.error || 'Đăng nhập thất bại.' };
+      }
     }
 
     broadcastLoginStep('step4');
 
-    // Chờ cookies phiên đăng nhập (c_user) xuất hiện (tối đa 35s, hoặc 120s nếu có 2FA)
+    // Chờ cookies phiên đăng nhập (c_user) xuất hiện (tối đa 38s, hoặc 120s nếu có 2FA)
     const startTime = Date.now();
-    let endWait = startTime + 35000;
+    let endWait = startTime + 38000;
     let cUser = null;
     let allNewCookies = [];
     let cookieMap = new Map();
@@ -5487,6 +5610,7 @@ async function performFacebookLogin(m) {
     let submitted2FASucceeded = false;
     let twoFaAttempts = 0;
     let last2FaAttemptAt = 0;
+    let lastLoginRetryAt = Date.now();
     let loopTick = 0;
 
     while (Date.now() < endWait) {
@@ -5517,17 +5641,43 @@ async function performFacebookLogin(m) {
         break;
       }
 
-      // ── BƯỚC 2: Phân loại URL và DOM (2FA thực sự vs Checkpoint thông thường) ──
+      // ── BƯỚC 2: Phân loại URL và DOM (2FA thực sự vs Checkpoint thông thường vs Form đăng nhập bị đứng) ──
       const isActual2FaUrl = Boolean(tabCheck.url && /two_step|two_factor|2fa|approvals|auth_platform/i.test(tabCheck.url));
       const isCheckpointUrl = Boolean(tabCheck.url && /checkpoint/i.test(tabCheck.url));
 
+      let probeState = null;
       let has2FaDom = false;
       let hasCheckpointContinueBtn = false;
 
       if (loopTick >= 2) {
-        const probeState = await inspectTabFacebookAuthState(tabId);
-        has2FaDom = Boolean(probeState.hasTwoFactorInput);
-        hasCheckpointContinueBtn = Boolean(probeState.hasContinueBtn || probeState.hasSavedProfile);
+        probeState = await inspectTabFacebookAuthState(tabId);
+        has2FaDom = Boolean(probeState?.hasTwoFactorInput);
+        hasCheckpointContinueBtn = Boolean(probeState?.hasContinueBtn || probeState?.hasSavedProfile);
+      }
+
+      // ── BƯỚC 2.1: Tự động điền lại nếu Facebook vừa redirect login.php -> facebook.com/ làm trắng form đăng nhập ──
+      const stuckOnEmptyLoginForm = Boolean(
+        probeState &&
+        !has2FaDom &&
+        !isActual2FaUrl &&
+        !isCheckpointUrl &&
+        (
+          (probeState.hasPasswordInput && probeState.hasEmptyLoginInputs) ||
+          probeState.hasSwitchAccountBtn ||
+          probeState.hasSavedProfile ||
+          (needsResubmitCheck && (probeState.hasPasswordInput || probeState.hasEmailInput))
+        )
+      );
+
+      if (stuckOnEmptyLoginForm && loginSubmitAttempts < 4 && (Date.now() - lastLoginRetryAt >= 3500)) {
+        loginSubmitAttempts++;
+        lastLoginRetryAt = Date.now();
+        needsResubmitCheck = false;
+        console.log(`[LoginRetry] Phát hiện form đăng nhập chưa gửi (lần ${loginSubmitAttempts}/4) tại ${tabCheck.url}, tự động điền lại...`);
+        await waitForTabLoadComplete(tabId, 8000);
+        const reRes = await injectAndSubmitLogin();
+        if (reRes?.channelClosed) needsResubmitCheck = true;
+        continue;
       }
 
       // Nếu là Checkpoint thông thường ("Lưu trình duyệt", "Tiếp tục", "Đây là tôi") mà KHÔNG có ô nhập 2FA:
@@ -5626,7 +5776,10 @@ async function performFacebookLogin(m) {
         cookieMap.set(ck.name, ck);
       }
     }
-    const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+    const cookieStr = [...cookieMap.values()]
+      .filter(c => !TOXIC_FB_COOKIE_NAMES.has(String(c.name || '').toLowerCase()))
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ');
 
     let activeToken = null;
     try {
@@ -6226,7 +6379,7 @@ function handleRuntimeMessage(m, sender, reply) {
         }
         if (!acc) throw new Error('Không tìm thấy tài khoản: ' + m.accountId);
 
-        isSwitchingSession = true;
+        const activateSwitchSeq = beginSessionSwitch();
         try {
           const proxyToUse = acc.proxy || null;
           if (proxyToUse) {
@@ -6236,7 +6389,7 @@ function handleRuntimeMessage(m, sender, reply) {
           }
 
           const rawCookies = (acc.cookies && acc.cookies.trim()) ? acc.cookies : '';
-          const cookieObj = rawCookies ? parseUniversalCookies(rawCookies) : {};
+          const cookieObj = rawCookies ? sanitizeFacebookCookieObj(parseUniversalCookies(rawCookies)) : {};
           const hasCookies = Boolean(cookieObj['c_user'] && cookieObj['xs']);
           const hasCompleteCookies = hasCompleteFacebookCookies(cookieObj);
           const hasCredentials = Boolean(acc.password && (acc.email || acc.fbId));
@@ -6290,13 +6443,14 @@ function handleRuntimeMessage(m, sender, reply) {
             return;
           }
 
-          // 2. Xóa sạch 100% cookies Facebook cũ để không bị dính nick cũ
+          // 2. Xóa sạch 100% cookies Facebook cũ + storage Comet cũ để không bị dính nick cũ
           await clearFacebookCookiesOnly(!hasDatrInAcc && hasCookies);
-          await new Promise(r => setTimeout(r, 200));
+          await clearFacebookStorageForSwitch();
+          await new Promise(r => setTimeout(r, 250));
 
           let injected = [];
           if (hasCookies) {
-            // 3. Nạp cookies tài khoản mới vào
+            // 3. Nạp cookies sạch tài khoản mới vào
             injected = await injectCookies(cookieObj);
             await new Promise(r => setTimeout(r, 350));
             currentSessionAccountId = acc.id;
@@ -6321,7 +6475,7 @@ function handleRuntimeMessage(m, sender, reply) {
                 value: pageId,
                 path: '/',
                 secure: true,
-                sameSite: 'lax'
+                sameSite: 'no_restriction'
               }).catch(() => {});
             }
           } else {
@@ -6454,7 +6608,7 @@ function handleRuntimeMessage(m, sender, reply) {
             hasCookies
           });
         } finally {
-          setTimeout(() => { isSwitchingSession = false; }, 2500);
+          endSessionSwitch(activateSwitchSeq, 2500);
         }
       } catch (err) {
         reply({ ok: false, error: err.message });
@@ -6510,7 +6664,10 @@ function handleRuntimeMessage(m, sender, reply) {
         }
         const cUser = cookieMap.get('c_user')?.value;
         const xs = cookieMap.get('xs')?.value;
-        const cookieStr = [...cookieMap.values()].map(c => `${c.name}=${c.value}`).join('; ');
+        const cookieStr = [...cookieMap.values()]
+      .filter(c => !TOXIC_FB_COOKIE_NAMES.has(String(c.name || '').toLowerCase()))
+      .map(c => `${c.name}=${c.value}`)
+      .join('; ');
         reply({ ok: true, cUser, xs, cookieStr, count: cookieMap.size });
       } catch (e) {
         reply({ ok: false, error: e.message });
@@ -7435,6 +7592,37 @@ function handleRuntimeMessage(m, sender, reply) {
         }
         const credAcc = (acc?.type === 'fanpage' && parentAcc) ? parentAcc : acc;
         const hasCredentials = Boolean(credAcc?.password && (credAcc?.email || credAcc?.fbId));
+        const accRawCookies = (acc?.cookies && acc.cookies.trim()) ? acc.cookies : (parentAcc?.cookies || '');
+        const accParsedCookies = accRawCookies ? sanitizeFacebookCookieObj(parseUniversalCookies(accRawCookies)) : {};
+        const hasStoredCookies = Boolean(accParsedCookies['c_user'] && accParsedCookies['xs']);
+
+        // Nếu nick chỉ dùng Cookie (không lưu mật khẩu) và bị văng do xung đột phiên/storage khi chuyển nick:
+        // Thử xóa sạch storage + nạp lại cookie sạch đúng 1 lần trước khi dừng
+        if (!hasCredentials && hasStoredCookies && currentJob && !currentJob._cookieRetryDone) {
+          currentJob._cookieRetryDone = true;
+          currentJob.status = 'queued';
+          currentJob.note = '🔄 Đang nạp lại phiên Cookie sạch sau khi chuyển tài khoản...';
+          c.breakNote = `🔄 Đang nạp lại phiên Cookie sạch cho "${c.accountName || accountId}"...`;
+          c.active = { since: Date.now(), token: crypto.randomUUID(), tabId: null, dispatched: true };
+          await saveCampaigns(campaigns);
+          if (closeTabId) {
+            await chrome.tabs.remove(closeTabId).catch(() => {});
+          }
+          try {
+            await prepareAccountSession(accountId, { forceCleanSwitch: true });
+            const refreshedCampaigns = await readCampaigns();
+            const rc = refreshedCampaigns[accountId];
+            if (rc && rc.state === 'running') {
+              rc.active = null;
+              rc.breakNote = '✅ Đã nạp lại phiên Cookie sạch, chuẩn bị thử lại nhóm...';
+              await saveCampaigns(refreshedCampaigns);
+              await scheduleAccountTick(accountId, Date.now() + 1200);
+            }
+            return { ok: true };
+          } catch (_) {
+            // Nếu nạp lại vẫn lỗi thì rơi xuống xử lý tạm dừng bên dưới
+          }
+        }
 
         if (hasCredentials && currentJob && !currentJob._reloginRetried) {
           currentJob._reloginRetried = true;
@@ -7444,7 +7632,7 @@ function handleRuntimeMessage(m, sender, reply) {
           c.active = { since: Date.now(), token: crypto.randomUUID(), tabId: null, dispatched: true };
           await saveCampaigns(campaigns);
           if (closeTabId) {
-            chrome.tabs.remove(closeTabId).catch(() => {});
+            await chrome.tabs.remove(closeTabId).catch(() => {});
           }
 
           try {
@@ -7454,7 +7642,7 @@ function handleRuntimeMessage(m, sender, reply) {
               onLoginTab: (tid) => { reloginTabId = tid; }
             });
             if (reloginTabId) {
-              chrome.tabs.remove(reloginTabId).catch(() => {});
+              await chrome.tabs.remove(reloginTabId).catch(() => {});
             }
             const refreshedCampaigns = await readCampaigns();
             const rc = refreshedCampaigns[accountId];
@@ -7493,7 +7681,7 @@ function handleRuntimeMessage(m, sender, reply) {
         }
 
         if (c.mode === 'auto' && closeTabId) {
-          setTimeout(() => chrome.tabs.remove(closeTabId).catch(() => {}), 2000);
+          await chrome.tabs.remove(closeTabId).catch(() => {});
         }
         if (currentJob) {
           currentJob.status = 'error';
@@ -7518,14 +7706,16 @@ function handleRuntimeMessage(m, sender, reply) {
         return { ok: true };
       }
 
-      // Tự động làm mới và đồng bộ lại cookie của tài khoản vừa chạy thành công
+      // Đồng bộ cookie sạch của tài khoản vừa chạy thành công NGAY LẬP TỨC trước khi đóng tab & chuyển sang nick tiếp theo
+      // (Tránh timer trễ 800ms và tab cũ còn mở 2000ms xung đột với phiên của tài khoản kế tiếp!)
       if (accountId && status !== 'error') {
-        triggerDebouncedCookieSync(accountId, 800);
+        await autoSyncFacebookCookies(accountId).catch(() => {});
       }
 
-      // Automatically close Facebook tab in auto mode after 2s
+      // Đóng tab Facebook ngay trước khi chuyển lượt sang tài khoản tiếp theo (chế độ auto)
       if (c.mode === 'auto' && closeTabId) {
-        setTimeout(() => chrome.tabs.remove(closeTabId).catch(() => {}), 2000);
+        await new Promise(r => setTimeout(r, 350));
+        await chrome.tabs.remove(closeTabId).catch(() => {});
       }
 
       c.jobs[c.index].status = status;

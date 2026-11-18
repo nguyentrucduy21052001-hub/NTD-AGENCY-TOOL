@@ -380,12 +380,24 @@
  }
 
  function findLoginInputs() {
-  const emailInput =
-   document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[placeholder*="mobile" i], input[aria-label*="Email" i], input[aria-label*="di động" i]') ||
-   null;
   const passInput =
    document.querySelector('#pass, input[name="pass"], input[type="password"], input[autocomplete="current-password"], input[placeholder*="Mật khẩu" i], input[placeholder*="Password" i], input[aria-label*="Mật khẩu" i], input[aria-label*="Password" i]') ||
    null;
+  let emailInput =
+   document.querySelector('#email, input[name="email"], input[type="email"], input[autocomplete*="username"], input[placeholder*="Email" i], input[placeholder*="di động" i], input[placeholder*="mobile" i], input[aria-label*="Email" i], input[aria-label*="di động" i]') ||
+   null;
+  if (!emailInput && passInput) {
+   let container = passInput.closest('form') || passInput.parentElement;
+   for (let depth = 0; depth < 6 && container && !emailInput; depth++) {
+    const candidates = [...container.querySelectorAll('input')].filter(el => {
+     if (el === passInput) return false;
+     const t = String(el.type || 'text').toLowerCase();
+     return ['text', 'email', 'tel', 'search', ''].includes(t) && visible(el);
+    });
+    if (candidates.length > 0) emailInput = candidates[0];
+    container = container.parentElement;
+   }
+  }
   return { emailInput, passInput };
  }
 
@@ -399,6 +411,7 @@
     text.includes('see more on facebook') ||
     text.includes('đăng nhập vào facebook') ||
     text.includes('log in to facebook') ||
+    text.includes('khám phá những điều bạn yêu thích') ||
     text.includes('bạn chưa đăng nhập') ||
     ((text.includes('đăng nhập') || text.includes('log in')) && Boolean(d.querySelector('input[type="password"], input[name="pass"], input[name="email"], input[placeholder*="Email" i], input[placeholder*="di động" i], button[name="login"], [aria-label*="Đăng nhập" i]')))
    );
@@ -415,7 +428,7 @@
   const hasLoginBanner = !hasCUser && (
    hasVisibleAuthInputs ||
    Boolean(loginDialog) ||
-   /Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Đăng nhập hoặc đăng ký|Log in or sign up|You must log in to continue|Xem thêm trên Facebook|See more on Facebook/i.test(pageText) ||
+   /Khám phá những điều bạn yêu thích|Đăng nhập vào Facebook|Log into Facebook|Bạn chưa đăng nhập|Hãy đăng nhập để tiếp tục|Đăng nhập hoặc đăng ký|Log in or sign up|You must log in to continue|Xem thêm trên Facebook|See more on Facebook/i.test(pageText) ||
    [...document.querySelectorAll('a, button, [role="button"]')].filter(visible).some(el => {
     const t = (el.innerText || el.getAttribute('aria-label') || '').trim();
     return /^(Tạo tài khoản mới|Create new account|Quên mật khẩu\??|Forgotten password\??|Forgotten account\??)$/i.test(t);
@@ -472,24 +485,30 @@
    /^(Đăng nhập|Log In|Log in)$/i.test((b.innerText || b.value || b.getAttribute('aria-label') || '').trim())
   );
 
-  let emailVal = emailInput?.value || '';
-  let passVal = passInput?.value || '';
+  let emailVal = '';
+  let passVal = '';
 
-  // Nếu input trống nhưng job có tài khoản
-  if (!emailVal && job.accountEmail && emailInput) {
+  // Luôn ghi đè bằng đúng thông tin tài khoản của job (tránh Chrome autofill nhầm nick khác!)
+  if (job.accountEmail && emailInput) {
    setInputValue(emailInput, job.accountEmail);
    emailVal = job.accountEmail;
-   await delay(200);
+   await delay(250);
   }
-  if (!passVal && job.accountPassword && passInput) {
+  if (job.accountPassword && passInput) {
    setInputValue(passInput, job.accountPassword);
    passVal = job.accountPassword;
-   await delay(200);
+   await delay(250);
   }
 
   // Nếu có thông tin đăng nhập (không cần 2FA thủ công) thì thử đăng nhập nhanh inline
   if (emailInput && passInput && emailVal && passVal && loginBtn && job.accountPassword && !job.twoFactor) {
    try {
+    try {
+     loginBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+     loginBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+     loginBtn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+     loginBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    } catch (_) {}
     loginBtn.click();
     const endWait = Date.now() + 7000;
     while (Date.now() < endWait) {

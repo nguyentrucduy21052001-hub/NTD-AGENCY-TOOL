@@ -1,7 +1,10 @@
 // login_helper.js – Content script chạy trên trang Facebook login
-// Được inject bởi worker khi user thêm tài khoản qua username/password
+// Được inject bởi worker khi user thêm tài khoản qua username/password hoặc tự động đăng nhập lại
 (()=>{
-  if(globalThis.__duyLoginHelper) return;
+  if (globalThis.__duyLoginHelperListener) {
+    try { chrome.runtime.onMessage.removeListener(globalThis.__duyLoginHelperListener); } catch (_) {}
+    globalThis.__duyLoginHelperListener = null;
+  }
   globalThis.__duyLoginHelper = true;
 
   const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -21,13 +24,23 @@
   }
 
   function getFieldDescriptor(el) {
+    const labelledById = el.getAttribute?.('aria-labelledby');
+    let labelledText = '';
+    if (labelledById) {
+      labelledText = labelledById.split(/\s+/).map(id => document.getElementById(id)?.innerText || '').join(' ');
+    }
+    const labelFor = el.id ? (document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.innerText || '') : '';
+    const parentLabel = el.closest?.('label')?.innerText || '';
     return [
       el.id,
       el.name,
       el.getAttribute?.('placeholder'),
       el.getAttribute?.('aria-label'),
       el.getAttribute?.('autocomplete'),
-      el.getAttribute?.('data-testid')
+      el.getAttribute?.('data-testid'),
+      labelledText,
+      labelFor,
+      parentLabel
     ].filter(Boolean).join(' ').toLowerCase();
   }
 
@@ -47,6 +60,14 @@
 
   function dispatchInputEvent(input, ch) {
     try {
+      input.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: ch ? 'insertText' : 'deleteContentBackward',
+        data: ch || null
+      }));
+    } catch (_) {}
+    try {
       input.dispatchEvent(new InputEvent('input', {
         bubbles: true,
         cancelable: true,
@@ -58,9 +79,29 @@
     }
   }
 
+  function clickElementReliably(el) {
+    if (!el) return;
+    try { el.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 10, top: 10, width: 20, height: 20 };
+    const cx = Math.round(rect.left + rect.width / 2);
+    const cy = Math.round(rect.top + rect.height / 2);
+    const evInit = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
+    try { el.focus?.(); } catch (_) {}
+    try { el.dispatchEvent(new PointerEvent('pointerdown', evInit)); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent('mousedown', evInit)); } catch (_) {}
+    try { el.dispatchEvent(new PointerEvent('pointerup', evInit)); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent('mouseup', evInit)); } catch (_) {}
+    try { el.click(); } catch (_) {}
+  }
+
   async function typeInto(input, text) {
     const str = String(text ?? '');
+    try { input.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
+    clickElementReliably(input);
     input.focus();
+    try { input.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); } catch (_) {}
+    await delay(60);
+
     setNativeInputValue(input, '', input.value);
     dispatchInputEvent(input, '');
 
@@ -68,9 +109,11 @@
     for (const ch of str) {
       const prev = cur;
       cur += ch;
+      try { input.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true, cancelable: true })); } catch (_) {}
       setNativeInputValue(input, cur, prev);
       dispatchInputEvent(input, ch);
-      await delay(15 + Math.random() * 25);
+      try { input.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true })); } catch (_) {}
+      await delay(12 + Math.random() * 20);
     }
     if (input.value !== str) {
       setNativeInputValue(input, str, '');
@@ -353,16 +396,31 @@
       setTimeout(() => {
         try {
           if (loginBtn && !loginBtn.disabled && loginBtn.getAttribute('aria-disabled') !== 'true') {
-            loginBtn.click();
+            clickElementReliably(loginBtn);
           } else if (form) {
             if (typeof form.requestSubmit === 'function') form.requestSubmit(loginBtn || undefined);
             else form.submit();
-          } else {
+          } else if (passInput) {
             passInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
             passInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
-            loginBtn?.click?.();
+            clickElementReliably(loginBtn);
           }
         } catch (_) {}
+
+        // Dự phòng: sau 900ms nếu vẫn đang ở form đăng nhập (Comet React chưa submit), bấm lại bằng Enter / requestSubmit
+        setTimeout(() => {
+          try {
+            const stillHasPass = findPasswordInput();
+            if (stillHasPass && stillHasPass.value) {
+              const btnNow = findLoginButton(stillHasPass);
+              if (btnNow && !btnNow.disabled && btnNow.getAttribute('aria-disabled') !== 'true') {
+                clickElementReliably(btnNow);
+              }
+              stillHasPass.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
+              stillHasPass.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13 }));
+            }
+          } catch (_) {}
+        }, 900);
 
         // Tự động kiểm tra và bấm qua các thông báo "Lưu trình duyệt" / "Tiếp tục" / "Đây là tôi" sau khi submit
         let postClickChecks = 0;
@@ -380,7 +438,7 @@
             })
           );
           if (continueBtn) {
-            try { continueBtn.click(); } catch (_) {}
+            try { clickElementReliably(continueBtn); } catch (_) {}
           }
         }, 1000);
       }, 60);
@@ -448,7 +506,7 @@
     }
   }
 
-  chrome.runtime.onMessage.addListener((m, s, reply) => {
+  const loginHelperMessageListener = (m, s, reply) => {
     if (m.type === 'DO_LOGIN') {
       doLogin(m.email, m.password, m.accountName || '').then(reply);
       return true;
@@ -457,5 +515,7 @@
       submit2FACode(m.code).then(reply);
       return true;
     }
-  });
+  };
+  globalThis.__duyLoginHelperListener = loginHelperMessageListener;
+  chrome.runtime.onMessage.addListener(loginHelperMessageListener);
 })();
