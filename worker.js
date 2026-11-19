@@ -7757,7 +7757,10 @@ function handleRuntimeMessage(m, sender, reply) {
 
       const closeTabId = sender?.tab?.id || c.active?.tabId;
       const allowed = ['preview', 'submitted', 'pending', 'sent_unverified', 'unknown', 'blocked', 'error', 'skipped'];
-      const status = allowed.includes(m.status) ? m.status : 'unknown';
+      let status = allowed.includes(m.status) ? m.status : 'unknown';
+      if ((status === 'error' || status === 'unknown') && /limit how often|protect the community from spam|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác|tạm thời bị chặn|tạm thời bị hạn chế/i.test(m.note || '')) {
+        status = 'blocked';
+      }
       const isAuthExpired = Boolean(
         m.authExpired ||
         (status === 'error' && /chưa đăng nhập|hết hạn|bị đăng xuất|đăng nhập lại/i.test(m.note || ''))
@@ -7916,30 +7919,41 @@ function handleRuntimeMessage(m, sender, reply) {
 
       if (status === 'blocked') {
         const groupUrl = c.jobs[c.index]?.url;
-        if (c.autoSkipOnError !== false) {
-          // Tự động bỏ qua nhóm bị hạn chế này và chạy nhóm kế tiếp
-          c.jobs[c.index].status = 'blocked';
-          c.jobs[c.index].note = '🛑 Nhóm bị hạn chế/cảnh báo. Đã tự động bỏ qua để chuyển nhóm tiếp theo.';
-          c.jobs[c.index].doneAt = Date.now();
 
-          sendFacebookZaloNotify({
-            kind: 'blocked',
-            accountName: c.accountName || accountId,
-            accountType: c.accountType,
-            groupUrl,
-            note: m.note || 'Facebook cảnh báo spam / thao tác quá nhanh. Hệ thống đã tự động bỏ qua nhóm để tiếp tục.',
-            postedCount: c.postedCount || 0,
-            totalJobs: c.jobs?.length || 0
-          }).catch(() => {});
-        } else {
-          await pauseCampaignAndWakeNext(accountId, campaigns, {
-            breakNote: '🛑 Đã tạm dừng do Facebook cảnh báo spam/hạn chế tính năng.',
-            zaloKind: 'stopped',
-            groupUrl,
-            zaloNote: m.note || 'Facebook cảnh báo spam hoặc hạn chế tính năng! Chiến dịch đã tạm dừng để bảo vệ tài khoản.'
-          });
-          return {ok: true};
+        // 1. Tự động đóng ngay tab Facebook đang đăng bài
+        if (closeTabId) {
+          try { await chrome.tabs.remove(closeTabId); } catch (_) {}
         }
+
+        // 2. Ghi nhận nhóm hiện tại bị chặn
+        if (c.jobs && c.jobs[c.index]) {
+          c.jobs[c.index].status = 'blocked';
+          c.jobs[c.index].note = m.note || '🛑 Facebook giới hạn đăng bài (Spam Rate Limit): "We limit how often you can post...". Đã dừng hẳn nick này.';
+          c.jobs[c.index].doneAt = Date.now();
+        }
+
+        // 3. DỪNG HẲN tài khoản này (state = 'stopped' - tương đương nút Dừng hẳn trong App)
+        c.state = 'stopped';
+        c.active = null;
+        c.breakNote = '🛑 ĐÃ DỪNG HẲN: Facebook giới hạn tính năng (Spam Rate Limit). Đã tự động đóng tab và dừng nick để bảo vệ tài khoản!';
+        try { await chrome.alarms.clear('tick_' + accountId); } catch (_) {}
+        await saveCampaigns(campaigns);
+
+        // 4. Gửi thông báo Zalo / Telemetry báo động
+        sendFacebookZaloNotify({
+          kind: 'blocked',
+          accountName: c.accountName || accountId,
+          accountType: c.accountType,
+          groupUrl,
+          note: m.note || 'Facebook giới hạn tần suất đăng bài ("We limit how often you can post..."). Đã tự động đóng tab và DỪNG HẲN tài khoản này để chống khóa nick!',
+          postedCount: c.postedCount || 0,
+          totalJobs: c.jobs?.length || 0
+        }).catch(() => {});
+
+        // 5. Nếu chạy nhiều tài khoản (Round Robin / Sequential): Chuyển lượt sang nick tiếp theo (nếu còn nick khác)
+        // Nếu không còn nick nào đang chạy -> Dừng hẳn toàn bộ chiến dịch
+        await wakeNextCoordinatorAccountAfterPause(accountId);
+        return { ok: true };
       }
 
       if (status === 'preview') {

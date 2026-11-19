@@ -445,6 +445,28 @@
   };
  }
 
+ function detectFacebookSpamRateLimit(dialogEl) {
+  const textsToCheck = [];
+  if (dialogEl && dialogEl.innerText) {
+   textsToCheck.push(dialogEl.innerText);
+  }
+  const alerts = document.querySelectorAll('[role="alert"], [role="status"], [role="dialog"], div[data-pagelet*="Toast"], div[aria-live="polite"]');
+  for (const a of alerts) {
+   if (visible(a)) textsToCheck.push(a.innerText || a.textContent || '');
+  }
+  const fullText = textsToCheck.join(' \n ');
+
+  const spamRegex = /(we limit how often you can post|protect the community from spam|try again later|giới hạn tần suất bạn có thể đăng|giới hạn tần suất bạn có thể|bảo vệ cộng đồng khỏi thư rác|bạn có thể thử lại sau|community standards|tiêu chuẩn cộng đồng|temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|misuse|violation|tính năng này tạm thời bị khóa|this feature is temporarily blocked|hạn chế tính năng)/i;
+
+  if (spamRegex.test(fullText)) {
+   return {
+    isBlocked: true,
+    reason: '🛑 Facebook giới hạn đăng bài (Spam Rate Limit): "We limit how often you can post...". Đã dừng chiến dịch để bảo vệ tài khoản.'
+   };
+  }
+  return { isBlocked: false };
+ }
+
  async function handleLoginIfLoggedOut(job) {
   let state = detectLoggedOutFacebookState();
   let { emailInput, passInput, loginDialog, hasCUser } = state;
@@ -1487,6 +1509,11 @@
   }
 
   const post = await wait(() => {
+   const spamCheck = detectFacebookSpamRateLimit(dialog);
+   if (spamCheck.isBlocked) {
+    throw Error('FACEBOOK_RATE_LIMIT_BLOCKED: ' + spamCheck.reason);
+   }
+
    const allBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(visible);
    const postBtns = allBtns.filter(e => {
     const lbl = label(e);
@@ -1510,6 +1537,12 @@
   // Dừng vài giây giả lập người thật đọc/rà soát lại trước khi bấm Đăng
   if (job.humanBehavior) {
    await delay(Math.floor(Math.random() * 1500) + 2500);
+  }
+
+  // Kiểm tra lần nữa trước khi bấm Đăng
+  const spamPreClick = detectFacebookSpamRateLimit(dialog);
+  if (spamPreClick.isBlocked) {
+   throw Error('FACEBOOK_RATE_LIMIT_BLOCKED: ' + spamPreClick.reason);
   }
 
   // Reset biến bắt URL từ mạng GraphQL trước khi bấm Đăng
@@ -1538,15 +1571,31 @@
   post.click();
 
   try {
-   await wait(() => !dialog.isConnected || !visible(dialog), 30000);
-  } catch (_) {}
+   await wait(() => {
+    if (!dialog.isConnected || !visible(dialog)) return true;
+    const spamCheck = detectFacebookSpamRateLimit(dialog);
+    if (spamCheck.isBlocked) {
+     throw Error('FACEBOOK_RATE_LIMIT_BLOCKED: ' + spamCheck.reason);
+    }
+    return false;
+   }, 30000);
+  } catch (err) {
+   if (err.message && err.message.includes('FACEBOOK_RATE_LIMIT_BLOCKED')) {
+    throw err;
+   }
+  }
 
   // Kiểm tra ngay các cảnh báo lỗi hoặc chặn từ Facebook
+  const spamAfterWait = detectFacebookSpamRateLimit(dialog);
+  if (spamAfterWait.isBlocked) {
+   return { status: 'blocked', note: spamAfterWait.reason, rateLimited: true, closeTab: true };
+  }
+
   const getAlertsText = () => [...document.querySelectorAll('[role="alert"],[role="status"]')].filter(visible).map(e => e.innerText || e.textContent || '').join(' ');
   let alerts = getAlertsText();
 
-  if (/temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|misuse|violation/i.test(alerts)) {
-   return { status: 'blocked', note: '🛑 Facebook cảnh báo spam hoặc thao tác nhanh! Đã dừng chiến dịch để bảo vệ tài khoản.' };
+  if (/temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|misuse|violation|we limit how often|protect the community from spam|giới hạn tần suất/i.test(alerts)) {
+   return { status: 'blocked', note: '🛑 Facebook cảnh báo spam hoặc thao tác nhanh! Đã dừng chiến dịch để bảo vệ tài khoản.', rateLimited: true, closeTab: true };
   }
   if (/couldn.t post|could not post|unable to post|something went wrong|không thể đăng|đã xảy ra lỗi/i.test(alerts)) {
    return { status: 'unknown', note: 'Facebook báo lỗi sau khi gửi. Kiểm tra nhóm trước khi tiếp tục.' };
@@ -1667,9 +1716,13 @@
 
    await delay(350);
    alerts = getAlertsText();
+   const spamInLoop = detectFacebookSpamRateLimit(dialog);
+   if (spamInLoop.isBlocked) {
+    return { status: 'blocked', note: spamInLoop.reason, rateLimited: true, closeTab: true };
+   }
    if (/pending approval|chờ phê duyệt|chờ duyệt|submitted for approval/i.test(alerts)) isPending = true;
-   if (/temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|misuse|violation/i.test(alerts)) {
-    return { status: 'blocked', note: '🛑 Facebook cảnh báo spam hoặc thao tác nhanh! Đã dừng chiến dịch để bảo vệ tài khoản.' };
+   if (/temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|misuse|violation|we limit how often|protect the community from spam|giới hạn tần suất/i.test(alerts)) {
+    return { status: 'blocked', note: '🛑 Facebook cảnh báo spam hoặc thao tác nhanh! Đã dừng chiến dịch để bảo vệ tài khoản.', rateLimited: true, closeTab: true };
    }
   }
 
@@ -1711,8 +1764,13 @@
    if (/^Bỏ qua:|^Đã bỏ qua/i.test(msg)) {
     return {status: 'skipped', note: msg};
    }
-   const isBlocked=/cảnh báo spam|checkpoint|tạm thời bị chặn|tạm thời bị hạn chế/i.test(msg);
-   return {status:isBlocked?'blocked':(clicked?'unknown':'error'),note:msg};
+   const isBlocked=/FACEBOOK_RATE_LIMIT_BLOCKED|we limit how often|protect the community from spam|try again later|thử lại sau|giới hạn tần suất|cảnh báo spam|checkpoint|tạm thời bị chặn|tạm thời bị hạn chế/i.test(msg);
+   return {
+    status: isBlocked ? 'blocked' : (clicked ? 'unknown' : 'error'),
+    note: isBlocked ? (msg.replace(/^FACEBOOK_RATE_LIMIT_BLOCKED:\s*/, '') || '🛑 Facebook giới hạn đăng bài (Spam Rate Limit). Đã dừng hẳn chiến dịch để bảo vệ tài khoản.') : msg,
+    rateLimited: isBlocked,
+    closeTab: isBlocked
+   };
   }
  }
 
@@ -1734,12 +1792,16 @@
         ...result
       }).catch(() => {});
     }).catch(async e => {
+      const msg = e.message || '';
+      const isBlocked = /FACEBOOK_RATE_LIMIT_BLOCKED|we limit how often|protect the community from spam|try again later|thử lại sau|giới hạn tần suất|cảnh báo spam|checkpoint|tạm thời bị chặn|tạm thời bị hạn chế/i.test(msg);
       await chrome.runtime.sendMessage({
         type: 'RESULT',
         token: m.job.token,
         accountId: m.job.accountId,
-        status: 'error',
-        note: e.message || 'Lỗi xử lý bài viết'
+        status: isBlocked ? 'blocked' : 'error',
+        note: isBlocked ? (msg.replace(/^FACEBOOK_RATE_LIMIT_BLOCKED:\s*/, '') || '🛑 Facebook giới hạn đăng bài (Spam Rate Limit). Đã dừng hẳn chiến dịch để bảo vệ tài khoản.') : (msg || 'Lỗi xử lý bài viết'),
+        rateLimited: isBlocked,
+        closeTab: isBlocked
       }).catch(() => {});
     });
     return true;
