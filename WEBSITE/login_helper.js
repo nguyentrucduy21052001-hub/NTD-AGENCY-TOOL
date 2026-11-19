@@ -455,15 +455,27 @@
       dismissModals();
       for (let attempt = 0; attempt < 15; attempt++) {
         // Tìm ô nhập mã 2FA (cả giao diện classic & Comet two_step_verification)
-        const direct2fa = pickPreferredElement(
-          document.querySelectorAll('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
+        let direct2fa = pickPreferredElement(
+          document.querySelectorAll('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i], input[aria-label*="mã" i], input[aria-label*="code" i], input[data-testid*="code" i], input[data-testid*="2fa" i]')
         );
-        const input = direct2fa || pickPreferredElement(
+        let input = direct2fa || pickPreferredElement(
           [...document.querySelectorAll('input[type="text"], input[type="number"], input[type="tel"], input:not([type])')].filter(el => {
             const desc = getFieldDescriptor(el);
             return /code|approv|mã|xác thực|otp|totp|digit|chữ số/.test(desc);
           })
         );
+
+        if (!input) {
+          // Thử tìm nút chuyển sang phương thức "Ứng dụng xác thực" nếu đang ở màn hình khác
+          const switchMethodBtn = [...document.querySelectorAll('button, [role="button"], a')].filter(visible).find(el => {
+            const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+            return /thử cách khác|try another way|cách khác để xác thực|another way to authenticate|ứng dụng xác thực|authentication app|trình tạo mã|code generator/i.test(t);
+          });
+          if (switchMethodBtn) {
+            try { clickElementReliably(switchMethodBtn); } catch (_) {}
+            await delay(600);
+          }
+        }
 
         if (input) {
           await typeInto(input, String(code).trim());
@@ -479,21 +491,33 @@
 
           if (submitBtn) {
             submitBtn.click();
-            await delay(1500);
+            await delay(1200);
 
             // Tự động bấm qua các bước phụ "Tin cậy thiết bị" / "Lưu trình duyệt" / "Đây là tôi"
-            setTimeout(() => {
+            for (let fStep = 0; fStep < 6; fStep++) {
+              await delay(800);
+              const saveRadio = [...document.querySelectorAll('input[type="radio"], [role="radio"]')].find(r => {
+                const parentTxt = (r.closest('label, div')?.innerText || '').toLowerCase();
+                return /lưu trình duyệt|save browser|tin cậy|trust/i.test(parentTxt);
+              });
+              if (saveRadio && !saveRadio.checked) {
+                try { saveRadio.click(); } catch (_) {}
+                await delay(300);
+              }
               const nextBtn = pickPreferredElement(
-                document.querySelectorAll('#checkpointSubmitButton, button[name="submit[Continue]"], button[name="submit[This was me]"]')
+                document.querySelectorAll('#checkpointSubmitButton, button[name="submit[Continue]"], button[name="submit[This was me]"], button[type="submit"]')
               ) || pickPreferredElement(
                 [...document.querySelectorAll('button, [role="button"]')].filter(b =>
-                  /^(Tiếp tục|Continue|Đây là tôi|This was me|Tin cậy thiết bị này|Trust this device|Lưu trình duyệt|Save browser|Luôn xác nhận|Always confirm)$/i.test((b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim())
+                  /^(Tiếp tục|Continue|Đây là tôi|This was me|Tin cậy thiết bị này|Trust this device|Lưu trình duyệt|Save browser|Luôn xác nhận|Always confirm|Đồng ý|I agree|Bỏ qua|Skip)$/i.test((b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim())
                 )
               );
               if (nextBtn) {
                 try { nextBtn.click(); } catch (_) {}
+                await delay(1200);
+              } else {
+                break;
               }
-            }, 1800);
+            }
 
             return { ok: true };
           }

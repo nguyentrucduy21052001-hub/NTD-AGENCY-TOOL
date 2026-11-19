@@ -282,9 +282,262 @@
   throw Error(errorMsg);
  }
 
+ /**
+  * Tự động tạo mã xác thực 2FA 6 số (RFC 6238 TOTP) từ mã 2FA Secret Key (chuẩn như 2fa.live)
+  */
+ async function generate2FACode(secret) {
+  if (!secret) return null;
+  const clean = String(secret).replace(/[\s-]/g, '').toUpperCase();
+  if (/^\d{6}$/.test(clean)) return clean;
+
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (let i = 0; i < clean.length; i++) {
+    const val = alphabet.indexOf(clean[i]);
+    if (val === -1) continue;
+    bits += val.toString(2).padStart(5, '0');
+  }
+  const byteLen = Math.floor(bits.length / 8);
+  if (byteLen === 0) return null;
+
+  const bytes = new Uint8Array(byteLen);
+  for (let i = 0; i < byteLen; i++) {
+    bytes[i] = parseInt(bits.substring(i * 8, (i + 1) * 8), 2);
+  }
+
+  const epoch = Math.floor(Date.now() / 1000);
+  const time = Math.floor(epoch / 30);
+  const timeBuffer = new ArrayBuffer(8);
+  const view = new DataView(timeBuffer);
+  view.setBigUint64(0, BigInt(time));
+
+  try {
+    const cryptoSubtle = (window.crypto || crypto)?.subtle;
+    if (!cryptoSubtle) return null;
+    const cryptoKey = await cryptoSubtle.importKey(
+      'raw',
+      bytes,
+      { name: 'HMAC', hash: { name: 'SHA-1' } },
+      false,
+      ['sign']
+    );
+    const signature = await cryptoSubtle.sign('HMAC', cryptoKey, timeBuffer);
+    const sigBytes = new Uint8Array(signature);
+    const offset = sigBytes[sigBytes.length - 1] & 0x0f;
+    const binary =
+      ((sigBytes[offset] & 0x7f) << 24) |
+      ((sigBytes[offset + 1] & 0xff) << 16) |
+      ((sigBytes[offset + 2] & 0xff) << 8) |
+      (sigBytes[offset + 3] & 0xff);
+    return (binary % 1000000).toString().padStart(6, '0');
+  } catch (err) {
+    console.warn('[2FA] Lỗi tạo mã TOTP:', err);
+    return null;
+  }
+ }
+
+ function findTwoFactorInput() {
+  const direct = [...document.querySelectorAll(
+    '#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i], input[aria-label*="mã" i], input[aria-label*="code" i], input[data-testid*="code" i], input[data-testid*="2fa" i]'
+  )].filter(visible)[0];
+  if (direct) return direct;
+
+  const inputs = [...document.querySelectorAll('input[type="text"], input[type="number"], input[type="tel"], input:not([type])')].filter(visible);
+  for (const el of inputs) {
+    const desc = `${el.name || ''} ${el.id || ''} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
+    if (/code|approv|mã|xác thực|otp|totp|digit|chữ số/i.test(desc)) {
+      return el;
+    }
+  }
+  return null;
+ }
+
+ function findTwoFactorSubmitButton() {
+  const direct = [...document.querySelectorAll(
+    '#checkpointSubmitButton, button[name="submit[Continue]"], button[type="submit"], input[type="submit"]'
+  )].filter(visible)[0];
+  if (direct) return direct;
+
+  const btns = [...document.querySelectorAll('button, [role="button"]')].filter(visible);
+  return btns.find(b => {
+    const t = (b.innerText || b.textContent || b.getAttribute('aria-label') || b.value || '').trim();
+    return /^(Tiếp tục|Continue|Xác nhận|Confirm|Gửi mã|Gửi|Submit|Tiếp|Next)$/i.test(t);
+  }) || null;
+ }
+
+ async function handleTwoFactorFollowupScreens(maxAttempts = 8) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await delay(1200);
+
+    // Nếu cookie c_user đã có và không còn ở URL checkpoint -> Đã hoàn tất!
+    if (hasCUserCookie() && !/checkpoint|two_step|auth_platform/i.test(location.pathname)) {
+      return true;
+    }
+
+    // Chọn radio "Lưu trình duyệt" nếu có
+    const saveRadio = [...document.querySelectorAll('input[type="radio"], [role="radio"]')].find(r => {
+      const parentTxt = (r.closest('label, div')?.innerText || '').toLowerCase();
+      return /lưu trình duyệt|save browser|tin cậy|trust/i.test(parentTxt);
+    });
+    if (saveRadio && !saveRadio.checked) {
+      try { saveRadio.click(); } catch (_) {}
+      await delay(400);
+    }
+
+    // Tìm và bấm các nút tiếp tục
+    const followupBtn = [...document.querySelectorAll(
+      '#checkpointSubmitButton, button[name="submit[Continue]"], button[name="submit[This was me]"], button[type="submit"], input[type="submit"], button, [role="button"]'
+    )].filter(visible).find(b => {
+      const t = (b.innerText || b.textContent || b.getAttribute('aria-label') || b.value || '').trim();
+      return /^(Tiếp tục|Continue|Đây là tôi|This was me|Tin cậy thiết bị này|Trust this device|Lưu trình duyệt|Save browser|Luôn xác nhận|Always confirm|Đồng ý|I agree|Bỏ qua|Skip|Lúc khác|Not now)$/i.test(t);
+    });
+
+    if (followupBtn) {
+      console.log('[2FA] Bấm bước phụ checkpoint:', followupBtn.innerText || followupBtn.value || 'Continue');
+      try { followupBtn.click(); } catch (_) {}
+      await delay(1500);
+    } else {
+      if (hasCUserCookie()) return true;
+    }
+  }
+  return hasCUserCookie();
+ }
+
+ async function resolveTwoFactorCheckpointIfPresent(job) {
+  const is2FaUrl = Boolean(location.pathname && /checkpoint|two_step|two_factor|2fa|approvals|auth_platform/i.test(location.pathname));
+  let input = findTwoFactorInput();
+  const pageText = (document.body ? document.body.innerText : '') || '';
+  const has2FaText = /xác thực hai yếu tố|two-factor|mã đăng nhập|login code|approvals code|mã xác nhận|xác nhận danh tính|confirm your identity/i.test(pageText);
+
+  // Nếu không ở URL 2FA, không có ô nhập 2FA và không có text 2FA -> Không phải thử thách 2FA
+  if (!is2FaUrl && !input && !has2FaText) {
+    return { isChallenge: false };
+  }
+
+  // Nếu đang ở màn hình chọn phương thức xác nhận ("Thử cách khác" / "Ứng dụng xác thực")
+  if (!input) {
+    const switchBtn = [...document.querySelectorAll('button, [role="button"], a')].filter(visible).find(el => {
+      const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase().trim();
+      return /thử cách khác|try another way|cách khác để xác thực|another way to authenticate|ứng dụng xác thực|authentication app|trình tạo mã|code generator/i.test(t);
+    });
+    if (switchBtn) {
+      try { switchBtn.click(); } catch (_) {}
+      await delay(800);
+      input = findTwoFactorInput();
+    }
+  }
+
+  // Nếu là Checkpoint thông thường không đòi mã 2FA (chỉ có nút "Tiếp tục" / "Lưu trình duyệt" / "Đây là tôi"):
+  if (!input) {
+    const directContinue = findTwoFactorSubmitButton();
+    if (directContinue && is2FaUrl) {
+      try { directContinue.click(); } catch (_) {}
+      await delay(1200);
+      await handleTwoFactorFollowupScreens(5);
+      if (hasCUserCookie()) {
+        chrome.runtime.sendMessage({ type: 'UPDATE_COOKIES', accountId: job.accountId }).catch(() => {});
+        return { isChallenge: true, resolved: true, needsReload: is2FaUrl };
+      }
+    }
+    // Nếu vẫn không có ô 2FA và không bấm được nút tiếp tục:
+    if (!is2FaUrl && !has2FaText) {
+      return { isChallenge: false };
+    }
+  }
+
+  // Đây thực sự là thử thách xác minh 2FA!
+  console.log('[2FA] Phát hiện yêu cầu xác minh 2FA / Checkpoint từ Facebook!');
+  if (!job.twoFactor) {
+    return {
+      isChallenge: true,
+      resolved: false,
+      error: '❌ Facebook yêu cầu xác minh 2FA nhưng tài khoản chưa được cài đặt mã 2FA Secret Key.'
+    };
+  }
+
+  // Tự động phân tích và tạo mã OTP 6 số từ mã 2FA Secret Key
+  const otp = await generate2FACode(job.twoFactor);
+  if (!otp) {
+    return {
+      isChallenge: true,
+      resolved: false,
+      error: '❌ Không thể giải mã 2FA từ Secret Key đã cài đặt cho tài khoản.'
+    };
+  }
+
+  console.log(`[2FA] Đang tự động điền mã xác thực 2FA (${otp})...`);
+
+  // Chờ và tìm ô input nếu đang render
+  for (let attempt = 0; attempt < 8; attempt++) {
+    input = findTwoFactorInput();
+    if (input) break;
+    await delay(500);
+  }
+
+  if (!input) {
+    return {
+      isChallenge: true,
+      resolved: false,
+      error: '❌ Không tìm thấy ô nhập mã 2FA trên trang xác minh Facebook.'
+    };
+  }
+
+  setInputValue(input, otp);
+  await delay(350);
+
+  // Tìm nút gửi 2FA
+  const submitBtn = findTwoFactorSubmitButton();
+  if (submitBtn) {
+    try {
+      submitBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      submitBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      submitBtn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+      submitBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    } catch (_) {}
+    submitBtn.click();
+    await delay(1500);
+
+    // Tự động vượt qua các bước phụ "Lưu trình duyệt", "Đây là tôi", "Tin cậy thiết bị"
+    await handleTwoFactorFollowupScreens(8);
+
+    // Đồng bộ lại cookie phiên mới nhất về background
+    await chrome.runtime.sendMessage({
+      type: 'UPDATE_COOKIES',
+      accountId: job.accountId
+    }).catch(() => {});
+
+    console.log('[2FA] Đã hoàn tất xác minh 2FA tự động!');
+    const needsReload = Boolean(is2FaUrl || location.pathname.includes('/checkpoint') || location.origin + location.pathname !== job.url);
+    return {
+      isChallenge: true,
+      resolved: true,
+      needsReload
+    };
+  }
+
+  return {
+    isChallenge: true,
+    resolved: false,
+    error: '❌ Không tìm thấy nút gửi mã 2FA trên trang Facebook.'
+  };
+ }
+
  async function check(job) {
   const r = await chrome.runtime.sendMessage({type: 'CHECK', token: job.token, accountId: job.accountId});
   if (!r?.ok) throw Error('Chiến dịch đã dừng.');
+
+  // Kiểm tra nếu trang đang ở Checkpoint 2FA
+  const is2FaPath = /checkpoint|two_step|two_factor|2fa|approvals|auth_platform/i.test(location.pathname);
+  if (is2FaPath || findTwoFactorInput()) {
+    const twoFa = await resolveTwoFactorCheckpointIfPresent(job);
+    if (twoFa.isChallenge && twoFa.resolved) {
+      throw Error('TWO_FACTOR_RESOLVED_NEED_RELOAD');
+    }
+    if (twoFa.isChallenge && !twoFa.resolved) {
+      throw Error(twoFa.error || 'Facebook yêu cầu xác minh 2FA nhưng tài khoản chưa có 2FA Secret Key.');
+    }
+  }
+
   const normalize = u => (u || '').replace(/\/+$/, '').toLowerCase();
   const currentUrl = normalize(location.origin + location.pathname);
   const targetUrl = normalize(job.url);
@@ -299,8 +552,15 @@
     throw Error('Trang không còn đúng nhóm đã chọn.');
   }
   const alerts = [...document.querySelectorAll('[role="alert"],[role="dialog"]')].filter(visible).map(x => x.innerText || x.textContent || '').join(' ');
-  if (/temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|confirm your identity|xác nhận danh tính|captcha/i.test(alerts) || /checkpoint|login/.test(location.pathname)) {
-   throw Error('Facebook cảnh báo spam hoặc yêu cầu xác minh bảo mật (checkpoint).');
+  if (/temporarily blocked|tạm thời bị chặn|tạm thời bị hạn chế|bạn đang thao tác quá nhanh|going too fast|you.re temporarily restricted|captcha/i.test(alerts)) {
+   throw Error('Facebook cảnh báo spam hoặc tạm thời hạn chế tài khoản.');
+  }
+  if (/confirm your identity|xác nhận danh tính/i.test(alerts) || /checkpoint|login/.test(location.pathname)) {
+   const twoFa = await resolveTwoFactorCheckpointIfPresent(job);
+   if (twoFa.isChallenge && twoFa.resolved) {
+     throw Error('TWO_FACTOR_RESOLVED_NEED_RELOAD');
+   }
+   throw Error('Facebook yêu cầu xác minh danh tính / checkpoint.');
   }
  }
 
@@ -492,6 +752,16 @@
    }
   }
 
+  // 1. Kiểm tra trước nếu trang đang ở giao diện 2FA Checkpoint
+  const twoFaCheck = await resolveTwoFactorCheckpointIfPresent(job);
+  if (twoFaCheck.isChallenge) {
+    if (twoFaCheck.resolved) {
+      return { handled: true, success: true, twoFactorResolved: true, needsReload: twoFaCheck.needsReload };
+    } else {
+      return { handled: true, success: false, authExpired: true, reason: twoFaCheck.error };
+    }
+  }
+
   if (!state.isLoggedOut) {
    return { handled: false };
   }
@@ -522,8 +792,8 @@
    await delay(250);
   }
 
-  // Nếu có thông tin đăng nhập (không cần 2FA thủ công) thì thử đăng nhập nhanh inline
-  if (emailInput && passInput && emailVal && passVal && loginBtn && job.accountPassword && !job.twoFactor) {
+  // Nếu có thông tin đăng nhập thì thử đăng nhập nhanh inline
+  if (emailInput && passInput && emailVal && passVal && loginBtn && job.accountPassword) {
    try {
     try {
      loginBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
@@ -532,9 +802,18 @@
      loginBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
     } catch (_) {}
     loginBtn.click();
-    const endWait = Date.now() + 7000;
+    const endWait = Date.now() + 10000;
     while (Date.now() < endWait) {
      await delay(600);
+     // Kiểm tra nếu Facebook yêu cầu mã 2FA sau khi bấm đăng nhập
+     const twoFaAfterSubmit = await resolveTwoFactorCheckpointIfPresent(job);
+     if (twoFaAfterSubmit.isChallenge) {
+       if (twoFaAfterSubmit.resolved) {
+         return { handled: true, success: true, twoFactorResolved: true, needsReload: twoFaAfterSubmit.needsReload };
+       } else {
+         return { handled: true, success: false, authExpired: true, reason: twoFaAfterSubmit.error };
+       }
+     }
      const after = detectLoggedOutFacebookState();
      if (!after.isLoggedOut && hasCUserCookie()) {
       chrome.runtime.sendMessage({
@@ -543,8 +822,7 @@
       }).catch(() => {});
       await delay(1500);
       if (location.pathname.includes('/login') || (location.origin + location.pathname !== job.url)) {
-       location.href = job.url;
-       return { handled: true, success: true, redirected: true };
+       return { handled: true, success: true, redirected: true, needsReload: true };
       }
       return { handled: true, success: true };
      }
@@ -611,14 +889,41 @@
  }
 
  async function run(job){let clicked=false;try{
+  // 0. Kiểm tra và tự động giải quyết nếu trang đang ở Checkpoint 2FA
+  const twoFaInitial = await resolveTwoFactorCheckpointIfPresent(job);
+  if (twoFaInitial.isChallenge) {
+    if (twoFaInitial.resolved) {
+      return {
+        status: 'queued',
+        twoFactorResolved: true,
+        note: '⚡ Đã tự động phân tích mã 2FA và đăng nhập thành công. Đang tải lại nhóm để đăng bài...'
+      };
+    } else {
+      return {
+        status: 'error',
+        authExpired: true,
+        note: twoFaInitial.error || '❌ Facebook yêu cầu xác minh 2FA nhưng tài khoản chưa được cài đặt mã 2FA Secret Key.'
+      };
+    }
+  }
+
   // 1. Kiểm tra và tự động xử lý đăng nhập nếu Facebook đang bị đăng xuất
   const loginState = await handleLoginIfLoggedOut(job);
-  if (loginState.handled && !loginState.success) {
-   return {
-    status: 'error',
-    authExpired: Boolean(loginState.authExpired),
-    note: loginState.reason || '❌ Facebook chưa đăng nhập (bị đăng xuất). Hãy đăng nhập lại Facebook.'
-   };
+  if (loginState.handled) {
+    if (loginState.twoFactorResolved || loginState.needsReload) {
+      return {
+        status: 'queued',
+        twoFactorResolved: true,
+        note: '⚡ Đã tự động phân tích mã 2FA và đăng nhập thành công. Đang mở lại nhóm để đăng bài...'
+      };
+    }
+    if (!loginState.success) {
+      return {
+        status: 'error',
+        authExpired: Boolean(loginState.authExpired),
+        note: loginState.reason || '❌ Facebook chưa đăng nhập (bị đăng xuất). Hãy đăng nhập lại Facebook.'
+      };
+    }
   }
 
   await check(job);
@@ -1761,10 +2066,17 @@
   };
   }catch(e){
    const msg=e.message||'';
+   if (msg === 'TWO_FACTOR_RESOLVED_NEED_RELOAD') {
+    return {
+      status: 'queued',
+      twoFactorResolved: true,
+      note: '⚡ Đã tự động phân tích mã 2FA và đăng nhập thành công. Đang mở lại nhóm để đăng bài...'
+    };
+   }
    if (/^Bỏ qua:|^Đã bỏ qua/i.test(msg)) {
     return {status: 'skipped', note: msg};
    }
-   const isBlocked=/FACEBOOK_RATE_LIMIT_BLOCKED|we limit how often|protect the community from spam|try again later|thử lại sau|giới hạn tần suất|cảnh báo spam|checkpoint|tạm thời bị chặn|tạm thời bị hạn chế/i.test(msg);
+   const isBlocked=/FACEBOOK_RATE_LIMIT_BLOCKED|we limit how often|protect the community from spam|try again later|thử lại sau|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác/i.test(msg);
    return {
     status: isBlocked ? 'blocked' : (clicked ? 'unknown' : 'error'),
     note: isBlocked ? (msg.replace(/^FACEBOOK_RATE_LIMIT_BLOCKED:\s*/, '') || '🛑 Facebook giới hạn đăng bài (Spam Rate Limit). Đã dừng hẳn chiến dịch để bảo vệ tài khoản.') : msg,
@@ -1793,7 +2105,18 @@
       }).catch(() => {});
     }).catch(async e => {
       const msg = e.message || '';
-      const isBlocked = /FACEBOOK_RATE_LIMIT_BLOCKED|we limit how often|protect the community from spam|try again later|thử lại sau|giới hạn tần suất|cảnh báo spam|checkpoint|tạm thời bị chặn|tạm thời bị hạn chế/i.test(msg);
+      if (msg === 'TWO_FACTOR_RESOLVED_NEED_RELOAD') {
+        await chrome.runtime.sendMessage({
+          type: 'RESULT',
+          token: m.job.token,
+          accountId: m.job.accountId,
+          status: 'queued',
+          twoFactorResolved: true,
+          note: '⚡ Đã tự động phân tích mã 2FA và đăng nhập thành công. Đang mở lại nhóm để đăng bài...'
+        }).catch(() => {});
+        return;
+      }
+      const isBlocked = /FACEBOOK_RATE_LIMIT_BLOCKED|we limit how often|protect the community from spam|try again later|thử lại sau|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác/i.test(msg);
       await chrome.runtime.sendMessage({
         type: 'RESULT',
         token: m.job.token,

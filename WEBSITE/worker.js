@@ -5515,7 +5515,11 @@ async function inspectTabFacebookAuthState(tabId) {
         (emailInputEl && !(emailInputEl.value || '').trim())
       );
       const hasTwoFactorInput = Boolean(
-        document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i]')
+        document.querySelector('#approvals_code, input[name="approvals_code"], input[autocomplete="one-time-code"], input[placeholder*="mã" i], input[placeholder*="code" i], input[aria-label*="mã" i], input[aria-label*="code" i], input[data-testid*="code" i], input[data-testid*="2fa" i]') ||
+        [...document.querySelectorAll('input[type="text"], input[type="number"], input[type="tel"], input:not([type])')].some(el => {
+          const desc = `${el.name || ''} ${el.id || ''} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
+          return /code|approv|mã|xác thực|otp|totp|digit|chữ số/.test(desc);
+        })
       );
       const allButtons = [...document.querySelectorAll('a, button, [role="button"]')];
       const hasSwitchAccountBtn = allButtons.some(el => {
@@ -7756,6 +7760,27 @@ function handleRuntimeMessage(m, sender, reply) {
       if (!isTabMatch || m.token !== c.active?.token) return {ok: true};
 
       const closeTabId = sender?.tab?.id || c.active?.tabId;
+
+      // ── BƯỚC 0: Tự động phân tích mã 2FA và đăng nhập lại nếu Facebook yêu cầu xác minh 2FA ──
+      if (m.twoFactorResolved) {
+        if (accountId) {
+          await autoSyncFacebookCookies(accountId).catch(() => {});
+        }
+        if (closeTabId) {
+          await chrome.tabs.remove(closeTabId).catch(() => {});
+        }
+        const currentJob = c.jobs[c.index];
+        if (currentJob) {
+          currentJob.status = 'queued';
+          currentJob.note = '⚡ Đã tự động phân tích mã 2FA thành công. Đang mở lại nhóm để đăng bài...';
+        }
+        c.active = null;
+        c.breakNote = `⚡ Đã giải mã 2FA thành công cho "${c.accountName || accountId}". Chuẩn bị đăng bài...`;
+        await saveCampaigns(campaigns);
+        await scheduleAccountTick(accountId, Date.now() + 1500);
+        return { ok: true };
+      }
+
       const allowed = ['preview', 'submitted', 'pending', 'sent_unverified', 'unknown', 'blocked', 'error', 'skipped'];
       let status = allowed.includes(m.status) ? m.status : 'unknown';
       if ((status === 'error' || status === 'unknown') && /limit how often|protect the community from spam|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác|tạm thời bị chặn|tạm thời bị hạn chế/i.test(m.note || '')) {
