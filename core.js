@@ -680,7 +680,7 @@ export async function activateAccountSessionDirectly(accountId, openFacebookTab 
   const proxyToUse = acc.proxy || parentAcc?.proxy || null;
   try {
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({
+      await chrome.runtime.sendMessage({
         type: proxyToUse ? 'APPLY_PROXY' : 'CLEAR_PROXY',
         proxy: proxyToUse
       }).catch(() => {});
@@ -1466,11 +1466,33 @@ export function parseProxyString(rawInput) {
   // Cắt bỏ phần path sau dấu gạch chéo nếu có (ví dụ 1.2.3.4:8080/)
   str = str.split('/')[0].trim();
 
-  // Trường hợp 1: username:password@host:port
+  // Chuẩn hóa ký tự phân cách gạch đứng '|' thành dấu hai chấm ':'
+  if (str.includes('|')) {
+    str = str.replace(/\|+/g, ':');
+  }
+
+  const isPortNum = (n) => {
+    const num = Number(n);
+    return Number.isInteger(num) && num > 0 && num <= 65535;
+  };
+
+  // Trường hợp 1: Chứa ký tự @ (username:password@host:port hoặc host:port@username:password)
   if (str.includes('@')) {
     const atIdx = str.lastIndexOf('@');
-    const authPart = str.slice(0, atIdx).trim();
-    const hostPart = str.slice(atIdx + 1).trim();
+    const partA = str.slice(0, atIdx).trim();
+    const partB = str.slice(atIdx + 1).trim();
+
+    let hostPart = partB;
+    let authPart = partA;
+
+    // Nếu partA chứa port hợp lệ (ví dụ 160.250.59.145:30146@user:pass)
+    if (partA.includes(':')) {
+      const subA = partA.split(':').map(s => s.trim());
+      if (subA.length === 2 && isPortNum(subA[1])) {
+        hostPart = partA;
+        authPart = partB;
+      }
+    }
 
     if (authPart.includes(':')) {
       const colonIdx = authPart.indexOf(':');
@@ -1496,20 +1518,41 @@ export function parseProxyString(rawInput) {
       host = parts[0];
       port = parseInt(parts[1], 10);
     } else if (parts.length === 4) {
-      // host:port:username:password (định dạng phổ biến nhất khi mua proxy)
-      host = parts[0];
-      port = parseInt(parts[1], 10);
-      username = parts[2] || null;
-      password = parts[3] || null;
+      // Tự động nhận diện host:port:username:password hoặc username:password:host:port
+      if (isPortNum(parts[1])) {
+        // host:port:username:password (chuẩn phổ biến nhất)
+        host = parts[0];
+        port = parseInt(parts[1], 10);
+        username = parts[2] || null;
+        password = parts[3] || null;
+      } else if (isPortNum(parts[3])) {
+        // username:password:host:port
+        username = parts[0] || null;
+        password = parts[1] || null;
+        host = parts[2];
+        port = parseInt(parts[3], 10);
+      } else {
+        host = parts[0];
+        port = parseInt(parts[1], 10);
+        username = parts[2] || null;
+        password = parts[3] || null;
+      }
     } else if (parts.length === 3) {
       host = parts[0];
       port = parseInt(parts[1], 10);
       username = parts[2] || null;
     } else if (parts.length > 4) {
-      host = parts[0];
-      port = parseInt(parts[1], 10);
-      username = parts[2] || null;
-      password = parts.slice(3).join(':') || null;
+      if (isPortNum(parts[1])) {
+        host = parts[0];
+        port = parseInt(parts[1], 10);
+        username = parts[2] || null;
+        password = parts.slice(3).join(':') || null;
+      } else if (isPortNum(parts[parts.length - 1])) {
+        host = parts[parts.length - 2];
+        port = parseInt(parts[parts.length - 1], 10);
+        username = parts[0] || null;
+        password = parts.slice(1, parts.length - 2).join(':') || null;
+      }
     }
   } else {
     return null;
@@ -1577,6 +1620,9 @@ export async function applyExtensionProxyDirectly(proxyStr) {
     return { ok: false, reason: 'no_proxy_api' };
   }
   if (!proxyStr) {
+    if (typeof chrome.storage !== 'undefined' && chrome.storage.local) {
+      await chrome.storage.local.remove(['activeProxyConfig', 'activeProxyAuth', 'activeProxyRaw']).catch(() => {});
+    }
     return new Promise(resolve => {
       chrome.proxy.settings.clear({ scope: 'regular' }, () => resolve({ ok: true, direct: true }));
     });
@@ -1602,6 +1648,21 @@ export async function applyExtensionProxyDirectly(proxyStr) {
       ]
     }
   };
+
+  const authObj = (parsed.username && parsed.password) ? {
+    host: parsed.host,
+    port: parsed.port,
+    username: parsed.username,
+    password: parsed.password
+  } : null;
+
+  if (typeof chrome.storage !== 'undefined' && chrome.storage.local) {
+    await chrome.storage.local.set({
+      activeProxyConfig: config,
+      activeProxyAuth: authObj,
+      activeProxyRaw: proxyStr
+    }).catch(() => {});
+  }
 
   return new Promise(resolve => {
     chrome.proxy.settings.set({ value: config, scope: 'regular' }, () => {

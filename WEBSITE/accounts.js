@@ -1285,7 +1285,7 @@ async function render() {
             <span style="font-size:12px;font-weight:600;color:var(--text)">Proxy riêng cho nick (IP:Port hoặc IP:Port:User:Pass):</span>
             <button type="button" class="btn btn-light test-edit-proxy-btn" data-id="${acc.id}" style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #cbd5e1;font-weight:600" title="Kiểm tra kết nối và độ trễ của Proxy">⚡ Kiểm tra Proxy</button>
           </div>
-          <input type="text" class="edit-proxy" placeholder="VD: 103.149.28.15:8080 hoặc IP:Port:User:Pass (để trống = dùng IP máy)" value="${acc.proxy || ''}" style="margin-top:2px">
+          <input type="text" class="edit-proxy" placeholder="VD: 160.250.59.145:30146:user:pass hoặc IP:Port (để trống = dùng IP máy)" value="${acc.proxy || ''}" style="margin-top:2px">
           <div class="edit-proxy-status" id="editProxyStatus_${acc.id}" style="display:none;font-size:11.5px;margin-top:4px;padding:4px 8px;border-radius:6px"></div>
         </label>
         <label style="margin-bottom:8px">
@@ -1377,6 +1377,10 @@ async function render() {
       const new2FA = box.querySelector('.edit-2fa')?.value?.trim() || '';
       const newProxyRaw = box.querySelector('.edit-proxy')?.value?.trim() || '';
       const newProxy = newProxyRaw ? normalizeProxyString(newProxyRaw) : null;
+      if (newProxyRaw && !newProxy) {
+        msg('Định dạng Proxy không hợp lệ. Vui lòng nhập: IP:Port hoặc IP:Port:User:Pass!', 'err');
+        return;
+      }
       const newGroups = box.querySelector('.edit-groups').value.trim();
 
       if (!newName) {
@@ -1455,6 +1459,7 @@ async function render() {
             email: acc.email || acc.fbId,
             password: acc.password,
             twoFactor: acc.twoFactor || null,
+            proxy: acc.proxy || null,
             existingAccountId: acc.id,
             openFacebookTab: true,
             keepSession: true

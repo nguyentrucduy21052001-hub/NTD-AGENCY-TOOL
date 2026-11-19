@@ -56,26 +56,121 @@ async function recordWorkerDailyScan(type, count = 1) {
 let activeProxyConfig = null;
 let activeProxyAuth = null;
 
+// Khôi phục cấu hình Proxy & Auth từ storage khi Service Worker thức giấc
+if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+  try {
+    chrome.storage.local.get(['activeProxyAuth', 'activeProxyConfig'], (data) => {
+      if (data?.activeProxyAuth) activeProxyAuth = data.activeProxyAuth;
+      if (data?.activeProxyConfig) activeProxyConfig = data.activeProxyConfig;
+    });
+  } catch (_) {}
+}
+
+// Helper định dạng authCredentials chuẩn cho Chrome onAuthRequired
+function buildProxyAuthCreds(authObj) {
+  if (!authObj || !authObj.username) return null;
+  return {
+    authCredentials: {
+      username: String(authObj.username).trim(),
+      password: String(authObj.password || '').trim()
+    }
+  };
+}
+
+// Helper kiểm tra host/port của authObj có khớp với challenger của proxy hay không
+function isAuthMatchingChallenger(authObj, challenger) {
+  if (!authObj) return false;
+  if (!challenger || !challenger.host) return true;
+  if (authObj.host && authObj.host !== challenger.host) return false;
+  if (challenger.port && authObj.port && Number(authObj.port) !== Number(challenger.port)) return false;
+  return true;
+}
+
 // Khởi tạo bộ chặn chứng thực mật khẩu Proxy tự động (chrome.webRequest.onAuthRequired)
 if (typeof chrome !== 'undefined' && chrome.webRequest && chrome.webRequest.onAuthRequired) {
   try {
     chrome.webRequest.onAuthRequired.addListener(
       (details, callback) => {
-        if (details.isProxy && activeProxyAuth) {
-          const authCreds = {
-            authCredentials: {
-              username: activeProxyAuth.username,
-              password: activeProxyAuth.password
-            }
-          };
-          if (typeof callback === 'function') {
-            callback(authCreds);
+        // Chỉ xử lý yêu cầu xác thực Proxy (HTTP 407), bỏ qua xác thực web thường (HTTP 401)
+        if (!details.isProxy) {
+          if (typeof callback === 'function') callback({});
+          return;
+        }
+
+        // 1. Kiểm tra nhanh trong bộ nhớ RAM (nếu proxy auth trùng khớp hoặc không phân biệt)
+        if (activeProxyAuth && isAuthMatchingChallenger(activeProxyAuth, details.challenger)) {
+          const creds = buildProxyAuthCreds(activeProxyAuth);
+          if (creds) {
+            if (typeof callback === 'function') callback(creds);
             return;
           }
-          return authCreds;
         }
-        if (typeof callback === 'function') callback({});
-        return {};
+
+        // 2. Tra cứu bất đồng bộ trong storage (phòng trường hợp Service Worker vừa thức giấc sau khi ngủ)
+        if (typeof chrome.storage !== 'undefined' && chrome.storage.local) {
+          chrome.storage.local.get(['activeProxyAuth', 'accounts', 'activeProxyConfig'], (data) => {
+            // A. Kiểm tra activeProxyAuth đã lưu trong storage
+            const storedAuth = data?.activeProxyAuth;
+            if (storedAuth && isAuthMatchingChallenger(storedAuth, details.challenger)) {
+              const creds = buildProxyAuthCreds(storedAuth);
+              if (creds) {
+                activeProxyAuth = storedAuth;
+                if (typeof callback === 'function') callback(creds);
+                return;
+              }
+            }
+
+            // B. Quét danh sách accounts xem nick nào cấu hình proxy có Host (và Port) này
+            const chHost = details.challenger?.host;
+            const chPort = details.challenger?.port;
+            if (Array.isArray(data?.accounts)) {
+              for (const acc of data.accounts) {
+                const pStr = acc.proxy || acc.proxyStr;
+                if (pStr) {
+                  const parsed = parseProxyString(pStr);
+                  if (parsed && parsed.username && (!chHost || parsed.host === chHost) && (!chPort || Number(parsed.port) === Number(chPort))) {
+                    const creds = buildProxyAuthCreds(parsed);
+                    if (creds) {
+                      activeProxyAuth = {
+                        host: parsed.host,
+                        port: parsed.port,
+                        username: parsed.username,
+                        password: parsed.password
+                      };
+                      if (typeof callback === 'function') callback(creds);
+                      return;
+                    }
+                  }
+                }
+              }
+            }
+
+            // C. Fallback: Nếu có bất kỳ cấu hình proxy auth nào có user/pass thì dùng luôn
+            if (activeProxyAuth?.username) {
+              const creds = buildProxyAuthCreds(activeProxyAuth);
+              if (creds) {
+                if (typeof callback === 'function') callback(creds);
+                return;
+              }
+            }
+            if (storedAuth?.username) {
+              const creds = buildProxyAuthCreds(storedAuth);
+              if (creds) {
+                activeProxyAuth = storedAuth;
+                if (typeof callback === 'function') callback(creds);
+                return;
+              }
+            }
+
+            // D. Không có thông tin xác thực nào
+            if (typeof callback === 'function') callback({});
+          });
+        } else {
+          if (typeof callback === 'function') callback({});
+        }
+
+        // Báo hiệu Chromium chờ kết quả trả về qua callback bất đồng bộ
+        return true;
       },
       { urls: ['<all_urls>'] },
       ['asyncBlocking']
@@ -84,13 +179,9 @@ if (typeof chrome !== 'undefined' && chrome.webRequest && chrome.webRequest.onAu
     try {
       chrome.webRequest.onAuthRequired.addListener(
         (details) => {
-          if (details.isProxy && activeProxyAuth) {
-            return {
-              authCredentials: {
-                username: activeProxyAuth.username,
-                password: activeProxyAuth.password
-              }
-            };
+          if (!details.isProxy) return {};
+          if (activeProxyAuth?.username) {
+            return buildProxyAuthCreds(activeProxyAuth) || {};
           }
           return {};
         },
@@ -107,6 +198,9 @@ async function applyExtensionProxy(proxyStr) {
   if (typeof chrome === 'undefined' || !chrome.proxy) {
     activeProxyConfig = null;
     activeProxyAuth = null;
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await chrome.storage.local.remove(['activeProxyConfig', 'activeProxyAuth', 'activeProxyRaw']).catch(() => {});
+    }
     return { ok: false, reason: 'no_proxy_api' };
   }
   if (!proxyStr || typeof proxyStr !== 'string' || !proxyStr.trim()) {
@@ -149,14 +243,23 @@ async function applyExtensionProxy(proxyStr) {
     activeProxyAuth = null;
   }
 
+  // Đồng bộ cấu hình và xác thực vào storage để Service Worker ngủ dậy vẫn giữ nguyên
+  if (typeof chrome.storage !== 'undefined' && chrome.storage.local) {
+    await chrome.storage.local.set({
+      activeProxyConfig: config,
+      activeProxyAuth: activeProxyAuth,
+      activeProxyRaw: proxyStr
+    }).catch(() => {});
+  }
+
   return new Promise((resolve) => {
     chrome.proxy.settings.set({ value: config, scope: 'regular' }, () => {
       if (chrome.runtime?.lastError) {
         console.warn('[Proxy] Lỗi thiết lập proxy:', chrome.runtime.lastError.message);
         resolve({ ok: false, error: chrome.runtime.lastError.message });
       } else {
-        console.log(`[Proxy] Đã kích hoạt Proxy cho phiên: ${parsed.host}:${parsed.port} (${parsed.scheme || 'http'})${parsed.username ? ' [Auth]' : ''}`);
-        resolve({ ok: true, host: parsed.host, port: parsed.port, scheme: parsed.scheme });
+        console.log(`[Proxy] Đã kích hoạt Proxy cho phiên: ${parsed.host}:${parsed.port} (${parsed.scheme || 'http'})${parsed.username ? ' [Auth: ' + parsed.username + ']' : ''}`);
+        resolve({ ok: true, host: parsed.host, port: parsed.port, scheme: parsed.scheme, hasAuth: Boolean(parsed.username) });
       }
     });
   });
@@ -165,6 +268,9 @@ async function applyExtensionProxy(proxyStr) {
 async function clearExtensionProxy() {
   activeProxyConfig = null;
   activeProxyAuth = null;
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    await chrome.storage.local.remove(['activeProxyConfig', 'activeProxyAuth', 'activeProxyRaw']).catch(() => {});
+  }
   if (typeof chrome === 'undefined' || !chrome.proxy) return { ok: true, direct: true };
   return new Promise((resolve) => {
     chrome.proxy.settings.clear({ scope: 'regular' }, () => {
@@ -5915,6 +6021,13 @@ function handleRuntimeMessage(m, sender, reply) {
         const endMs = Date.now();
 
         if (!res.ok) {
+          if (res.status === 407) {
+            if (parsed.username) {
+              throw new Error('Sai Tên người dùng hoặc Mật khẩu Proxy (HTTP 407). Vui lòng kiểm tra lại User và Pass của Proxy!');
+            } else {
+              throw new Error('Proxy yêu cầu Tên đăng nhập & Mật khẩu (HTTP 407). Hãy nhập định dạng IP:Port:User:Pass hoặc cài Whitelist IP trên trang bán Proxy!');
+            }
+          }
           throw new Error(`Máy chủ kiểm tra phản hồi HTTP ${res.status}`);
         }
         const data = await res.json();
@@ -5927,11 +6040,17 @@ function handleRuntimeMessage(m, sender, reply) {
         });
       } catch (err) {
         const isTimeout = err.name === 'AbortError' || /abort/i.test(err.message || '');
+        let errMsg = isTimeout
+          ? 'Hết thời gian chờ (Timeout > 12s). Proxy có thể bị chết, sai Port hoặc chặn kết nối.'
+          : (err.message || 'Không thể kết nối qua Proxy này.');
+        if (/407/i.test(errMsg)) {
+          errMsg = parsed.username
+            ? 'Sai Tên người dùng hoặc Mật khẩu Proxy (HTTP 407). Vui lòng kiểm tra lại User và Pass của Proxy!'
+            : 'Proxy yêu cầu Tên đăng nhập & Mật khẩu (HTTP 407). Hãy nhập định dạng IP:Port:User:Pass hoặc cài Whitelist IP trên trang bán Proxy!';
+        }
         reply({
           ok: false,
-          error: isTimeout
-            ? 'Hết thời gian chờ (Timeout > 12s). Proxy có thể bị chết, sai Port hoặc chặn kết nối.'
-            : (err.message || 'Không thể kết nối qua Proxy này.')
+          error: errMsg
         });
       } finally {
         if (prevConfig) {
@@ -5939,6 +6058,12 @@ function handleRuntimeMessage(m, sender, reply) {
           activeProxyAuth = prevAuth;
           if (typeof chrome !== 'undefined' && chrome.proxy) {
             chrome.proxy.settings.set({ value: prevConfig, scope: 'regular' }, () => {});
+          }
+          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+            await chrome.storage.local.set({
+              activeProxyConfig: prevConfig,
+              activeProxyAuth: prevAuth
+            }).catch(() => {});
           }
         } else {
           await clearExtensionProxy();
@@ -6436,7 +6561,10 @@ function handleRuntimeMessage(m, sender, reply) {
 
         const activateSwitchSeq = beginSessionSwitch();
         try {
-          const proxyToUse = acc.proxy || null;
+          const parentAcc = (acc?.type === 'fanpage' && acc.parentAccountId)
+            ? accounts.find(a => a.id === acc.parentAccountId)
+            : null;
+          const proxyToUse = acc.proxy || parentAcc?.proxy || null;
           if (proxyToUse) {
             await applyExtensionProxy(proxyToUse);
           } else {
