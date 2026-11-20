@@ -886,6 +886,7 @@ export async function supabaseRenameUser(oldUsername, newUsername) {
 
 export const SYNC_WORKSPACE_KEYS = [
   'accounts',
+  'accountGroupsList',
   'groupCategories',
   'draft',
   'scheduledPostJobs',
@@ -1505,6 +1506,7 @@ function mergeAccountObjects(localAcc, remoteAcc) {
     token: localAcc.token || remoteAcc.token || '',
     fbId: localAcc.fbId || remoteAcc.fbId || '',
     groups: mergedGroups,
+    accountGroup: localAcc.accountGroup || remoteAcc.accountGroup || '',
     status: (localAcc.status === 'active' || remoteAcc.status === 'active') ? 'active' : (localAcc.status || remoteAcc.status || 'active')
   };
 }

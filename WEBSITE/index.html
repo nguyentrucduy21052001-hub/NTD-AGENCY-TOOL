@@ -3793,9 +3793,13 @@
 
           <!-- Toolbar: Search, Filters & Bulk Actions -->
           <div class="cfg-toolbar">
-            <div class="cfg-toolbar-top">
+            <div class="cfg-toolbar-top" style="display:flex;align-items:center;gap:8px">
               <input type="text" id="cfgSearchAccountInput" placeholder="Tìm kiếm nick cá nhân..."
-                class="cfg-search-input">
+                class="cfg-search-input" style="flex:1">
+              <select id="cfgAccountGroupFilter" style="width:auto;margin:0;padding:6px 10px;font-size:12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;flex-shrink:0" title="Lọc danh sách nick theo Nhóm tài khoản">
+                <option value="all">📁 Tất cả nhóm tài khoản</option>
+                <option value="unassigned">Chưa phân nhóm</option>
+              </select>
             </div>
             <div class="cfg-toolbar-bottom">
               <div class="cfg-filter-pills" id="cfgFilterPills">
@@ -3883,6 +3887,22 @@
                   title="Chọn toàn bộ tài khoản và Fanpage">Chọn tất cả</button>
                 <button type="button" id="sharedDeselectAllBtn" class="cfg-action-btn" title="Bỏ chọn tất cả">Bỏ chọn
                   tất cả</button>
+              </div>
+            </div>
+
+            <!-- Bộ lọc & Thao tác chọn theo Nhóm tài khoản -->
+            <div id="sharedAccountGroupFilterBar" style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <span style="font-size:12px;font-weight:700;color:#1e293b">📁 Nhóm nick:</span>
+                <select id="sharedAccountGroupFilter" style="width:auto;margin:0;padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#0f172a">
+                  <option value="all">-- Tất cả nhóm tài khoản --</option>
+                  <option value="unassigned">Chưa phân nhóm</option>
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <button type="button" id="btnSelectOnlyThisGroup" class="cfg-action-btn primary" style="background:#ea580c;color:#fff;border-color:#ea580c;font-weight:700;padding:4px 10px;font-size:11.5px" title="Bỏ chọn các nick khác, chỉ chọn chạy các nick thuộc nhóm này để chia đều nhóm bài đăng">🎯 Chỉ chạy nick nhóm này</button>
+                <button type="button" id="btnAddThisGroupSelection" class="cfg-action-btn" style="padding:4px 8px;font-size:11px" title="Chọn thêm các nick thuộc nhóm này">+ Thêm nhóm này</button>
+                <button type="button" id="btnRemoveThisGroupSelection" class="cfg-action-btn" style="padding:4px 8px;font-size:11px" title="Bỏ chọn các nick thuộc nhóm này">- Bỏ nhóm này</button>
               </div>
             </div>
 
@@ -4459,6 +4479,15 @@
               <select id="reportAccountFilter"
                 style="width:auto;margin:0;padding:5px 10px;font-size:12px;border-radius:6px">
                 <option value="all">Tất cả tài khoản</option>
+              </select>
+            </label>
+            <label
+              style="margin:0;font-size:12px;font-weight:600;color:#475569;display:flex;align-items:center;gap:6px">
+              <span>Nhóm:</span>
+              <select id="reportAccountGroupFilter"
+                style="width:auto;margin:0;padding:5px 10px;font-size:12px;border-radius:6px">
+                <option value="all">Tất cả nhóm</option>
+                <option value="unassigned">Chưa phân nhóm</option>
               </select>
             </label>
             <input type="text" id="reportSearchInput" placeholder="Tìm link nhóm..."

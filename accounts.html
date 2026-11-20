@@ -496,6 +496,92 @@
   }
   .pane { display: none; }
   .pane.show { display: block; }
+
+  /* Account Group filter pills & bulk actions */
+  .acc-group-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 14px;
+  }
+  .acc-group-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    transition: all .15s;
+  }
+  .acc-group-pill:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+  }
+  .acc-group-pill.active {
+    background: linear-gradient(135deg, #ed6b22, #f59332);
+    color: #fff;
+    border-color: #ed6b22;
+    box-shadow: 0 2px 6px rgba(237,107,34,0.25);
+  }
+  .acc-group-pill .pill-count {
+    background: rgba(0,0,0,0.1);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10.5px;
+  }
+  .acc-group-pill.active .pill-count {
+    background: rgba(255,255,255,0.25);
+    color: #fff;
+  }
+  .acc-bulk-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  html.ntd-dark-theme .acc-bulk-bar {
+    background: #1e293b;
+    border-color: #334155;
+    color: #f8fafc;
+  }
+  html.ntd-dark-theme .acc-group-pill {
+    background: #1e293b;
+    border-color: #334155;
+    color: #94a3b8;
+  }
+  html.ntd-dark-theme .acc-group-pill:hover {
+    background: #334155;
+    color: #f8fafc;
+  }
+  html.ntd-dark-theme .acc-group-pill.active {
+    background: linear-gradient(135deg, #ed6b22, #f59332);
+    color: #fff;
+    border-color: #ed6b22;
+  }
+  .acc-card.bulk-selected {
+    border-color: #ed6b22 !important;
+    background: #fffaf5 !important;
+  }
+  html.ntd-dark-theme .acc-card.bulk-selected {
+    border-color: #ed6b22 !important;
+    background: #1e1b18 !important;
+  }
 </style>
 <body class="ntd-dark-theme">
 <main>
@@ -514,10 +600,25 @@
       <button class="method-tab" id="tabCookie">Nhập VIA, Token &amp; Cookies</button>
     </div>
 
-    <!-- Tên hiển thị (chung) -->
-    <label id="accNameWrapper"><span>Tên hiển thị</span>
-      <input type="text" id="accName" placeholder="VD: Nguyễn Văn A, nick1, acc_chinh...">
-    </label>
+    <!-- Tên hiển thị & Nhóm tài khoản (chung) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px" class="acc-info-row">
+      <label id="accNameWrapper" style="margin-bottom:0"><span>Tên hiển thị</span>
+        <input type="text" id="accName" placeholder="VD: Nguyễn Văn A, nick1, acc_chinh...">
+      </label>
+      <label id="accGroupWrapper" style="margin-bottom:0">
+        <span style="display:flex;align-items:center;justify-content:space-between">
+          <span>Nhóm tài khoản</span>
+          <a href="#" id="openManageGroupsLink" style="font-size:11px;color:var(--accent);text-decoration:none;font-weight:700">⚙️ Quản lý nhóm</a>
+        </span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="accGroupSelect" style="flex:1;padding:10px 12px;font-size:13px;border-radius:9px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;outline:none">
+            <option value="">-- Chưa phân nhóm (Mặc định) --</option>
+          </select>
+          <input type="text" id="accGroupNewInput" placeholder="Hoặc gõ tên nhóm mới..." style="display:none;flex:1;padding:10px 12px;font-size:13px;border-radius:9px;border:1px solid #cbd5e1;background:#fff;color:#0f172a">
+          <button type="button" class="btn btn-light" id="btnToggleNewGroupInput" style="padding:8px 12px;font-size:12px;font-weight:700" title="Chuyển sang gõ nhóm mới">➕ Nhóm mới</button>
+        </div>
+      </label>
+    </div>
 
     <!-- === Pane 1: Password === -->
     <div class="pane show" id="panePass">
@@ -673,6 +774,40 @@
       </button>
     </div>
   </div>
+
+  <!-- Thanh Lọc theo Nhóm tài khoản -->
+  <div class="acc-group-filter-bar" id="accGroupFilterBar">
+    <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--text);margin-right:4px">
+      <span>📁 Nhóm:</span>
+    </div>
+    <div id="accGroupPillsContainer" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1">
+      <button type="button" class="acc-group-pill active" data-group="all">Tất cả <span class="pill-count" id="pillCountAll">0</span></button>
+      <button type="button" class="acc-group-pill" data-group="unassigned">Chưa phân nhóm <span class="pill-count" id="pillCountUnassigned">0</span></button>
+    </div>
+    <button type="button" class="btn btn-light" id="openManageGroupsBtn" style="font-size:11.5px;padding:6px 12px;border-radius:8px;font-weight:700;display:flex;align-items:center;gap:4px">
+      ⚙️ Quản lý nhóm
+    </button>
+  </div>
+
+  <!-- Thanh thao tác hàng loạt khi tick chọn tài khoản -->
+  <div class="acc-bulk-bar" id="accBulkBar">
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="bulkSelectAllCb" style="width:16px;height:16px;cursor:pointer">
+      <span style="font-size:13px;font-weight:700;color:var(--text)">Đã chọn <b id="bulkSelectedCount" style="color:var(--accent)">0</b> tài khoản</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:var(--text-muted)">Chuyển vào nhóm:</span>
+        <select id="bulkAssignGroupSelect" style="width:auto;padding:5px 8px;font-size:12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#0f172a">
+          <option value="">-- Chọn nhóm tài khoản --</option>
+        </select>
+        <button type="button" class="btn btn-primary" id="btnApplyBulkGroup" style="font-size:11.5px;padding:5px 12px;font-weight:700">Áp dụng</button>
+      </div>
+      <button type="button" class="btn btn-light" id="btnRemoveBulkGroup" style="font-size:11.5px;padding:5px 10px;font-weight:600" title="Gỡ nhóm cho các nick đã chọn">Bỏ khỏi nhóm</button>
+      <button type="button" class="btn btn-light" id="btnCancelBulkSelect" style="font-size:11.5px;padding:5px 10px;font-weight:600">Bỏ chọn</button>
+    </div>
+  </div>
+
   <div class="acc-list" id="accList">
     <div class="empty-state">
       <p>Chưa có tài khoản Facebook cá nhân nào. Hãy thêm tài khoản đầu tiên!</p>

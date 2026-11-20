@@ -161,6 +161,53 @@ async function saveAccounts(accounts) {
   }
 }
 
+// ── Account Groups (Nhóm tài khoản) State & Helpers ───────────────────────────
+let currentAccGroupFilter = 'all';
+let selectedAccIdsForBulk = new Set();
+
+async function loadAccountGroupsList() {
+  const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+  const accounts = await loadAccounts();
+  const set = new Set();
+  if (Array.isArray(accountGroupsList)) {
+    accountGroupsList.forEach(g => {
+      const s = String(g || '').trim();
+      if (s) set.add(s);
+    });
+  }
+  accounts.forEach(a => {
+    const g = String(a.accountGroup || '').trim();
+    if (g) set.add(g);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
+async function saveAccountGroupsList(groupsList) {
+  const cleanList = Array.from(new Set((groupsList || []).map(g => String(g || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'vi'));
+  await chrome.storage.local.set({ accountGroupsList: cleanList });
+  const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+    try {
+      await window.chrome.runtime.sendToExtension({
+        type: 'SYNC_DATA_TO_EXTENSION',
+        data: { accountGroupsList: cleanList }
+      });
+    } catch (_) {}
+  }
+  const accounts = await loadAccounts();
+  syncAccountsToCloudImmediately(accounts).catch(() => {});
+  return cleanList;
+}
+
+function getSelectedOrTypedAccountGroup() {
+  const input = $('accGroupNewInput');
+  const select = $('accGroupSelect');
+  if (input && input.style.display !== 'none' && input.value.trim()) {
+    return input.value.trim();
+  }
+  return select ? select.value.trim() : '';
+}
+
 async function sendExtensionCommand(message) {
   const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
   if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
@@ -306,11 +353,12 @@ async function getCurrentFacebookSession() {
 let _activeLoginFlowState = null;
 
 // ── Helper: Lưu hoặc cập nhật tài khoản vào cơ sở dữ liệu ───────────────────
-async function saveOrUpdateAccountRecord({ accountId = null, name, email, pass, twoFactor, proxy, cookies, token, cUser, groups }) {
+async function saveOrUpdateAccountRecord({ accountId = null, name, email, pass, twoFactor, proxy, cookies, token, cUser, groups, accountGroup = '' }) {
   const accounts = await loadAccounts();
   const cleanEmail = (email || '').trim().toLowerCase();
   const cleanCUser = String(cUser || '').trim();
   const cleanAccId = String(accountId || '').trim();
+  const cleanAccGroup = String(accountGroup || '').trim();
 
   // CHỈ tìm trong tài khoản cá nhân (a.type !== 'fanpage') để tuyệt đối không lưu đè vào bản ghi Fanpage bị ẩn!
   const existingIdx = accounts.findIndex(a =>
@@ -333,12 +381,18 @@ async function saveOrUpdateAccountRecord({ accountId = null, name, email, pass, 
     if (cookies) cur.cookies = cookies;
     if (token) cur.token = token;
     if (cleanCUser) cur.fbId = cleanCUser;
+    if (cleanAccGroup) cur.accountGroup = cleanAccGroup;
     cur.status = 'active';
     cur.errorMsg = null;
     cur.lastCookieSync = Date.now();
     if (groups) cur.groups = groups;
     await saveAccounts(accounts);
     syncAccountsToCloudImmediately(accounts).catch(() => {});
+    if (cleanAccGroup) {
+      loadAccountGroupsList().then(list => {
+        if (!list.includes(cleanAccGroup)) saveAccountGroupsList([...list, cleanAccGroup]);
+      }).catch(() => {});
+    }
     return { isExisting: true, account: cur };
   } else {
     const newAcc = {
@@ -352,6 +406,7 @@ async function saveOrUpdateAccountRecord({ accountId = null, name, email, pass, 
       cookies: cookies || '',
       token: token || null,
       groups: groups || '',
+      accountGroup: cleanAccGroup || '',
       addedVia: twoFactor ? 'via' : 'password',
       fbId: cleanCUser || '',
       status: 'active',
@@ -361,6 +416,11 @@ async function saveOrUpdateAccountRecord({ accountId = null, name, email, pass, 
     accounts.push(newAcc);
     await saveAccounts(accounts);
     syncAccountsToCloudImmediately(accounts).catch(() => {});
+    if (cleanAccGroup) {
+      loadAccountGroupsList().then(list => {
+        if (!list.includes(cleanAccGroup)) saveAccountGroupsList([...list, cleanAccGroup]);
+      }).catch(() => {});
+    }
     return { isExisting: false, account: newAcc };
   }
 }
@@ -374,6 +434,7 @@ $('loginBtn').onclick = async () => {
   const proxyRaw  = $('fbProxy')?.value?.trim() || null;
   const normalizedProxy = proxyRaw ? normalizeProxyString(proxyRaw) : null;
   const groups = $('accGroups')?.value?.trim() || '';
+  const accountGroup = getSelectedOrTypedAccountGroup();
 
   if (!name)  { msg('Hãy nhập tên hiển thị.', 'err'); return; }
   if (!email) { msg('Hãy nhập email / số điện thoại.', 'err'); return; }
@@ -442,7 +503,8 @@ $('loginBtn').onclick = async () => {
       cookies,
       token,
       cUser,
-      groups
+      groups,
+      accountGroup
     });
 
     setStep('step5', 'done');
@@ -462,6 +524,13 @@ $('loginBtn').onclick = async () => {
     if ($('fbProxy')) $('fbProxy').value = '';
     if ($('passProxyStatus')) $('passProxyStatus').style.display = 'none';
     if ($('accGroups')) $('accGroups').value = '';
+    if ($('accGroupSelect')) $('accGroupSelect').value = '';
+    if ($('accGroupNewInput')) {
+      $('accGroupNewInput').value = '';
+      $('accGroupNewInput').style.display = 'none';
+      if ($('accGroupSelect')) $('accGroupSelect').style.display = 'block';
+    }
+    if ($('btnToggleNewGroupInput')) $('btnToggleNewGroupInput').textContent = '➕ Nhóm mới';
 
     setTimeout(() => {
       $('loginProgress').classList.remove('show');
@@ -596,6 +665,7 @@ $('loginBtn').onclick = async () => {
         if (twoFactor) accounts[existingIdx].twoFactor = twoFactor;
         if (normalizedProxy !== null) accounts[existingIdx].proxy = normalizedProxy;
         if (groups) accounts[existingIdx].groups = groups;
+        if (accountGroup) accounts[existingIdx].accountGroup = accountGroup;
         await saveAccounts(accounts);
       } else {
         const detectedFbId = email.match(/^\d+$/) ? email : '';
@@ -610,6 +680,7 @@ $('loginBtn').onclick = async () => {
           cookies: '',
           token: null,
           groups,
+          accountGroup: accountGroup || '',
           addedVia: twoFactor ? 'via' : 'password',
           fbId: detectedFbId,
           lastCookieSync: Date.now()
@@ -644,6 +715,13 @@ $('clearPassFormBtn').onclick = () => {
   if ($('fbProxy')) $('fbProxy').value = '';
   if ($('passProxyStatus')) $('passProxyStatus').style.display = 'none';
   if ($('accGroups')) $('accGroups').value = '';
+  if ($('accGroupSelect')) $('accGroupSelect').value = '';
+  if ($('accGroupNewInput')) {
+    $('accGroupNewInput').value = '';
+    $('accGroupNewInput').style.display = 'none';
+    if ($('accGroupSelect')) $('accGroupSelect').style.display = 'block';
+  }
+  if ($('btnToggleNewGroupInput')) $('btnToggleNewGroupInput').textContent = '➕ Nhóm mới';
   $('msg').textContent = '';
   $('loginProgress').classList.remove('show');
 };
@@ -863,6 +941,7 @@ $('addCookieBtn').onclick = async () => {
   let name      = $('accName').value.trim();
   const rawInput  = $('accCookies').value.trim();
   const groups    = $('accGroups')?.value?.trim() || '';
+  const accountGroup = getSelectedOrTypedAccountGroup();
   const autoLogin = $('autoLoginAfterAdd') ? $('autoLoginAfterAdd').checked : true;
 
   if (!rawInput)  { msg('Hãy nhập mã Token, Cookies hoặc chuỗi VIA.', 'err'); return; }
@@ -957,9 +1036,15 @@ $('addCookieBtn').onclick = async () => {
       if (cUser || parsed.email) accounts[existingIdx].email = cUser || parsed.email || accounts[existingIdx].email;
       accounts[existingIdx].lastCookieSync = Date.now();
       if (groups) accounts[existingIdx].groups = groups;
+      if (accountGroup) accounts[existingIdx].accountGroup = accountGroup;
       accId = accounts[existingIdx].id;
       await saveAccounts(accounts);
       syncAccountsToCloudImmediately(accounts).catch(() => {});
+      if (accountGroup) {
+        loadAccountGroupsList().then(list => {
+          if (!list.includes(accountGroup)) saveAccountGroupsList([...list, accountGroup]);
+        }).catch(() => {});
+      }
       msg(`🔄 Đã cập nhật tài khoản "${name}" (FB ID: ${cUser || 'N/A'})!`);
     } else {
       accId = crypto.randomUUID();
@@ -974,12 +1059,18 @@ $('addCookieBtn').onclick = async () => {
         cookies: finalCookieStr || '',
         token: token || null,
         groups,
+        accountGroup: accountGroup || '',
         addedVia: (password && twoFactor) ? 'via' : (token ? 'token' : 'cookies'),
         fbId: cUser || '',
         lastCookieSync: Date.now()
       });
       await saveAccounts(accounts);
       syncAccountsToCloudImmediately(accounts).catch(() => {});
+      if (accountGroup) {
+        loadAccountGroupsList().then(list => {
+          if (!list.includes(accountGroup)) saveAccountGroupsList([...list, accountGroup]);
+        }).catch(() => {});
+      }
     }
 
     // 3. Tự động nạp cookies và đăng nhập Facebook trên Chrome nếu được chọn
@@ -1018,6 +1109,13 @@ $('addCookieBtn').onclick = async () => {
     if ($('accProxy')) $('accProxy').value = '';
     if ($('cookieProxyStatus')) $('cookieProxyStatus').style.display = 'none';
     if ($('accGroups')) $('accGroups').value = '';
+    if ($('accGroupSelect')) $('accGroupSelect').value = '';
+    if ($('accGroupNewInput')) {
+      $('accGroupNewInput').value = '';
+      $('accGroupNewInput').style.display = 'none';
+      if ($('accGroupSelect')) $('accGroupSelect').style.display = 'block';
+    }
+    if ($('btnToggleNewGroupInput')) $('btnToggleNewGroupInput').textContent = '➕ Nhóm mới';
     if ($('tokenBadge')) $('tokenBadge').style.display = 'none';
     if ($('tokenInfoBox')) $('tokenInfoBox').style.display = 'none';
     render();
@@ -1034,10 +1132,216 @@ $('clearCookieFormBtn').onclick = () => {
   if ($('accProxy')) $('accProxy').value = '';
   if ($('cookieProxyStatus')) $('cookieProxyStatus').style.display = 'none';
   if ($('accGroups')) $('accGroups').value  = '';
+  if ($('accGroupSelect')) $('accGroupSelect').value = '';
+  if ($('accGroupNewInput')) {
+    $('accGroupNewInput').value = '';
+    $('accGroupNewInput').style.display = 'none';
+    if ($('accGroupSelect')) $('accGroupSelect').style.display = 'block';
+  }
+  if ($('btnToggleNewGroupInput')) $('btnToggleNewGroupInput').textContent = '➕ Nhóm mới';
   $('msg').textContent  = '';
   if ($('tokenBadge')) $('tokenBadge').style.display = 'none';
   if ($('tokenInfoBox')) $('tokenInfoBox').style.display = 'none';
 };
+
+// ── Modal Quản lý Nhóm tài khoản Facebook ──────────────────────────────────────
+function openManageAccountGroupsModal() {
+  let overlay = document.getElementById('manageAccountGroupsModal');
+  if (overlay) overlay.remove();
+
+  overlay = document.createElement('div');
+  overlay.id = 'manageAccountGroupsModal';
+  overlay.className = 'rename-modal-overlay';
+  overlay.innerHTML = `
+    <div class="rename-modal-card" style="max-width:540px;max-height:90vh;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;background:#f8fafc">
+        <div style="font-weight:800;font-size:16px;color:#0f172a;display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">📁</span>
+          <span>Quản lý Nhóm tài khoản Facebook</span>
+        </div>
+        <button type="button" class="group-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b;line-height:1;padding:4px" title="Đóng">✕</button>
+      </div>
+      <div style="padding:18px 20px;overflow-y:auto;flex:1">
+        <p style="font-size:12px;color:#64748b;margin:0 0 14px;line-height:1.5">
+          Gom tài khoản theo nhóm (VD: <b>Nhóm BĐS, Dàn Nuôi 1, Nick Spa</b>...) giúp bạn lọc danh sách và dễ dàng chọn từng nhóm nick để <b>chia đều bài đăng</b>.
+        </p>
+
+        <!-- Thêm nhóm mới -->
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:16px">
+          <label style="display:block;font-size:12px;font-weight:700;color:#1e40af;margin-bottom:6px">➕ Thêm nhóm tài khoản mới:</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="modalNewGroupName" placeholder="Nhập tên nhóm mới (VD: Nhóm 1, BĐS Hà Nội)..." style="flex:1;padding:8px 12px;font-size:13px;border-radius:8px;border:1.5px solid #cbd5e1;background:#fff;color:#0f172a;outline:none">
+            <button type="button" class="btn btn-primary" id="modalBtnAddGroup" style="padding:8px 16px;font-size:12.5px;font-weight:700;white-space:nowrap">Thêm</button>
+          </div>
+        </div>
+
+        <!-- Danh sách các nhóm hiện có -->
+        <div style="font-size:12.5px;font-weight:700;color:#0f172a;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+          <span>Danh sách nhóm đã tạo:</span>
+          <span id="modalGroupTotalBadge" style="font-size:11px;color:#64748b;font-weight:600">0 nhóm</span>
+        </div>
+        <div id="modalGroupsListContainer" style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;padding-right:4px">
+          <!-- Rendered items -->
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid #e2e8f0;background:#f8fafc">
+        <button type="button" class="btn btn-light group-modal-close" style="padding:8px 18px;font-size:13px;font-weight:600">Đóng</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+  };
+
+  overlay.querySelectorAll('.group-modal-close').forEach(b => b.onclick = close);
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+  const inputNew = overlay.querySelector('#modalNewGroupName');
+  const btnAdd = overlay.querySelector('#modalBtnAddGroup');
+  const listContainer = overlay.querySelector('#modalGroupsListContainer');
+  const badgeTotal = overlay.querySelector('#modalGroupTotalBadge');
+
+  const refreshList = async () => {
+    const allGroups = await loadAccountGroupsList();
+    const accounts = await loadAccounts();
+    const personal = accounts.filter(a => a.type !== 'fanpage');
+    badgeTotal.textContent = `${allGroups.length} nhóm`;
+
+    if (!allGroups.length) {
+      listContainer.innerHTML = `<div style="text-align:center;padding:16px;color:#94a3b8;font-size:12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px">Chưa có nhóm nào được tạo. Hãy nhập tên nhóm phía trên và bấm Thêm!</div>`;
+      return;
+    }
+
+    listContainer.innerHTML = '';
+    allGroups.forEach(g => {
+      const count = personal.filter(a => a.accountGroup === g).length;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;gap:10px';
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+          <span style="font-size:15px">📁</span>
+          <span class="group-name-text" style="font-size:13px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g}</span>
+          <span style="font-size:11px;background:#f1f5f9;color:#475569;padding:2px 6px;border-radius:10px;font-weight:600;white-space:nowrap">${count} nick</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <button type="button" class="btn btn-light btn-rename-grp" style="padding:4px 8px;font-size:11px;font-weight:600" title="Đổi tên nhóm này">✏️ Đổi tên</button>
+          <button type="button" class="btn btn-light btn-del-grp" style="padding:4px 8px;font-size:11px;font-weight:600;color:#dc2626;border-color:#fca5a5" title="Xóa nhóm này (tài khoản trong nhóm sẽ chuyển về Chưa phân nhóm)">🗑 Xóa</button>
+        </div>
+      `;
+
+      // Rename
+      row.querySelector('.btn-rename-grp').onclick = async () => {
+        const newName = prompt(`Nhập tên mới cho nhóm "${g}":`, g);
+        if (!newName || !newName.trim() || newName.trim() === g) return;
+        const cleanNew = newName.trim();
+        const currentGroups = await loadAccountGroupsList();
+        const updatedList = currentGroups.map(name => name === g ? cleanNew : name);
+        await saveAccountGroupsList(updatedList);
+
+        // Update in accounts
+        const curAccs = await loadAccounts();
+        let changed = false;
+        curAccs.forEach(a => {
+          if (a.accountGroup === g) {
+            a.accountGroup = cleanNew;
+            changed = true;
+          }
+        });
+        if (changed) {
+          await saveAccounts(curAccs);
+          syncAccountsToCloudImmediately(curAccs).catch(() => {});
+        }
+        msg(`✏️ Đã đổi tên nhóm thành "${cleanNew}".`);
+        await refreshList();
+        await render();
+      };
+
+      // Delete
+      row.querySelector('.btn-del-grp').onclick = async () => {
+        if (!confirm(`Xóa nhóm "${g}"?\n\nCác tài khoản đang thuộc nhóm này sẽ không bị xóa, chỉ được chuyển về trạng thái "Chưa phân nhóm".`)) return;
+        const currentGroups = await loadAccountGroupsList();
+        const updatedList = currentGroups.filter(name => name !== g);
+        await saveAccountGroupsList(updatedList);
+
+        // Clear in accounts
+        const curAccs = await loadAccounts();
+        let changed = false;
+        curAccs.forEach(a => {
+          if (a.accountGroup === g) {
+            a.accountGroup = '';
+            changed = true;
+          }
+        });
+        if (changed) {
+          await saveAccounts(curAccs);
+          syncAccountsToCloudImmediately(curAccs).catch(() => {});
+        }
+        if (currentAccGroupFilter === g) currentAccGroupFilter = 'all';
+        msg(`🗑 Đã xóa nhóm "${g}".`);
+        await refreshList();
+        await render();
+      };
+
+      listContainer.appendChild(row);
+    });
+  };
+
+  btnAdd.onclick = async () => {
+    const val = inputNew.value.trim();
+    if (!val) { alert('Vui lòng nhập tên nhóm!'); return; }
+    const currentGroups = await loadAccountGroupsList();
+    if (currentGroups.includes(val)) {
+      alert(`Nhóm "${val}" đã tồn tại!`);
+      return;
+    }
+    await saveAccountGroupsList([...currentGroups, val]);
+    inputNew.value = '';
+    msg(`➕ Đã tạo nhóm "${val}".`);
+    await refreshList();
+    await render();
+  };
+
+  inputNew.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnAdd.click();
+    }
+  });
+
+  refreshList();
+}
+
+$('btnToggleNewGroupInput')?.addEventListener('click', () => {
+  const select = $('accGroupSelect');
+  const input = $('accGroupNewInput');
+  const btn = $('btnToggleNewGroupInput');
+  if (!select || !input || !btn) return;
+  const isInputVisible = input.style.display !== 'none';
+  if (isInputVisible) {
+    input.style.display = 'none';
+    select.style.display = 'block';
+    btn.textContent = '➕ Nhóm mới';
+    btn.title = 'Chuyển sang gõ nhóm mới';
+  } else {
+    select.style.display = 'none';
+    input.style.display = 'block';
+    input.focus();
+    btn.textContent = '📋 Danh sách nhóm';
+    btn.title = 'Chuyển sang chọn từ danh sách nhóm có sẵn';
+  }
+});
+
+$('openManageGroupsLink')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  openManageAccountGroupsModal();
+});
+$('openManageGroupsBtn')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  openManageAccountGroupsModal();
+});
 
 // ── Hộp thoại Đổi tên tài khoản Facebook chuyên nghiệp ──────────────────────────
 function openRenameModal({ id, currentName, fbId = '', type = 'personal' }) {
@@ -1178,6 +1482,66 @@ function openRenameModal({ id, currentName, fbId = '', type = 'personal' }) {
 async function render() {
   const accounts = await loadAccounts();
   const personalAccounts = accounts.filter(a => a.type !== 'fanpage');
+  const allGroups = await loadAccountGroupsList();
+
+  // Cập nhật dropdown chọn nhóm ở form thêm nick và toolbar bulk
+  const updateGroupDropdowns = () => {
+    const selForm = $('accGroupSelect');
+    if (selForm) {
+      const curVal = selForm.value || '';
+      selForm.innerHTML = `<option value="">-- Chưa phân nhóm (Mặc định) --</option>` +
+        allGroups.map(g => `<option value="${g.replace(/"/g, '&quot;')}">📁 ${g}</option>`).join('');
+      if (curVal && allGroups.includes(curVal)) selForm.value = curVal;
+    }
+    const selBulk = $('bulkAssignGroupSelect');
+    if (selBulk) {
+      selBulk.innerHTML = `<option value="">-- Chọn nhóm tài khoản --</option>` +
+        allGroups.map(g => `<option value="${g.replace(/"/g, '&quot;')}">📁 ${g}</option>`).join('');
+    }
+  };
+  updateGroupDropdowns();
+
+  // Tính số lượng tài khoản theo nhóm
+  const totalCount = personalAccounts.length;
+  const unassignedCount = personalAccounts.filter(a => !a.accountGroup || !a.accountGroup.trim()).length;
+  const groupCountsMap = {};
+  allGroups.forEach(g => { groupCountsMap[g] = 0; });
+  personalAccounts.forEach(a => {
+    const g = String(a.accountGroup || '').trim();
+    if (g) groupCountsMap[g] = (groupCountsMap[g] || 0) + 1;
+  });
+
+  // Render pills vào #accGroupPillsContainer
+  const pillsContainer = $('accGroupPillsContainer');
+  if (pillsContainer) {
+    pillsContainer.innerHTML = `
+      <button type="button" class="acc-group-pill ${currentAccGroupFilter === 'all' ? 'active' : ''}" data-group="all">
+        Tất cả <span class="pill-count">${totalCount}</span>
+      </button>
+      <button type="button" class="acc-group-pill ${currentAccGroupFilter === 'unassigned' ? 'active' : ''}" data-group="unassigned">
+        Chưa phân nhóm <span class="pill-count">${unassignedCount}</span>
+      </button>
+      ${allGroups.map(g => `
+        <button type="button" class="acc-group-pill ${currentAccGroupFilter === g ? 'active' : ''}" data-group="${g.replace(/"/g, '&quot;')}">
+          📁 ${g} <span class="pill-count">${groupCountsMap[g] || 0}</span>
+        </button>
+      `).join('')}
+    `;
+    pillsContainer.querySelectorAll('.acc-group-pill').forEach(pill => {
+      pill.onclick = () => {
+        currentAccGroupFilter = pill.dataset.group || 'all';
+        render();
+      };
+    });
+  }
+
+  // Lọc tài khoản theo nhóm đang chọn
+  let filteredAccounts = personalAccounts;
+  if (currentAccGroupFilter === 'unassigned') {
+    filteredAccounts = personalAccounts.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  } else if (currentAccGroupFilter !== 'all') {
+    filteredAccounts = personalAccounts.filter(a => a.accountGroup === currentAccGroupFilter);
+  }
 
   const { campaigns, groupCategories, dailyPostStats, draft: savedDraft } = await chrome.storage.local.get(['campaigns', 'groupCategories', 'dailyPostStats', 'draft']);
   const cats = groupCategories || [];
@@ -1187,7 +1551,8 @@ async function render() {
   const customDailyLimits = (savedDraft?.accountDailyLimits && typeof savedDraft.accountDailyLimits === 'object') ? savedDraft.accountDailyLimits : null;
 
   if ($('countBadge')) {
-    $('countBadge').textContent = `${personalAccounts.length} tài khoản cá nhân`;
+    const filterDesc = currentAccGroupFilter === 'all' ? '' : (currentAccGroupFilter === 'unassigned' ? ' (Chưa phân nhóm)' : ` (${currentAccGroupFilter})`);
+    $('countBadge').textContent = `${filteredAccounts.length}/${personalAccounts.length} nick cá nhân${filterDesc}`;
   }
 
   const list = $('accList');
@@ -1198,8 +1563,12 @@ async function render() {
     list.innerHTML = `<div class="empty-state"><p>Chưa có tài khoản Facebook cá nhân nào. Hãy thêm tài khoản đầu tiên!</p></div>`;
     return;
   }
+  if (!filteredAccounts.length) {
+    list.innerHTML = `<div class="empty-state"><p>Không có tài khoản nào trong nhóm "${currentAccGroupFilter}". Hãy chọn nhóm khác hoặc gán nick vào nhóm này!</p></div>`;
+    return;
+  }
 
-  for (const acc of personalAccounts) {
+  for (const acc of filteredAccounts) {
     const campaign = campaigns?.[acc.id];
     const isRunning = campaign?.state === 'running';
     const cUser = parseCookiesStr(acc.cookies || '')['c_user'];
@@ -1236,24 +1605,29 @@ async function render() {
     const hasCustomLimit = Boolean(customDailyLimits && customDailyLimits[acc.id] !== undefined && Number(customDailyLimits[acc.id]) >= 1);
     const dailyInfo = ` &nbsp;·&nbsp; Hôm nay: <b style="color:${todayCount >= maxDaily ? '#dc2626' : '#059669'}">${todayCount}/${maxDaily} bài</b> (Tối đa ${maxDaily} bài/ngày${hasCustomLimit ? ' · Riêng' : ''})`;
 
+    const isChecked = selectedAccIdsForBulk.has(acc.id);
     const card = document.createElement('div');
-    card.className = 'acc-card';
+    card.className = `acc-card ${isChecked ? 'bulk-selected' : ''}`;
     card.id = `card_${acc.id}`;
     card.innerHTML = `
-      <div>
-        <div class="acc-name">
-          <span class="acc-name-text" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" data-fbid="${cUser || ''}" data-type="personal" title="Bấm vào tên để đổi tên tài khoản nhanh">
-            <span>${acc.name}</span>
-            <span class="acc-rename-hint" title="Đổi tên">✏️</span>
-          </span>
-          ${statusBadge} ${proxyBadge}
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <input type="checkbox" class="acc-select-cb" data-id="${acc.id}" ${isChecked ? 'checked' : ''} style="cursor:pointer;accent-color:#ea580c;width:17px;height:17px;margin-top:4px;flex-shrink:0" title="Chọn tài khoản để chuyển nhóm">
+        <div style="flex:1;min-width:0">
+          <div class="acc-name">
+            <span class="acc-name-text" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" data-fbid="${cUser || ''}" data-type="personal" title="Bấm vào tên để đổi tên tài khoản nhanh">
+              <span>${acc.name}</span>
+              <span class="acc-rename-hint" title="Đổi tên">✏️</span>
+            </span>
+            ${acc.accountGroup ? `<span class="badge" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;font-weight:700" title="Nhóm tài khoản: ${acc.accountGroup}">📁 ${acc.accountGroup}</span>` : ''}
+            ${statusBadge} ${proxyBadge}
+          </div>
+          <div class="acc-meta">
+            FB ID: <code class="acc-id-code">${cUser || '???'}</code>${emailInfo}${syncTimeInfo}
+            &nbsp;·&nbsp; Nhóm FB đăng bài: ${groupInfo}
+            ${dailyInfo}
+          </div>
+          ${groupLines.length ? `<div class="acc-groups" title="Danh sách nhóm riêng">${groupLines.join('\n')}</div>` : ''}
         </div>
-        <div class="acc-meta">
-          FB ID: <code class="acc-id-code">${cUser || '???'}</code>${emailInfo}${syncTimeInfo}
-          &nbsp;·&nbsp; Nhóm: ${groupInfo}
-          ${dailyInfo}
-        </div>
-        ${groupLines.length ? `<div class="acc-groups" title="Danh sách nhóm riêng">${groupLines.join('\n')}</div>` : ''}
       </div>
       <div class="acc-actions" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <button type="button" class="btn btn-primary login-fb-btn" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" style="font-size:11px;padding:4px 10px;font-weight:700" title="Chuyển trình duyệt sang đăng nhập tài khoản này và mở Facebook">Đăng nhập FB</button>
@@ -1267,6 +1641,13 @@ async function render() {
         <label style="margin-bottom:10px">
           <span style="font-size:12px;font-weight:600;color:var(--text)">Tên hiển thị:</span>
           <input type="text" class="edit-name" value="${acc.name.replace(/"/g, '&quot;')}" style="margin-top:4px">
+        </label>
+        <label style="margin-bottom:10px">
+          <span style="font-size:12px;font-weight:600;color:var(--text)">Nhóm tài khoản:</span>
+          <select class="edit-acc-group" style="margin-top:4px;width:100%;padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;color:#0f172a">
+            <option value="">-- Chưa phân nhóm --</option>
+            ${allGroups.map(g => `<option value="${g.replace(/"/g, '&quot;')}" ${acc.accountGroup === g ? 'selected' : ''}>📁 ${g}</option>`).join('')}
+          </select>
         </label>
         <label style="margin-bottom:10px">
           <span style="font-size:12px;font-weight:600;color:var(--text)">Email / SĐT đăng nhập:</span>
@@ -1405,6 +1786,8 @@ async function render() {
       acc.twoFactor = new2FA || null;
       acc.proxy = newProxy;
       acc.groups = newGroups;
+      const newAccGroup = box.querySelector('.edit-acc-group')?.value || '';
+      acc.accountGroup = newAccGroup;
 
       for (const a of accs) {
         if (a.type === 'fanpage' && a.parentAccountId === id) {
@@ -1579,6 +1962,126 @@ async function render() {
       syncAccountsToCloudImmediately(remaining);
     };
   });
+
+  // ── Xử lý thao tác chọn hàng loạt (Bulk Bar) ──────────────────────────────
+  const updateBulkBar = () => {
+    const bulkBar = $('accBulkBar');
+    const countEl = $('bulkSelectedCount');
+    const selectAllCb = $('bulkSelectAllCb');
+    if (!bulkBar) return;
+    const selectedCount = selectedAccIdsForBulk.size;
+    if (countEl) countEl.textContent = selectedCount;
+    bulkBar.style.display = selectedCount > 0 ? 'flex' : 'none';
+    if (selectAllCb) {
+      selectAllCb.checked = filteredAccounts.length > 0 && filteredAccounts.every(a => selectedAccIdsForBulk.has(a.id));
+    }
+  };
+  updateBulkBar();
+
+  // Checkbox từng thẻ nick
+  list.querySelectorAll('.acc-select-cb').forEach(cb => {
+    cb.onchange = (e) => {
+      e.stopPropagation();
+      const id = cb.dataset.id;
+      const card = $(`card_${id}`);
+      if (cb.checked) {
+        selectedAccIdsForBulk.add(id);
+        if (card) card.classList.add('bulk-selected');
+      } else {
+        selectedAccIdsForBulk.delete(id);
+        if (card) card.classList.remove('bulk-selected');
+      }
+      updateBulkBar();
+    };
+  });
+
+  // Checkbox chọn tất cả
+  const bulkSelectAllCb = $('bulkSelectAllCb');
+  if (bulkSelectAllCb) {
+    bulkSelectAllCb.onchange = () => {
+      if (bulkSelectAllCb.checked) {
+        filteredAccounts.forEach(a => {
+          selectedAccIdsForBulk.add(a.id);
+          const card = $(`card_${a.id}`);
+          if (card) card.classList.add('bulk-selected');
+        });
+      } else {
+        filteredAccounts.forEach(a => {
+          selectedAccIdsForBulk.delete(a.id);
+          const card = $(`card_${a.id}`);
+          if (card) card.classList.remove('bulk-selected');
+        });
+      }
+      list.querySelectorAll('.acc-select-cb').forEach(cb => {
+        cb.checked = selectedAccIdsForBulk.has(cb.dataset.id);
+      });
+      updateBulkBar();
+    };
+  }
+
+  // Nút Áp dụng chuyển nhóm
+  const btnApplyBulkGroup = $('btnApplyBulkGroup');
+  if (btnApplyBulkGroup) {
+    btnApplyBulkGroup.onclick = async () => {
+      const targetGroup = $('bulkAssignGroupSelect')?.value;
+      if (!targetGroup) {
+        msg('Vui lòng chọn một nhóm tài khoản để gán!', 'err');
+        return;
+      }
+      if (selectedAccIdsForBulk.size === 0) {
+        msg('Chưa chọn tài khoản nào.', 'err');
+        return;
+      }
+      const accs = await loadAccounts();
+      let count = 0;
+      accs.forEach(a => {
+        if (selectedAccIdsForBulk.has(a.id)) {
+          a.accountGroup = targetGroup;
+          count++;
+        }
+      });
+      await saveAccounts(accs);
+      syncAccountsToCloudImmediately(accs).catch(() => {});
+      msg(`📁 Đã chuyển ${count} tài khoản vào nhóm "${targetGroup}"!`, 'ok');
+      selectedAccIdsForBulk.clear();
+      render();
+    };
+  }
+
+  // Nút Bỏ khỏi nhóm
+  const btnRemoveBulkGroup = $('btnRemoveBulkGroup');
+  if (btnRemoveBulkGroup) {
+    btnRemoveBulkGroup.onclick = async () => {
+      if (selectedAccIdsForBulk.size === 0) {
+        msg('Chưa chọn tài khoản nào.', 'err');
+        return;
+      }
+      const accs = await loadAccounts();
+      let count = 0;
+      accs.forEach(a => {
+        if (selectedAccIdsForBulk.has(a.id)) {
+          a.accountGroup = '';
+          count++;
+        }
+      });
+      await saveAccounts(accs);
+      syncAccountsToCloudImmediately(accs).catch(() => {});
+      msg(`📁 Đã đưa ${count} tài khoản về trạng thái "Chưa phân nhóm"!`, 'ok');
+      selectedAccIdsForBulk.clear();
+      render();
+    };
+  }
+
+  // Nút Bỏ chọn
+  const btnCancelBulkSelect = $('btnCancelBulkSelect');
+  if (btnCancelBulkSelect) {
+    btnCancelBulkSelect.onclick = () => {
+      selectedAccIdsForBulk.clear();
+      list.querySelectorAll('.acc-select-cb').forEach(cb => cb.checked = false);
+      list.querySelectorAll('.acc-card').forEach(card => card.classList.remove('bulk-selected'));
+      updateBulkBar();
+    };
+  }
 }
 
 // ── Đồng bộ danh sách tài khoản ngay lập tức lên Supabase khi thêm/xóa ───────

@@ -1715,6 +1715,14 @@ async function renderAccountCategoryAssignments() {
     targetPool = fanpageAccs;
   }
 
+  // Lọc theo nhóm tài khoản (Section 2 Pane 1)
+  const cfgGroupFilter = $('cfgAccountGroupFilter')?.value || 'all';
+  if (cfgGroupFilter === 'unassigned') {
+    targetPool = targetPool.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  } else if (cfgGroupFilter !== 'all') {
+    targetPool = targetPool.filter(a => a.accountGroup === cfgGroupFilter);
+  }
+
   // Nếu tab hiện tại chưa có tài khoản nào
   if (cfgAccountType === 'personal' && !personalAccs.length) {
     container.innerHTML = `
@@ -2003,6 +2011,10 @@ $('cfgSearchAccountInput')?.addEventListener('input', (e) => {
   debouncedSearchAccountAssignments();
 });
 
+$('cfgAccountGroupFilter')?.addEventListener('change', () => {
+  renderAccountCategoryAssignments();
+});
+
 document.querySelectorAll('#cfgFilterPills .cfg-filter-pill').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#cfgFilterPills .cfg-filter-pill').forEach(b => b.classList.remove('active'));
@@ -2080,11 +2092,49 @@ function updateSharedCounters(accounts = []) {
   updateMasterKpiMetrics(accounts, cachedCampaigns || {});
 }
 
+async function updateAccountGroupFilterDropdowns(accounts = []) {
+  try {
+    const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+    const groupSet = new Set();
+    if (Array.isArray(accountGroupsList)) {
+      accountGroupsList.forEach(g => {
+        const s = String(g || '').trim();
+        if (s) groupSet.add(s);
+      });
+    }
+    accounts.forEach(a => {
+      const g = String(a.accountGroup || '').trim();
+      if (g) groupSet.add(g);
+    });
+    const sortedGroups = Array.from(groupSet).sort((a, b) => a.localeCompare(b, 'vi'));
+
+    const populateSelect = (el, defaultLabel = 'Tất cả nhóm tài khoản') => {
+      if (!el) return;
+      const curVal = el.value || 'all';
+      el.innerHTML = `
+        <option value="all">-- ${defaultLabel} --</option>
+        <option value="unassigned">Chưa phân nhóm</option>
+        ${sortedGroups.map(g => `<option value="${g.replace(/"/g, '&quot;')}">📁 ${g}</option>`).join('')}
+      `;
+      if (curVal && Array.from(el.options).some(o => o.value === curVal)) {
+        el.value = curVal;
+      } else {
+        el.value = 'all';
+      }
+    };
+
+    populateSelect($('sharedAccountGroupFilter'), 'Tất cả nhóm tài khoản');
+    populateSelect($('cfgAccountGroupFilter'), 'Tất cả nhóm tài khoản');
+    populateSelect($('reportAccountGroupFilter'), 'Tất cả nhóm');
+  } catch (_) {}
+}
+
 async function renderSharedAccountsSelector() {
   const container = $('sharedAccountList');
   if (!container) return;
 
   const { accounts = [] } = await chrome.storage.local.get('accounts');
+  await updateAccountGroupFilterDropdowns(accounts);
   
   if (!sharedAccountsInitialized) {
     sharedAccountsInitialized = true;
@@ -2117,6 +2167,13 @@ async function renderSharedAccountsSelector() {
   let targetPool = accounts;
   if (sharedAccountType === 'personal') targetPool = personalAccs;
   else if (sharedAccountType === 'fanpage') targetPool = fanpageAccs;
+
+  const sharedGroupFilter = $('sharedAccountGroupFilter')?.value || 'all';
+  if (sharedGroupFilter === 'unassigned') {
+    targetPool = targetPool.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  } else if (sharedGroupFilter !== 'all') {
+    targetPool = targetPool.filter(a => a.accountGroup === sharedGroupFilter);
+  }
 
   const term = sharedSearchTerm.trim().toLowerCase();
   const filtered = targetPool.filter(a => !term || (a.name || '').toLowerCase().includes(term));
@@ -2168,6 +2225,7 @@ async function renderSharedAccountsSelector() {
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12.5px;font-weight:700;color:var(--text, #0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${acc.name}</span>
             <span class="cfg-acc-type-pill ${isFanpage ? 'fanpage' : 'personal'}" style="font-size:10px;padding:1px 5px;border-radius:4px">${isFanpage ? 'Fanpage' : 'Cá nhân'}</span>
+            ${acc.accountGroup ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#e0f2fe;color:#0369a1;font-weight:700;border:1px solid #bae6fd" title="Nhóm: ${acc.accountGroup}">📁 ${acc.accountGroup}</span>` : ''}
           </div>
           <div class="shared-group-dist" style="margin-top:1px">${groupDistributionText}</div>
         </div>
@@ -2234,6 +2292,65 @@ $('sharedDeselectAllBtn')?.addEventListener('click', async () => {
   targetPool.forEach(a => sharedSelectedAccIds.delete(a.id));
   await renderSharedAccountsSelector();
   debouncedSaveDraft();
+});
+
+// Thao tác nhanh theo Nhóm tài khoản (Section 2 Pane 2)
+$('btnSelectOnlyThisGroup')?.addEventListener('click', async () => {
+  const selectedGroup = $('sharedAccountGroupFilter')?.value || 'all';
+  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  let matchingAccs = [];
+  if (selectedGroup === 'all') {
+    matchingAccs = accounts;
+  } else if (selectedGroup === 'unassigned') {
+    matchingAccs = accounts.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  } else {
+    matchingAccs = accounts.filter(a => a.accountGroup === selectedGroup);
+  }
+
+  if (matchingAccs.length === 0) {
+    msg('Không có tài khoản nào thuộc nhóm này.', 'err');
+    return;
+  }
+
+  // Bỏ chọn tất cả nick khác, chỉ chọn nick thuộc nhóm này
+  sharedSelectedAccIds.clear();
+  matchingAccs.forEach(a => sharedSelectedAccIds.add(a.id));
+  await renderSharedAccountsSelector();
+  debouncedSaveDraft();
+  const groupLabel = selectedGroup === 'all' ? 'Tất cả' : (selectedGroup === 'unassigned' ? 'Chưa phân nhóm' : selectedGroup);
+  msg(`🎯 Đã chọn riêng ${matchingAccs.length} nick thuộc nhóm "${groupLabel}" để chia đều nhóm bài đăng!`);
+});
+
+$('btnAddThisGroupSelection')?.addEventListener('click', async () => {
+  const selectedGroup = $('sharedAccountGroupFilter')?.value || 'all';
+  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  let matchingAccs = [];
+  if (selectedGroup === 'all') matchingAccs = accounts;
+  else if (selectedGroup === 'unassigned') matchingAccs = accounts.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  else matchingAccs = accounts.filter(a => a.accountGroup === selectedGroup);
+
+  matchingAccs.forEach(a => sharedSelectedAccIds.add(a.id));
+  await renderSharedAccountsSelector();
+  debouncedSaveDraft();
+  msg(`➕ Đã thêm ${matchingAccs.length} tài khoản nhóm này vào danh sách chạy.`);
+});
+
+$('btnRemoveThisGroupSelection')?.addEventListener('click', async () => {
+  const selectedGroup = $('sharedAccountGroupFilter')?.value || 'all';
+  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  let matchingAccs = [];
+  if (selectedGroup === 'all') matchingAccs = accounts;
+  else if (selectedGroup === 'unassigned') matchingAccs = accounts.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  else matchingAccs = accounts.filter(a => a.accountGroup === selectedGroup);
+
+  matchingAccs.forEach(a => sharedSelectedAccIds.delete(a.id));
+  await renderSharedAccountsSelector();
+  debouncedSaveDraft();
+  msg(`➖ Đã bỏ chọn ${matchingAccs.length} tài khoản nhóm này khỏi danh sách chạy.`);
+});
+
+$('sharedAccountGroupFilter')?.addEventListener('change', () => {
+  renderSharedAccountsSelector();
 });
 
 document.querySelectorAll('#sharedTypeSelectorBar .cfg-type-btn').forEach(btn => {
@@ -2918,6 +3035,14 @@ async function render() {
     if ($('accCount')) $('accCount').textContent = `${accs.length} tài khoản & Fanpage`;
   }
 
+  // Lọc theo Nhóm tài khoản (Section 4)
+  const reportGroupFilter = $('reportAccountGroupFilter')?.value || currentReportGroupFilter || 'all';
+  if (reportGroupFilter === 'unassigned') {
+    targetAccs = targetAccs.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  } else if (reportGroupFilter !== 'all') {
+    targetAccs = targetAccs.filter(a => a.accountGroup === reportGroupFilter);
+  }
+
   if ($('noAccountsNotice')) $('noAccountsNotice').style.display = accs.length ? 'none' : '';
   if ($('newVersionBanner')) $('newVersionBanner').style.display = accs.length ? 'none' : 'flex';
 
@@ -3480,6 +3605,7 @@ function formatDateTime24(timestamp) {
 // ── Live Report System ────────────────────────────────────────────────────────
 let currentReportFilter = 'all'; // 'all' | 'success' | 'waiting' | 'error'
 let currentReportEntityTypeFilter = 'all'; // 'all' | 'personal' | 'fanpage'
+let currentReportGroupFilter = 'all'; // 'all' | 'unassigned' | groupName
 let currentAccountFilter = 'all'; // 'all' | accId
 let currentSearchTerm = '';
 
@@ -3559,6 +3685,15 @@ function renderReport(campaigns, accounts) {
       }
       if (currentAccountFilter !== 'all' && row.accId !== currentAccountFilter) {
         return false;
+      }
+      if (currentReportGroupFilter !== 'all') {
+        const accObj = (accounts || []).find(a => a.id === row.accId);
+        const accGrp = accObj?.accountGroup || '';
+        if (currentReportGroupFilter === 'unassigned') {
+          if (accGrp) return false;
+        } else if (accGrp !== currentReportGroupFilter) {
+          return false;
+        }
       }
       if (currentSearchTerm) {
         const term = currentSearchTerm.toLowerCase();
@@ -4185,6 +4320,13 @@ function initReportEvents() {
     renderReport(cachedCampaigns, cachedAccounts);
   });
 
+  // Account group filter dropdown
+  $('reportAccountGroupFilter')?.addEventListener('change', (e) => {
+    currentReportGroupFilter = e.target.value;
+    render();
+    renderReport(cachedCampaigns, cachedAccounts);
+  });
+
   // Search input (Debounced 150ms)
   const debouncedReportSearch = debounce(() => {
     renderReport(cachedCampaigns, cachedAccounts);
@@ -4375,7 +4517,7 @@ const debouncedRenderCategories = debounce(renderAccountCategoryAssignments, 200
 chrome.storage.onChanged.addListener(async (changes) => {
   // Chỉ xử lý các key thực sự liên quan để tránh render thừa
   const relevantForRender = ['campaigns', 'coordinator', 'accounts', 'dailyPostStats'];
-  const relevantForCategories = ['groupCategories', 'accounts'];
+  const relevantForCategories = ['groupCategories', 'accounts', 'accountGroupsList'];
   const relevantForCatDropdown = ['groupCategories', 'lastSelectedCategory'];
 
   if (changes.license) {
