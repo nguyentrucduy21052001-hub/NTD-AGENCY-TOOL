@@ -5175,7 +5175,7 @@ async function executeStartAllCampaign(raw, { preserveDraft = false } = {}) {
   const humanBehavior = raw.humanBehavior !== undefined ? !!raw.humanBehavior : true;
   const enableBreak = raw.enableBreak !== undefined ? !!raw.enableBreak : true;
   const autoSkipOnError = raw.autoSkipOnError !== undefined ? !!raw.autoSkipOnError : true;
-  const accountOrder = ['round_robin', 'sequential', 'parallel'].includes(raw.accountOrder) ? raw.accountOrder : 'round_robin';
+  const accountOrder = ['round_robin', 'sequential', 'parallel'].includes(raw.accountOrder) ? raw.accountOrder : 'sequential';
   const splitSharedGroups = !!raw.splitSharedGroups;
 
   const d = {
@@ -7580,7 +7580,7 @@ function handleRuntimeMessage(m, sender, reply) {
 
       let coord = await readCoordinator();
       if (!coord) {
-        const order = c.accountOrder || 'round_robin';
+        const order = c.accountOrder || 'sequential';
         if (order === 'round_robin') {
           coord = { mode: 'round_robin', order: [accountId], currentTurn: 0 };
           await saveCoordinator(coord);
@@ -7643,7 +7643,7 @@ function handleRuntimeMessage(m, sender, reply) {
       let coord = await readCoordinator();
       if (!coord && resumedAccounts.length > 0) {
         const firstCamp = campaigns[resumedAccounts[0]];
-        const order = firstCamp?.accountOrder || 'round_robin';
+        const order = firstCamp?.accountOrder || 'sequential';
         if (order === 'round_robin') {
           coord = { mode: 'round_robin', order: resumedAccounts, currentTurn: 0 };
           await saveCoordinator(coord);

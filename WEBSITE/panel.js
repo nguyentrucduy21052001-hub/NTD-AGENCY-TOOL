@@ -581,7 +581,7 @@ const draft = () => {
     gap: $('gapMin') ? $('gapMin').value : ($('gap')?.value || '180'),
     gapMin: $('gapMin')?.value || '180',
     gapMax: $('gapMax')?.value || '300',
-    accountOrder: $('accountOrder')?.value || 'round_robin',
+    accountOrder: $('accountOrder')?.value || 'sequential',
     splitSharedGroups: $('splitSharedGroups')?.checked ?? false,
     randomTag: true,
     humanBehavior: true,
@@ -2519,7 +2519,7 @@ if (startAllEl) {
         sequential: 'TUẦN TỰ (Đăng hết nhóm nick này rồi đăng xuất sang nick tiếp theo)',
         parallel: 'SONG SONG THÔNG MINH (Tự động luân chuyển phiên đăng nhập giữa các nick)',
       };
-      const orderText = orderNames[d.accountOrder || 'round_robin'] || d.accountOrder;
+      const orderText = orderNames[d.accountOrder || 'sequential'] || d.accountOrder;
       const splitText = d.groupSourceMode === 'categories'
         ? '\n• Nguồn nhóm: Phân công theo danh mục riêng từng nick'
         : (d.splitSharedGroups ? '\n• Nhóm dùng chung: Chia đều cho các tài khoản đã chọn (không đăng trùng)' : '\n• Nhóm dùng chung: Đăng cho các tài khoản đã chọn');
