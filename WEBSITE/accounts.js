@@ -2245,6 +2245,83 @@ document.querySelectorAll('.logout-fb-quick-btn').forEach(btn => {
   btn.onclick = logoutFacebookOnChrome;
 });
 
+// ── Nút Tự động đăng nhập lại tất cả tài khoản (Batch Auto-Relogin) ───────
+const autoReloginAllBtn = $('autoReloginAllBtn');
+if (autoReloginAllBtn) {
+  autoReloginAllBtn.onclick = async () => {
+    const accs = await loadAccounts();
+    const personal = accs.filter(a => a.type !== 'fanpage');
+    if (personal.length === 0) {
+      msg('Chưa có tài khoản Facebook nào trong danh sách.');
+      return;
+    }
+
+    const eligible = personal.filter(a => a.password && (a.email || a.fbId));
+    if (eligible.length === 0) {
+      alert('Không có tài khoản nào có lưu Mật khẩu để tự động đăng nhập!\n\nHãy bấm vào biểu tượng ⚙️ (Cài đặt) của từng nick để bổ sung Mật khẩu và Mã 2FA Secret Key (chuỗi 16-32 ký tự). Khi đó hệ thống sẽ tự động đăng nhập mà không cần nhập tay.');
+      return;
+    }
+
+    const ok = confirm(`Hệ thống sẽ lần lượt tự động đăng nhập và cập nhật Cookie mới cho ${eligible.length} tài khoản có lưu Mật khẩu.\n\nTrong quá trình chạy, tab Facebook sẽ mở ngầm để tự điền thông tin và giải mã 2FA.\n\nBạn có muốn bắt đầu không?`);
+    if (!ok) return;
+
+    autoReloginAllBtn.disabled = true;
+    const originalText = autoReloginAllBtn.innerHTML;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < eligible.length; i++) {
+      const acc = eligible[i];
+      autoReloginAllBtn.innerHTML = `⏳ Đang đăng nhập (${i + 1}/${eligible.length}): ${acc.name}...`;
+      msg(`⏳ [${i + 1}/${eligible.length}] Đang tự động đăng nhập cho "${acc.name}"...`);
+
+      try {
+        const isLast = (i === eligible.length - 1);
+        const loginRes = await sendExtensionCommand({
+          type: 'DO_LOGIN',
+          email: acc.email || acc.fbId,
+          password: acc.password,
+          twoFactor: acc.twoFactor || null,
+          proxy: acc.proxy || null,
+          existingAccountId: acc.id,
+          openFacebookTab: isLast,
+          keepSession: isLast,
+          isBackground: !isLast
+        });
+
+        if (loginRes?.ok && loginRes.cookies) {
+          const currentAccs = await loadAccounts();
+          const target = currentAccs.find(a => a.id === acc.id);
+          if (target) {
+            target.cookies = loginRes.cookies;
+            if (loginRes.token) target.token = loginRes.token;
+            if (loginRes.cUser) target.fbId = loginRes.cUser;
+            target.lastCookieSync = Date.now();
+            await saveAccounts(currentAccs);
+          }
+          successCount++;
+          msg(`✅ [${i + 1}/${eligible.length}] Đăng nhập thành công: "${acc.name}"!`, 'ok');
+        } else {
+          failCount++;
+          msg(`⚠️ [${i + 1}/${eligible.length}] "${acc.name}": ${loginRes?.error || 'Lỗi đăng nhập'}`, 'err');
+        }
+      } catch (err) {
+        failCount++;
+        msg(`❌ [${i + 1}/${eligible.length}] Lỗi "${acc.name}": ${err.message}`, 'err');
+      }
+
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    autoReloginAllBtn.disabled = false;
+    autoReloginAllBtn.innerHTML = originalText;
+    render();
+
+    alert(`🎉 Hoàn tất tự động đăng nhập:\n• Thành công: ${successCount}/${eligible.length} tài khoản\n• Cần kiểm tra lại: ${failCount} tài khoản`);
+  };
+}
+
 // Lắng nghe tiến trình đăng nhập thời gian thực và tự động cập nhật cookie từ worker
 chrome.runtime.onMessage.addListener(m => {
   if (m?.type === 'COOKIE_AUTO_SYNCED') {
