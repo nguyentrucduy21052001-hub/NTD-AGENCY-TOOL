@@ -753,17 +753,37 @@
             reelsMs = totalDurationMs;
           }
 
-          // Bước 1: Lướt Newsfeed và Thả cảm xúc
+          // Bước 1 (ƯU TIÊN ĐẦU TIÊN): Tự động đăng 1 bài viết lên Trang cá nhân (Timeline) nếu được bật
+          if (cfg.enablePersonalPost && cfg.personalPostText && !isCancelled) {
+            sendLog('📝 Bắt đầu đăng bài lên Trang cá nhân trước các hoạt động nuôi...', '📝');
+            // Đảm bảo đang ở trang chủ Facebook trước khi đăng bài
+            if (!window.location.hostname.includes('facebook.com') ||
+                window.location.pathname.includes('/reel') ||
+                window.location.pathname.includes('/watch') ||
+                window.location.pathname.includes('/groups')) {
+              const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i]');
+              if (homeLink) {
+                triggerHumanClick(homeLink);
+                await delay(2500);
+              } else {
+                window.location.href = 'https://www.facebook.com/';
+                await delay(3500);
+              }
+            }
+            await runPersonalTimelinePost(cfg.personalPostText, stats);
+          }
+
+          // Bước 2: Lướt Newsfeed và Thả cảm xúc
           if (enableFeed && feedMs > 0 && !isCancelled) {
             await runFeedSurfing(feedMs, { enabled: enableLike, maxCount: maxLikes }, stats);
           }
 
-          // Bước 2: Xem Reels nếu được bật
+          // Bước 3: Xem Reels nếu được bật
           if (enableReels && reelsMs > 0 && !isCancelled) {
             await runReelsWatching(reelsMs, stats);
           }
 
-          // Bước 3: Xem Thông báo nếu được bật
+          // Bước 4: Xem Thông báo nếu được bật
           if (enableNotif && !isCancelled) {
             // Quay về trang chủ trước nếu đang ở Reels
             if (window.location.pathname.includes('/reel')) {
@@ -774,19 +794,6 @@
               }
             }
             await runCheckNotifications(stats);
-          }
-
-          // Bước 3.5: Tự động đăng 1 bài viết lên Trang cá nhân (Timeline) nếu được bật
-          if (cfg.enablePersonalPost && cfg.personalPostText && !isCancelled) {
-            // Đảm bảo tab quay về trang chính Facebook trước khi mở ô soạn bài
-            if (window.location.pathname.includes('/reel') || window.location.pathname.includes('/watch')) {
-              const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i]');
-              if (homeLink) {
-                triggerHumanClick(homeLink);
-                await delay(2500);
-              }
-            }
-            await runPersonalTimelinePost(cfg.personalPostText, stats);
           }
 
           // Bước 4: Phát sóng báo cáo chi tiết về các hành động đã thực hiện
