@@ -934,9 +934,9 @@ if (!activeLicense) {
 
     // Lắng nghe sự kiện force telemetry từ các trang chức năng
     if (typeof window !== 'undefined') {
-      window.ntdForceReportActivity = () => reportUserActivity(true, { allowZeroAccountCounts: true });
+      window.ntdForceReportActivity = () => reportUserActivity(true, { allowZeroAccountCounts: false });
       window.addEventListener('ntd_force_telemetry', () => {
-        reportUserActivity(true, { allowZeroAccountCounts: true }).catch(() => {});
+        reportUserActivity(true, { allowZeroAccountCounts: false }).catch(() => {});
         flushPendingCloudSync().catch(() => {});
       });
     }

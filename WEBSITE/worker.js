@@ -617,7 +617,7 @@ export async function sendWorkerTelemetry(force = false) {
 
     await syncLocalTelemetryToSupabase(username, {
       isWebExtensionBridged: false,
-      skipAccountCountsIfEmpty: false
+      skipAccountCountsIfEmpty: true
     });
   } catch (err) {
     console.warn('[Worker Telemetry] Lỗi gửi telemetry ngầm lên Supabase:', err?.message || err);

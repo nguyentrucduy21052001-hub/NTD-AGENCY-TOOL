@@ -476,9 +476,33 @@ export async function supabaseResetAllDailyStats(onlyStale = true) {
  * [ADMIN] Lấy toàn bộ danh sách người dùng kèm phân quyền
  */
 export async function supabaseListUsers() {
-  const users = await supabaseRequest(`ntd_users?select=*&order=created_at.desc`);
+  const [users, workspaces] = await Promise.all([
+    supabaseRequest(`ntd_users?select=*&order=created_at.desc`),
+    supabaseRequest(`ntd_workspaces?data_key=eq.accounts&select=owner_username,item_count,payload`).catch(() => [])
+  ]);
   const now = new Date();
   const staleUsernames = [];
+  const autoHealUsers = [];
+
+  // Tạo map tra cứu accounts từ ntd_workspaces để luôn đối chiếu số liệu thực tế
+  const wsAccountsMap = new Map();
+  if (Array.isArray(workspaces)) {
+    workspaces.forEach(ws => {
+      const o = (ws.owner_username || '').trim().toLowerCase();
+      if (!o) return;
+      let fb = 0;
+      let page = 0;
+      if (Array.isArray(ws.payload) && ws.payload.length > 0) {
+        fb = ws.payload.filter(a => a?.type !== 'fanpage').length;
+        page = ws.payload.filter(a => a?.type === 'fanpage').length;
+      } else if (ws.item_count > 0) {
+        fb = Number(ws.item_count) || 0;
+      }
+      wsAccountsMap.set(o, { fb, page });
+      if (o.startsWith('dng_')) wsAccountsMap.set(o.slice(4), { fb, page });
+      else wsAccountsMap.set('dng_' + o, { fb, page });
+    });
+  }
 
   const result = (users || []).map(u => {
     const exp = new Date(u.expiry_date || u.expiry);
@@ -499,6 +523,22 @@ export async function supabaseListUsers() {
       staleUsernames.push(u.username);
     }
 
+    // Tự động đối chiếu với ntd_workspaces để lấy số lượng nick chính xác nhất
+    const uKey = (u.username || '').trim().toLowerCase();
+    const wsData = wsAccountsMap.get(uKey);
+    let fbCount = Number(u.fb_count) || 0;
+    let fanpageCount = Number(u.fanpage_count) || 0;
+
+    if (wsData) {
+      if (wsData.fb > fbCount) {
+        fbCount = wsData.fb;
+        autoHealUsers.push({ username: u.username, fb_count: fbCount, fanpage_count: Math.max(fanpageCount, wsData.page) });
+      }
+      if (wsData.page > fanpageCount) {
+        fanpageCount = wsData.page;
+      }
+    }
+
     return {
       username: u.username,
       password: u.password,
@@ -509,8 +549,8 @@ export async function supabaseListUsers() {
       status: u.status || 'active',
       machineId: u.machine_id || '',
       note: u.note || '',
-      fbCount: Number(u.fb_count) || 0,
-      fanpageCount: Number(u.fanpage_count) || 0,
+      fbCount,
+      fanpageCount,
       todayPosts,
       todayGroupScans,
       todayMapsScans,
@@ -524,6 +564,19 @@ export async function supabaseListUsers() {
   // Tự động dọn sạch các số liệu ngày cũ trên Supabase trong nền
   if (staleUsernames.length > 0) {
     autoResetStaleDailyStats(staleUsernames).catch(() => {});
+  }
+
+  // Tự động sửa lỗi sai lệch fb_count trên Supabase trong nền
+  if (autoHealUsers.length > 0) {
+    Promise.allSettled(autoHealUsers.map(h =>
+      supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(h.username)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fb_count: h.fb_count,
+          fanpage_count: h.fanpage_count
+        })
+      })
+    )).catch(() => {});
   }
 
   return result;
@@ -664,6 +717,7 @@ export async function supabaseAddUserDailyTelemetry(username, {
   floorMapsScans = 0,
   fb_count,
   fanpage_count,
+  forceZeroAccountCounts = false,
   skipLastLogin = false
 } = {}) {
   const u = (username || '').trim().toLowerCase();
@@ -694,8 +748,21 @@ export async function supabaseAddUserDailyTelemetry(username, {
       const nextMaps = Math.max(curMaps + dMaps, fMaps);
 
       const payload = {};
-      if (fb_count !== undefined) payload.fb_count = Math.max(0, Number(fb_count) || 0);
-      if (fanpage_count !== undefined) payload.fanpage_count = Math.max(0, Number(fanpage_count) || 0);
+      if (fb_count !== undefined) {
+        const parsedFb = Math.max(0, Number(fb_count) || 0);
+        const curDbFb = Math.max(0, Number(row.fb_count) || 0);
+        // Bảo vệ: Tuyệt đối không để telemetry vô tình hạ số lượng nick về 0 khi trên Supabase đã có nick
+        if (parsedFb > 0 || curDbFb === 0 || forceZeroAccountCounts) {
+          payload.fb_count = parsedFb;
+        }
+      }
+      if (fanpage_count !== undefined) {
+        const parsedFp = Math.max(0, Number(fanpage_count) || 0);
+        const curDbFp = Math.max(0, Number(row.fanpage_count) || 0);
+        if (parsedFp > 0 || curDbFp === 0 || forceZeroAccountCounts) {
+          payload.fanpage_count = parsedFp;
+        }
+      }
 
       const postsChanged = !activeToday || nextPosts !== curPosts;
       const groupsChanged = !activeToday || nextGroups !== curGroups;
@@ -753,8 +820,20 @@ export async function supabaseAddUserDailyTelemetry(username, {
       today_group_scans: Math.max((activeToday ? (Number(fr?.today_group_scans) || 0) : 0) + dGroups, fGroups),
       today_maps_scans: Math.max((activeToday ? (Number(fr?.today_maps_scans) || 0) : 0) + dMaps, fMaps)
     };
-    if (fb_count !== undefined) fallbackPayload.fb_count = Math.max(0, Number(fb_count) || 0);
-    if (fanpage_count !== undefined) fallbackPayload.fanpage_count = Math.max(0, Number(fanpage_count) || 0);
+    if (fb_count !== undefined) {
+      const parsedFb = Math.max(0, Number(fb_count) || 0);
+      const curDbFb = Math.max(0, Number(fr?.fb_count) || 0);
+      if (parsedFb > 0 || curDbFb === 0 || forceZeroAccountCounts) {
+        fallbackPayload.fb_count = parsedFb;
+      }
+    }
+    if (fanpage_count !== undefined) {
+      const parsedFp = Math.max(0, Number(fanpage_count) || 0);
+      const curDbFp = Math.max(0, Number(fr?.fanpage_count) || 0);
+      if (parsedFp > 0 || curDbFp === 0 || forceZeroAccountCounts) {
+        fallbackPayload.fanpage_count = parsedFp;
+      }
+    }
     if (!skipLastLogin) fallbackPayload.last_login = new Date().toISOString();
 
     await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
@@ -1789,14 +1868,16 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null, o
       if (wsMap.accounts !== undefined && Array.isArray(wsMap.accounts)) {
         const fbCount = wsMap.accounts.filter(a => a?.type !== 'fanpage').length;
         const fanpageCount = wsMap.accounts.filter(a => a?.type === 'fanpage').length;
-        await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            fb_count: fbCount,
-            fanpage_count: fanpageCount,
-            last_login: new Date().toISOString()
-          })
-        }).catch(() => {});
+        if (fbCount > 0 || fanpageCount > 0 || options.allowReduce) {
+          await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              fb_count: fbCount,
+              fanpage_count: fanpageCount,
+              last_login: new Date().toISOString()
+            })
+          }).catch(() => {});
+        }
       }
     }
   }
