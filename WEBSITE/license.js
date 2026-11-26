@@ -1,6 +1,6 @@
 // ─── license.js - NTD Agency Account & License Management ────────────────────
 // Quản lý xác thực tài khoản (Username + Password) và thời hạn bản quyền qua Supabase & Google Sheets
-import { isSupabaseConfigured, supabaseLogin, supabaseCheckLicense } from './supabase.js?v=20261112_1000';
+import { isSupabaseConfigured, supabaseLogin, supabaseCheckLicense } from './supabase.js?v=20261125_1700';
 
 // SECRET giữ nguyên để tương thích giải mã sync_helper.js
 export const SECRET = 'DuyPosterHmac@2025#ChangeThisSecret!';
@@ -260,6 +260,14 @@ export async function loginWithAccount(username, password) {
         await chrome.storage.local.set({ license: licenseData, machineId: machineId });
         try { localStorage.setItem('dg_machine_id', machineId); } catch (_) {}
         try { await chrome.storage.sync?.set({ machineId: machineId }); } catch (_) {}
+        try {
+          if (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp' && window.chrome?.runtime?.sendToExtension) {
+            window.chrome.runtime.sendToExtension({
+              type: 'SYNC_DATA_TO_EXTENSION',
+              data: { license: licenseData, machineId: machineId }
+            }).catch(() => {});
+          }
+        } catch (_) {}
         return { ok: true, data: licenseData };
       } else if (sbRes.locked || sbRes.expired || sbRes.lockedToOtherMachine) {
         return sbRes;
@@ -331,6 +339,14 @@ export async function loginWithAccount(username, password) {
     await chrome.storage.local.set({ license: licenseData, machineId: machineId });
     try { localStorage.setItem('dg_machine_id', machineId); } catch (_) {}
     try { await chrome.storage.sync?.set({ machineId: machineId }); } catch (_) {}
+    try {
+      if (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp' && window.chrome?.runtime?.sendToExtension) {
+        window.chrome.runtime.sendToExtension({
+          type: 'SYNC_DATA_TO_EXTENSION',
+          data: { license: licenseData, machineId: machineId }
+        }).catch(() => {});
+      }
+    } catch (_) {}
     return { ok: true, data: licenseData };
   } catch (err) {
     if (err.name === 'AbortError') {

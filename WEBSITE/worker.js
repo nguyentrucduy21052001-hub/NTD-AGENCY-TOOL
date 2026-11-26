@@ -13,7 +13,14 @@ import {
   resolvePicturesIntoPayload,
   pruneUnreferencedScheduledPictures
 } from './post_schedule_helper.js';
-import { supabaseUpdateUserStats } from './supabase.js';
+import {
+  supabaseUpdateUserStats,
+  recordLocalTelemetryIncrement,
+  syncLocalTelemetryToSupabase,
+  TELEMETRY_LEDGER_KEY
+} from './supabase.js';
+
+const isWebEmbeddedWorker = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
 
 // ── Serial lock per account ─────────────────────────────────────────────────
 const locks = {};
@@ -34,22 +41,43 @@ const saveCoordinator = c => chrome.storage.local.set({coordinator: c});
 const readDailyStats = async () => (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
 const saveDailyStats = stats => chrome.storage.local.set({dailyPostStats: stats});
 
+function sumTodayDailyPostStats(stats, todayStr) {
+  if (!stats || typeof stats !== 'object') return 0;
+  let total = 0;
+  for (const k of Object.keys(stats)) {
+    const rec = stats[k];
+    if (rec && rec.date === todayStr) {
+      total += Math.max(0, Number(rec.count) || 0);
+    }
+  }
+  return total;
+}
+
 async function recordWorkerDailyScan(type, count = 1) {
   if (count <= 0) return;
-  try {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const { dailyScanStats } = await chrome.storage.local.get('dailyScanStats');
-    let cur = dailyScanStats;
-    if (!cur || cur.date !== todayStr) {
-      cur = { date: todayStr, mapsScans: 0, groupScans: 0 };
-    }
-    if (type === 'maps') {
-      cur.mapsScans = (Number(cur.mapsScans) || 0) + count;
-    } else if (type === 'group') {
-      cur.groupScans = (Number(cur.groupScans) || 0) + count;
-    }
-    await chrome.storage.local.set({ dailyScanStats: cur });
-  } catch (_) {}
+  return withDailyStatsLock(async () => {
+    try {
+      const todayStr = getTodayDateStr();
+      const { dailyScanStats } = await chrome.storage.local.get('dailyScanStats');
+      let cur = dailyScanStats;
+      if (!cur || cur.date !== todayStr) {
+        cur = { date: todayStr, mapsScans: 0, groupScans: 0 };
+      }
+      const preGroups = Math.max(0, Number(cur.groupScans) || 0);
+      const preMaps = Math.max(0, Number(cur.mapsScans) || 0);
+
+      if (type === 'maps') {
+        cur.mapsScans = preMaps + count;
+      } else if (type === 'group') {
+        cur.groupScans = preGroups + count;
+      }
+      await chrome.storage.local.set({ dailyScanStats: cur });
+      await recordLocalTelemetryIncrement(
+        type === 'maps' ? { mapsScans: count } : { groupScans: count },
+        { preExistingGroupScans: preGroups, preExistingMapsScans: preMaps }
+      );
+    } catch (_) {}
+  });
 }
 
 // ── Proxy Management & Auth Provider ──────────────────────────────────────────
@@ -522,6 +550,7 @@ async function incrementDailyCount(accountId) {
   return withDailyStatsLock(async () => {
     const stats = await readDailyStats();
     const today = getTodayDateStr();
+    const preExistingPostsSum = sumTodayDailyPostStats(stats, today);
     const record = stats[accountId];
     let count = 0;
     if (record && record.date === today) {
@@ -534,6 +563,7 @@ async function incrementDailyCount(accountId) {
       lastPostAt: Date.now()
     };
     await saveDailyStats(stats);
+    await recordLocalTelemetryIncrement({ posts: 1 }, { preExistingPostsSum }).catch(() => {});
     return count;
   });
 }
@@ -542,6 +572,9 @@ async function resetDailyCount(accountId) {
   return withDailyStatsLock(async () => {
     const stats = await readDailyStats();
     const today = getTodayDateStr();
+    const preExistingPostsSum = sumTodayDailyPostStats(stats, today);
+    // Bảo tồn tổng bài đã đăng hôm nay vào sổ cái bất biến trước khi đặt lại bộ đếm giới hạn của nick FB
+    await recordLocalTelemetryIncrement({ posts: 0 }, { preExistingPostsSum }).catch(() => {});
     stats[accountId] = {
       date: today,
       count: 0,
@@ -565,107 +598,32 @@ let _lastWorkerTelemetryReport = 0;
 
 export async function sendWorkerTelemetry(force = false) {
   try {
+    if (isWebEmbeddedWorker && typeof document !== 'undefined' && document.documentElement?.dataset?.ntdExtensionConnected === 'true') {
+      return;
+    }
     const now = Date.now();
-    if (!force && (now - _lastWorkerTelemetryReport < 5000)) return;
+    if (!force && (now - _lastWorkerTelemetryReport < 4000)) return;
     _lastWorkerTelemetryReport = now;
 
     let lic = null;
-    let accounts = [];
-    let dailyPostStats = {};
-    let dailyScanStats = null;
-    let rinFbGroup = {};
-    let rinMaps = {};
-
     try {
-      const res = await chrome.storage.local.get([
-        'license',
-        'accounts',
-        'dailyPostStats',
-        'dailyScanStats',
-        'rinFbGroup',
-        'rinMaps'
-      ]);
+      const res = await chrome.storage.local.get('license');
       lic = res.license;
-      accounts = Array.isArray(res.accounts) ? res.accounts : [];
-      dailyPostStats = res.dailyPostStats || {};
-      dailyScanStats = res.dailyScanStats || null;
-      rinFbGroup = res.rinFbGroup || {};
-      rinMaps = res.rinMaps || {};
     } catch (_) {}
 
     const username = (lic?.username || '').trim().toLowerCase();
     if (!username) return;
 
-    const fbCount = accounts.filter(a => a.type !== 'fanpage').length;
-    const fanpageCount = accounts.filter(a => a.type === 'fanpage').length;
-    const todayStr = getTodayDateStr();
-
-    let todayPosts = 0;
-    for (const k of Object.keys(dailyPostStats)) {
-      if (dailyPostStats[k] && dailyPostStats[k].date === todayStr) {
-        todayPosts += Number(dailyPostStats[k].count) || 0;
-      }
-    }
-
-    let todayGroupScans = 0;
-    if (dailyScanStats && dailyScanStats.date === todayStr) {
-      todayGroupScans = Number(dailyScanStats.groupScans) || 0;
-    }
-    const groupRows = Array.isArray(rinFbGroup?.rows) ? rinFbGroup.rows : [];
-    if (groupRows.length > 0) {
-      const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
-      const todayVi = new Date().toLocaleDateString('vi-VN');
-      const inTable = groupRows.filter(r => {
-        if (r.id && r.id.startsWith('fg_')) {
-          const ts = Number(r.id.split('_')[1]);
-          if (!isNaN(ts) && ts >= startOfDay) return true;
-        }
-        if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
-        if (r.scanned_at) {
-          const t = new Date(r.scanned_at).getTime();
-          if (!isNaN(t) && t >= startOfDay) return true;
-        }
-        return false;
-      }).length;
-      todayGroupScans = Math.max(todayGroupScans, inTable);
-    }
-
-    let todayMapsScans = 0;
-    if (dailyScanStats && dailyScanStats.date === todayStr) {
-      todayMapsScans = Number(dailyScanStats.mapsScans) || 0;
-    }
-    const mapRows = Array.isArray(rinMaps?.rows) ? rinMaps.rows : [];
-    if (mapRows.length > 0) {
-      const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
-      const todayVi = new Date().toLocaleDateString('vi-VN');
-      const inTable = mapRows.filter(r => {
-        if (r.id && r.id.startsWith('mp_')) {
-          const ts = Number(r.id.split('_')[1]);
-          if (!isNaN(ts) && ts >= startOfDay) return true;
-        }
-        if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
-        if (r.scanned_at) {
-          const t = new Date(r.scanned_at).getTime();
-          if (!isNaN(t) && t >= startOfDay) return true;
-        }
-        return false;
-      }).length;
-      todayMapsScans = Math.max(todayMapsScans, inTable);
-    }
-
-    await supabaseUpdateUserStats(username, {
-      fb_count: fbCount,
-      fanpage_count: fanpageCount,
-      today_posts: todayPosts,
-      today_group_scans: todayGroupScans,
-      today_maps_scans: todayMapsScans
+    await syncLocalTelemetryToSupabase(username, {
+      isWebExtensionBridged: false,
+      skipAccountCountsIfEmpty: false
     });
   } catch (err) {
     console.warn('[Worker Telemetry] Lỗi gửi telemetry ngầm lên Supabase:', err?.message || err);
   }
 }
 
-export function triggerWorkerTelemetryDebounced(delayMs = 2500) {
+export function triggerWorkerTelemetryDebounced(delayMs = 2000) {
   if (_workerTelemetryTimer) clearTimeout(_workerTelemetryTimer);
   _workerTelemetryTimer = setTimeout(() => {
     _workerTelemetryTimer = null;
@@ -673,12 +631,14 @@ export function triggerWorkerTelemetryDebounced(delayMs = 2500) {
   }, delayMs);
 }
 
-// Lắng nghe thay đổi dữ liệu từ bất kỳ tab nào (hoặc tác vụ nền) để đẩy telemetry lên Supabase
-chrome.storage?.onChanged?.addListener((changes, area) => {
-  if (area === 'local' && (changes.accounts || changes.dailyPostStats || changes.dailyScanStats || changes.rinFbGroup || changes.rinMaps || changes.license)) {
-    triggerWorkerTelemetryDebounced(2500);
-  }
-});
+// Lắng nghe thay đổi dữ liệu trong Extension Service Worker để đẩy telemetry lên Supabase
+if (!isWebEmbeddedWorker) {
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area === 'local' && (changes.accounts || changes.dailyPostStats || changes.dailyScanStats || changes[TELEMETRY_LEDGER_KEY] || changes.rinFbGroup || changes.rinMaps || changes.license)) {
+      triggerWorkerTelemetryDebounced(2000);
+    }
+  });
+}
 
 // ── Khi cài đặt extension hoặc cập nhật: Tự động mở trang kích hoạt nếu chưa có license ───
 if (chrome.runtime?.onInstalled?.addListener) {
@@ -5147,6 +5107,9 @@ if (chrome.runtime?.onStartup?.addListener) {
     }).catch(() => {
       syncScheduleAlarms().catch(() => {});
     });
+    if (!isWebEmbeddedWorker) {
+      triggerWorkerTelemetryDebounced(2500);
+    }
   });
 }
 
@@ -6517,6 +6480,15 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
 
+  // FLUSH_TELEMETRY: đẩy ngay các số liệu chưa đồng bộ từ sổ cái Extension lên Supabase
+  if (m.type === 'FLUSH_TELEMETRY') {
+    (async () => {
+      await sendWorkerTelemetry(true);
+      reply({ ok: true });
+    })();
+    return true;
+  }
+
   // RESET_DAILY_COUNT: đặt lại số bài đăng hôm nay của 1 tài khoản về 0 (chặn đối với Fanpage)
   if (m.type === 'RESET_DAILY_COUNT') {
     (async () => {
@@ -6532,19 +6504,25 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
 
-  // RESET_ALL_DAILY_COUNT: đặt lại số bài đăng hôm nay của tài khoản cá nhân về 0 (bảo lưu Fanpage)
+  // RESET_ALL_DAILY_COUNT: đặt lại số bài đăng hôm nay của tài khoản cá nhân về 0 (bảo lưu Fanpage & sổ cái telemetry)
   if (m.type === 'RESET_ALL_DAILY_COUNT') {
     (async () => {
-      const stats = await readDailyStats();
-      const { accounts } = await chrome.storage.local.get('accounts');
-      const fanpageIds = new Set((accounts || []).filter(a => a.type === 'fanpage').map(a => a.id));
-      const newStats = {};
-      for (const [id, val] of Object.entries(stats)) {
-        if (fanpageIds.has(id)) {
-          newStats[id] = val;
+      await withDailyStatsLock(async () => {
+        const stats = await readDailyStats();
+        const today = getTodayDateStr();
+        const preExistingPostsSum = sumTodayDailyPostStats(stats, today);
+        await recordLocalTelemetryIncrement({ posts: 0 }, { preExistingPostsSum }).catch(() => {});
+
+        const { accounts } = await chrome.storage.local.get('accounts');
+        const fanpageIds = new Set((accounts || []).filter(a => a.type === 'fanpage').map(a => a.id));
+        const newStats = {};
+        for (const [id, val] of Object.entries(stats)) {
+          if (fanpageIds.has(id)) {
+            newStats[id] = val;
+          }
         }
-      }
-      await saveDailyStats(newStats);
+        await saveDailyStats(newStats);
+      });
       reply({ ok: true });
     })();
     return true;
@@ -8150,9 +8128,18 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
     (async () => {
       try {
         if (request.data && typeof request.data === 'object') {
-          await chrome.storage.local.set(request.data);
-          if ('scheduledPostJobs' in request.data || 'scheduledPictures' in request.data) {
+          const sanitized = { ...request.data };
+          if ('license' in sanitized && !sanitized.license && !request.allowClearLicense) {
+            delete sanitized.license;
+          }
+          if (Object.keys(sanitized).length > 0) {
+            await chrome.storage.local.set(sanitized);
+          }
+          if ('scheduledPostJobs' in sanitized || 'scheduledPictures' in sanitized) {
             await syncScheduleAlarms();
+          }
+          if ('license' in sanitized || 'accounts' in sanitized) {
+            triggerWorkerTelemetryDebounced(800);
           }
         }
         sendResponse({ ok: true });

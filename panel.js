@@ -15,7 +15,7 @@ import {
   resolvePicturesIntoPayload,
   pruneUnreferencedScheduledPictures
 } from './post_schedule_helper.js?v=20261112_1000';
-import { pushLocalChangesToSupabase, supabaseClearReportScope } from './supabase.js?v=20261112_1000';
+import { pushLocalChangesToSupabase, supabaseClearReportScope } from './supabase.js?v=20261125_1700';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -2998,6 +2998,9 @@ async function render() {
           });
         } else {
           await chrome.storage.local.remove(['campaigns', 'coordinator']);
+          if (extState.dailyPostStats) {
+            await chrome.storage.local.set({ dailyPostStats: extState.dailyPostStats });
+          }
           if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('ntd_web_running');
           window.__ntdWebRunning = false;
         }

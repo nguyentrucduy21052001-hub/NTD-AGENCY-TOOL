@@ -747,16 +747,37 @@ if (!activeLicense) {
   // ── 9. [TELEMETRY] Tự động đồng bộ số liệu hoạt động lên Supabase cho Admin Dashboard ──
   let _lastTelemetryReport = 0;
   let _pendingTelemetryTimer = null;
-  async function reportUserActivity(force = false) {
+  let _licenseSyncedToExt = false;
+
+  async function detectExtensionBridgeActive() {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.id && chrome.runtime.id !== 'ntd-agency-webapp') {
+      return false; // Đây chính là trang nội bộ của Extension, không phải Web bridge
+    }
+    if (typeof document !== 'undefined' && (document.documentElement?.dataset?.ntdExtensionConnected === 'true' || window.__ntdExtensionActive)) {
+      return true;
+    }
+    if (typeof window !== 'undefined' && window.chrome?.runtime?.sendToExtension) {
+      try {
+        const pong = await window.chrome.runtime.sendToExtension({ type: 'PING', probe: true });
+        if (pong && pong.ok) {
+          if (document.documentElement) document.documentElement.dataset.ntdExtensionConnected = 'true';
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  async function reportUserActivity(force = false, opts = {}) {
     try {
       const now = Date.now();
-      // Giới hạn tần suất: Tối đa 1 lần mỗi 10 giây để không gây nghẽn mạng nhưng không bỏ sót số liệu
-      if (!force && (now - _lastTelemetryReport < 10000)) {
+      // Giới hạn tần suất: Tối đa 1 lần mỗi 6 giây để không gây nghẽn mạng nhưng không bỏ sót số liệu
+      if (!force && (now - _lastTelemetryReport < 6000)) {
         if (!_pendingTelemetryTimer) {
           _pendingTelemetryTimer = setTimeout(() => {
             _pendingTelemetryTimer = null;
-            reportUserActivity(true).catch(() => {});
-          }, 10000 - (now - _lastTelemetryReport));
+            reportUserActivity(true, opts).catch(() => {});
+          }, 6000 - (now - _lastTelemetryReport));
         }
         return;
       }
@@ -766,108 +787,53 @@ if (!activeLicense) {
       }
       _lastTelemetryReport = now;
 
-      const lic = activeLicense || JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
-      const username = (lic?.username || '').trim();
-      if (!username) return;
-
-      let data = {};
-      if (chrome?.storage?.local) {
-        data = await chrome.storage.local.get([
-          'accounts',
-          'dailyPostStats',
-          'dailyScanStats',
-          'rinFbGroup',
-          'rinMaps'
-        ]);
-      } else {
+      // 1. Nếu đang mở trang nội bộ của Chrome Extension: ủy quyền toàn bộ cho Service Worker (worker.js)
+      // để mọi tab Extension chia sẻ 1 luồng đồng bộ duy nhất, tuyệt đối không đẩy trùng.
+      const isExtensionInternalTab = Boolean(
+        typeof chrome !== 'undefined' && chrome.runtime?.id && chrome.runtime.id !== 'ntd-agency-webapp'
+      );
+      if (isExtensionInternalTab) {
         try {
-          data = {
-            accounts: JSON.parse(localStorage.getItem('accounts') || '[]'),
-            dailyPostStats: JSON.parse(localStorage.getItem('dailyPostStats') || '{}'),
-            dailyScanStats: JSON.parse(localStorage.getItem('dailyScanStats') || 'null'),
-            rinFbGroup: JSON.parse(localStorage.getItem('rinFbGroup') || '{}'),
-            rinMaps: JSON.parse(localStorage.getItem('rinMaps') || '{}')
-          };
+          await chrome.runtime.sendMessage({ type: 'FLUSH_TELEMETRY' });
+        } catch (_) {}
+        return;
+      }
+
+      let lic = activeLicense;
+      if (!lic?.username) {
+        try {
+          lic = JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
         } catch (_) {}
       }
+      if (!lic?.username && chrome?.storage?.local) {
+        try {
+          const st = await chrome.storage.local.get('license');
+          lic = st?.license || null;
+        } catch (_) {}
+      }
+      const username = (lic?.username || '').trim().toLowerCase();
+      if (!username) return;
 
-      const allAccs = Array.isArray(data.accounts) ? data.accounts : [];
-      const fbCount = allAccs.filter(a => a.type !== 'fanpage').length;
-      const fanpageCount = allAccs.filter(a => a.type === 'fanpage').length;
-
-      // Tính tổng bài đăng hôm nay theo giờ địa phương (YYYY-MM-DD)
-      const todayDate = new Date();
-      const y = todayDate.getFullYear();
-      const m = String(todayDate.getMonth() + 1).padStart(2, '0');
-      const d = String(todayDate.getDate()).padStart(2, '0');
-      const todayStr = `${y}-${m}-${d}`;
-
-      let todayPosts = 0;
-      const statsMap = data.dailyPostStats || {};
-      for (const k of Object.keys(statsMap)) {
-        if (statsMap[k] && statsMap[k].date === todayStr) {
-          todayPosts += Number(statsMap[k].count) || 0;
+      const extBridged = await detectExtensionBridgeActive();
+      if (extBridged && window.chrome?.runtime?.sendToExtension) {
+        // Đảm bảo Extension Worker luôn biết username đang đăng nhập trên Web trước khi đẩy telemetry
+        if (!_licenseSyncedToExt && lic?.username) {
+          _licenseSyncedToExt = true;
+          await window.chrome.runtime.sendToExtension({
+            type: 'SYNC_DATA_TO_EXTENSION',
+            data: { license: lic }
+          }).catch(() => { _licenseSyncedToExt = false; });
         }
+        window.chrome.runtime.sendToExtension({ type: 'FLUSH_TELEMETRY' }).catch(() => {});
       }
 
-      // Quét số nhóm hôm nay (cộng dồn các lượt trong ngày, không bị mất khi xóa bảng)
-      let todayGroupScans = 0;
-      if (data.dailyScanStats && data.dailyScanStats.date === todayStr) {
-        todayGroupScans = Number(data.dailyScanStats.groupScans) || 0;
-      }
-      const groupRows = Array.isArray(data.rinFbGroup?.rows) ? data.rinFbGroup.rows : [];
-      if (groupRows.length > 0) {
-        const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
-        const todayVi = todayDate.toLocaleDateString('vi-VN');
-        const inTable = groupRows.filter(r => {
-          if (r.id && r.id.startsWith('fg_')) {
-            const ts = Number(r.id.split('_')[1]);
-            if (!isNaN(ts) && ts >= startOfDay) return true;
-          }
-          if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
-          if (r.scanned_at) {
-            const t = new Date(r.scanned_at).getTime();
-            if (!isNaN(t) && t >= startOfDay) return true;
-          }
-          return false;
-        }).length;
-        todayGroupScans = Math.max(todayGroupScans, inTable);
-      }
-
-      // Quét Google Maps hôm nay (cộng dồn các lượt trong ngày, không bị mất khi xóa bảng)
-      let todayMapsScans = 0;
-      if (data.dailyScanStats && data.dailyScanStats.date === todayStr) {
-        todayMapsScans = Number(data.dailyScanStats.mapsScans) || 0;
-      }
-      const mapRows = Array.isArray(data.rinMaps?.rows) ? data.rinMaps.rows : [];
-      if (mapRows.length > 0) {
-        const startOfDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
-        const todayVi = todayDate.toLocaleDateString('vi-VN');
-        const inTable = mapRows.filter(r => {
-          if (r.id && r.id.startsWith('mp_')) {
-            const ts = Number(r.id.split('_')[1]);
-            if (!isNaN(ts) && ts >= startOfDay) return true;
-          }
-          if (r.at && (r.at.includes(todayVi) || r.at.includes(todayStr))) return true;
-          if (r.scanned_at) {
-            const t = new Date(r.scanned_at).getTime();
-            if (!isNaN(t) && t >= startOfDay) return true;
-          }
-          return false;
-        }).length;
-        todayMapsScans = Math.max(todayMapsScans, inTable);
-      }
-
-      // Gửi lên Supabase bằng dynamic import an toàn
+      // 2. Đồng bộ an toàn theo cơ chế sổ cái cộng dồn CAS trên Supabase
       try {
-        const sb = await import('./supabase.js?v=20261115_1800');
-        if (typeof sb.supabaseUpdateUserStats === 'function') {
-          await sb.supabaseUpdateUserStats(username, {
-            fb_count: fbCount,
-            fanpage_count: fanpageCount,
-            today_posts: todayPosts,
-            today_group_scans: todayGroupScans,
-            today_maps_scans: todayMapsScans
+        const sb = await import('./supabase.js?v=20261125_1700');
+        if (typeof sb.syncLocalTelemetryToSupabase === 'function') {
+          await sb.syncLocalTelemetryToSupabase(username, {
+            isWebExtensionBridged: extBridged,
+            skipAccountCountsIfEmpty: !opts.allowZeroAccountCounts
           });
         }
       } catch (e) {
@@ -897,7 +863,7 @@ if (!activeLicense) {
     const keys = Array.from(_pendingCloudSyncKeys);
     _pendingCloudSyncKeys.clear();
     try {
-      const sb = await import('./supabase.js?v=20261117_1900');
+      const sb = await import('./supabase.js?v=20261125_1700');
       if (typeof sb.pushLocalChangesToSupabase === 'function') {
         await sb.pushLocalChangesToSupabase(username, keys);
       }
@@ -910,7 +876,7 @@ if (!activeLicense) {
     const username = getActiveUsernameForSync();
     if (!username) return;
     try {
-      const sb = await import('./supabase.js?v=20261117_1900');
+      const sb = await import('./supabase.js?v=20261125_1700');
       if (typeof sb.hydrateLocalFromSupabase !== 'function') return;
 
       _applyingRemoteSupabaseSync = true;
@@ -936,13 +902,13 @@ if (!activeLicense) {
     }
   }
 
-  // Tự động gửi telemetry & đồng bộ Cloud sau khi mở trang
+  // Tự động đồng bộ Cloud trước, sau đó mới gửi telemetry để đảm bảo dữ liệu tài khoản đầy đủ
   setTimeout(() => {
-    reportUserActivity().catch(() => {});
-  }, 2500);
-
-  setTimeout(() => {
-    runInitialCloudWorkspaceSync().catch(() => {});
+    runInitialCloudWorkspaceSync()
+      .catch(() => {})
+      .finally(() => {
+        reportUserActivity().catch(() => {});
+      });
   }, 1500);
 
   // Lắng nghe thay đổi dữ liệu để gửi telemetry + đẩy ngầm thay đổi lên Supabase
@@ -968,9 +934,9 @@ if (!activeLicense) {
 
     // Lắng nghe sự kiện force telemetry từ các trang chức năng
     if (typeof window !== 'undefined') {
-      window.ntdForceReportActivity = () => reportUserActivity(true);
+      window.ntdForceReportActivity = () => reportUserActivity(true, { allowZeroAccountCounts: true });
       window.addEventListener('ntd_force_telemetry', () => {
-        reportUserActivity(true).catch(() => {});
+        reportUserActivity(true, { allowZeroAccountCounts: true }).catch(() => {});
         flushPendingCloudSync().catch(() => {});
       });
     }
@@ -978,7 +944,7 @@ if (!activeLicense) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
 
-      if (changes.accounts || changes.dailyPostStats || changes.dailyScanStats || changes.rinFbGroup || changes.rinMaps) {
+      if (changes.accounts || changes.dailyPostStats || changes.dailyScanStats || changes.dailyUserTelemetryLedger || changes.rinFbGroup || changes.rinMaps) {
         const newAccs = Array.isArray(changes.accounts?.newValue) ? changes.accounts.newValue : null;
         const oldAccs = Array.isArray(changes.accounts?.oldValue) ? changes.accounts.oldValue : null;
         // Nếu số lượng tài khoản giảm về 0 hoặc ít hơn trước, gửi telemetry ngay lập tức (không delay)
@@ -989,13 +955,13 @@ if (!activeLicense) {
 
         if (isAccountReduced) {
           if (_telemetryTimer) clearTimeout(_telemetryTimer);
-          reportUserActivity(true).catch(() => {});
+          reportUserActivity(true, { allowZeroAccountCounts: true }).catch(() => {});
           flushPendingCloudSync().catch(() => {});
         } else {
           if (_telemetryTimer) clearTimeout(_telemetryTimer);
           _telemetryTimer = setTimeout(() => {
             reportUserActivity().catch(() => {});
-          }, 3000);
+          }, 2500);
         }
       }
 

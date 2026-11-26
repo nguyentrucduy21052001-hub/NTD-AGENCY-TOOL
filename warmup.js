@@ -7,7 +7,7 @@ import {
   fetchSharedContentLibrary,
   pushSharedContentLibrary,
   DEFAULT_SHARED_CONTENT_LIBRARY
-} from './supabase.js?v=20261118_0745';
+} from './supabase.js?v=20261125_1700';
 
 const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));

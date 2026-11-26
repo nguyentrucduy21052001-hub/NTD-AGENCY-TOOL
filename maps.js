@@ -5,7 +5,7 @@
 import { enforceLicenseGate } from './license.js';
 await enforceLicenseGate();
 
-import { supabaseClearReportScope } from './supabase.js?v=20261112_1000';
+import { supabaseClearReportScope, recordLocalTelemetryIncrement, getVietnamDateStr } from './supabase.js?v=20261125_1700';
 
 import { mapsExtract } from './maps_extract.js';
 import { splitItems, buildQueries } from './maps_batch.js';
@@ -53,31 +53,55 @@ function nextClientRowId(prefix = 'row') {
   return `${prefix}_${Date.now()}_${++_clientRowSeq}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+let _scanCountQueue = Promise.resolve();
+function withScanCountLock(fn) {
+  const next = _scanCountQueue.then(fn, fn);
+  _scanCountQueue = next.catch(() => {});
+  return next;
+}
+
 /**
- * Ghi nhận số lượng quét Maps / Nhóm tích lũy trong ngày (không bị mất khi xóa bảng)
+ * Ghi nhận số lượng quét Maps / Nhóm tích lũy trong ngày (theo giờ VN GMT+7, không bị mất khi xóa bảng)
  */
-async function recordDailyScanCount(type, delta = 1) {
+async function recordDailyScanCount(type, delta = 1, options = {}) {
   if (delta <= 0) return;
-  try {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const store = (typeof chrome !== 'undefined' && chrome.storage?.local)
-      ? await chrome.storage.local.get('dailyScanStats')
-      : { dailyScanStats: JSON.parse(localStorage.getItem('dailyScanStats') || 'null') };
-    let cur = store.dailyScanStats;
-    if (!cur || cur.date !== todayStr) {
-      cur = { date: todayStr, mapsScans: 0, groupScans: 0 };
-    }
-    if (type === 'maps') {
-      cur.mapsScans = (Number(cur.mapsScans) || 0) + delta;
-    } else if (type === 'group') {
-      cur.groupScans = (Number(cur.groupScans) || 0) + delta;
-    }
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-      await chrome.storage.local.set({ dailyScanStats: cur });
-    } else {
-      localStorage.setItem('dailyScanStats', JSON.stringify(cur));
-    }
-  } catch (_) {}
+  return withScanCountLock(async () => {
+    try {
+      const todayStr = getVietnamDateStr();
+      const store = (typeof chrome !== 'undefined' && chrome.storage?.local)
+        ? await chrome.storage.local.get('dailyScanStats')
+        : { dailyScanStats: JSON.parse(localStorage.getItem('dailyScanStats') || 'null') };
+      let cur = store.dailyScanStats;
+      if (!cur || cur.date !== todayStr) {
+        cur = { date: todayStr, mapsScans: 0, groupScans: 0 };
+      }
+      const preGroups = Math.max(0, Number(cur.groupScans) || 0);
+      const preMaps = Math.max(0, Number(cur.mapsScans) || 0);
+
+      if (type === 'maps') {
+        cur.mapsScans = preMaps + delta;
+      } else if (type === 'group') {
+        cur.groupScans = preGroups + delta;
+      }
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.set({ dailyScanStats: cur });
+      } else {
+        localStorage.setItem('dailyScanStats', JSON.stringify(cur));
+      }
+
+      if (!options.skipTelemetry) {
+        const isExtConnected = Boolean(typeof document !== 'undefined' && document.documentElement?.dataset?.ntdExtensionConnected === 'true');
+        await recordLocalTelemetryIncrement(
+          type === 'maps' ? { mapsScans: delta } : { groupScans: delta },
+          {
+            preExistingGroupScans: preGroups,
+            preExistingMapsScans: preMaps,
+            isWebExtensionBridged: isExtConnected
+          }
+        );
+      }
+    } catch (_) {}
+  });
 }
 
 function isDedupePhonesEnabled() {
@@ -446,7 +470,9 @@ function addRow(row, options = {}) {
     }
     state.seenKeys[key] = true;
     state.rows.push(row.id ? row : { ...row, id: nextClientRowId('mp') });
-    recordDailyScanCount('maps', 1);
+    if (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp') {
+      recordDailyScanCount('maps', 1, { skipTelemetry: true });
+    }
     return true;
   }
 
@@ -3084,7 +3110,9 @@ function syncGroupRowFromWorker(r) {
   }
   if (k) groupState.seenKeys[k] = true;
   groupState.rows.push(r.id ? r : { ...r, id: nextClientRowId('fg') });
-  recordDailyScanCount('group', 1);
+  if (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp') {
+    recordDailyScanCount('group', 1, { skipTelemetry: true });
+  }
   return true;
 }
 

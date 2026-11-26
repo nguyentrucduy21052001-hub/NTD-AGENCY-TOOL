@@ -90,10 +90,19 @@ export function spinText(text){
 
 export function getTodayDateStr(date = new Date()) {
  const d = date instanceof Date ? date : new Date(date);
- const y = d.getFullYear();
- const m = String(d.getMonth() + 1).padStart(2, '0');
- const day = String(d.getDate()).padStart(2, '0');
- return `${y}-${m}-${day}`;
+ try {
+  return new Intl.DateTimeFormat('en-CA', {
+   timeZone: 'Asia/Ho_Chi_Minh',
+   year: 'numeric',
+   month: '2-digit',
+   day: '2-digit'
+  }).format(d);
+ } catch (_) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+ }
 }
 
 export function validate(d){

@@ -2101,7 +2101,7 @@ async function syncAccountsToCloudImmediately(remainingAccs) {
     }
     if (!username) return;
 
-    const sb = await import('./supabase.js?v=20261117_1900');
+    const sb = await import('./supabase.js?v=20261125_1700');
     if (typeof sb.pushLocalChangesToSupabase === 'function') {
       await sb.pushLocalChangesToSupabase(username, ['accounts'], { allowReduce: true });
     }
@@ -2171,7 +2171,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.runtime.sendMessage({ type: 'SYNC_COOKIES_NOW' }).catch(() => {});
 (async () => {
   try {
-    const { getActiveSyncUsername, hydrateLocalFromSupabase } = await import('./supabase.js?v=20261117_1900');
+    const { getActiveSyncUsername, hydrateLocalFromSupabase } = await import('./supabase.js?v=20261125_1700');
     const username = await getActiveSyncUsername();
     if (username) {
       await hydrateLocalFromSupabase(username, { force: false });
@@ -2192,7 +2192,7 @@ if (forceSyncBtn) {
       // 2. Kéo và gộp tài khoản từ Supabase Cloud về máy (force: true)
       let cloudRes = null;
       try {
-        const { getActiveSyncUsername, hydrateLocalFromSupabase } = await import('./supabase.js?v=20261117_1900');
+        const { getActiveSyncUsername, hydrateLocalFromSupabase } = await import('./supabase.js?v=20261125_1700');
         const username = await getActiveSyncUsername();
         if (username) {
           cloudRes = await hydrateLocalFromSupabase(username, { force: true });

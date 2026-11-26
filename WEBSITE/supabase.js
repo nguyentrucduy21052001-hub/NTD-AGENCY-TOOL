@@ -368,6 +368,51 @@ export async function supabaseCheckLicense(username, currentMachineId = null) {
   }
 }
 
+export const TELEMETRY_LEDGER_KEY = 'dailyUserTelemetryLedger';
+
+/**
+ * Lấy chuỗi ngày YYYY-MM-DD chuẩn theo múi giờ Việt Nam (Asia/Ho_Chi_Minh GMT+7)
+ */
+export function getVietnamDateStr(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  } catch (_) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+}
+
+export function getVietnamDayStartIso(date = new Date()) {
+  const dayStr = getVietnamDateStr(date);
+  return new Date(`${dayStr}T00:00:00+07:00`).toISOString();
+}
+
+/**
+ * Mutex tuần tự hóa thao tác đọc/cộng dồn/đồng bộ telemetry trên cùng origin (đa tab + service worker)
+ */
+export async function withTelemetryMutex(fn) {
+  const runInQueue = () => {
+    const prev = globalThis.__ntdTelemetryQueue || Promise.resolve();
+    const next = prev.then(() => fn(), () => fn());
+    globalThis.__ntdTelemetryQueue = next.catch(() => {});
+    return next;
+  };
+  try {
+    if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
+      return await navigator.locks.request('ntd_telemetry_ledger_lock_v1', () => runInQueue());
+    }
+  } catch (_) {}
+  return await runInQueue();
+}
+
 /**
  * Kiểm tra xem một mốc thời gian có thuộc về ngày hôm nay theo giờ Việt Nam (Asia/Ho_Chi_Minh GMT+7) hay không
  */
@@ -376,10 +421,7 @@ export function isTodayVietnamTime(dateStr) {
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return false;
-    const vnOptions = { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' };
-    const dateVn = new Intl.DateTimeFormat('en-CA', vnOptions).format(d); // YYYY-MM-DD
-    const todayVn = new Intl.DateTimeFormat('en-CA', vnOptions).format(new Date()); // YYYY-MM-DD
-    return dateVn === todayVn;
+    return getVietnamDateStr(d) === getVietnamDateStr(new Date());
   } catch (_) {
     return false;
   }
@@ -391,8 +433,9 @@ export function isTodayVietnamTime(dateStr) {
 async function autoResetStaleDailyStats(usernames) {
   if (!Array.isArray(usernames) || usernames.length === 0) return;
   try {
-    const list = usernames.map(encodeURIComponent).join(',');
-    await supabaseRequest(`ntd_users?username=in.(${list})`, {
+    const startIso = getVietnamDayStartIso();
+    const list = usernames.map(u => `"${String(u || '').replace(/"/g, '')}"`).join(',');
+    await supabaseRequest(`ntd_users?username=in.(${list})&or=(last_login.is.null,last_login.lt.${encodeURIComponent(startIso)})`, {
       method: 'PATCH',
       body: JSON.stringify({
         today_posts: 0,
@@ -412,9 +455,7 @@ export async function supabaseResetAllDailyStats(onlyStale = true) {
   try {
     let endpoint = 'ntd_users';
     if (onlyStale) {
-      const nowVn = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-      const startOfDayVn = new Date(nowVn.getFullYear(), nowVn.getMonth(), nowVn.getDate());
-      const startIso = new Date(startOfDayVn.getTime() - (7 * 3600 * 1000)).toISOString();
+      const startIso = getVietnamDayStartIso();
       endpoint = `ntd_users?or=(last_login.is.null,last_login.lt.${encodeURIComponent(startIso)})`;
     }
     await supabaseRequest(endpoint, {
@@ -488,32 +529,385 @@ export async function supabaseListUsers() {
   return result;
 }
 
+async function readTelemetryStorage(keys) {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      return await chrome.storage.local.get(keys);
+    }
+  } catch (_) {}
+  const out = {};
+  for (const k of (Array.isArray(keys) ? keys : [keys])) {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? (localStorage.getItem(`ntd_store_${k}`) ?? localStorage.getItem(k)) : null;
+      if (raw !== null && raw !== undefined) out[k] = JSON.parse(raw);
+    } catch (_) {}
+  }
+  return out;
+}
+
+async function writeTelemetryStorage(obj) {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      await chrome.storage.local.set(obj);
+      return;
+    }
+  } catch (_) {}
+  if (typeof localStorage !== 'undefined') {
+    for (const [k, v] of Object.entries(obj)) {
+      try { localStorage.setItem(`ntd_store_${k}`, JSON.stringify(v)); } catch (_) {}
+    }
+  }
+}
+
+function sumTodayPostsFromMap(statsMap, todayStr) {
+  if (!statsMap || typeof statsMap !== 'object') return 0;
+  let total = 0;
+  for (const k of Object.keys(statsMap)) {
+    const rec = statsMap[k];
+    if (rec && rec.date === todayStr) {
+      total += Math.max(0, Number(rec.count) || 0);
+    }
+  }
+  return total;
+}
+
+function countTodayRowsFromStore(rows, todayStr, idPrefix) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  const startOfDayMs = new Date(`${todayStr}T00:00:00+07:00`).getTime();
+  const [y, m, d] = todayStr.split('-');
+  const todayVi = `${Number(d)}/${Number(m)}/${y}`;
+  const todayViPad = `${d}/${m}/${y}`;
+  return rows.filter(r => {
+    if (!r || typeof r !== 'object') return false;
+    if (r.id && typeof r.id === 'string' && r.id.startsWith(`${idPrefix}_`)) {
+      const ts = Number(r.id.split('_')[1]);
+      if (!isNaN(ts) && ts >= startOfDayMs) return true;
+    }
+    if (r.at && typeof r.at === 'string' && (r.at.includes(todayVi) || r.at.includes(todayViPad) || r.at.includes(todayStr))) return true;
+    if (r.scanned_at) {
+      const t = new Date(r.scanned_at).getTime();
+      if (!isNaN(t) && t >= startOfDayMs) return true;
+    }
+    return false;
+  }).length;
+}
+
+function createFreshTelemetryLedger(todayVn, { baselinePosts = 0, baselineGroups = 0, baselineMaps = 0, forceZeroSynced = false } = {}) {
+  const bPosts = Math.max(0, Number(baselinePosts) || 0);
+  const bGroups = Math.max(0, Number(baselineGroups) || 0);
+  const bMaps = Math.max(0, Number(baselineMaps) || 0);
+  return {
+    date: todayVn,
+    posts: bPosts,
+    syncedPosts: forceZeroSynced ? 0 : (bPosts === 0 ? 0 : null),
+    baselinePosts: bPosts,
+    groupScans: bGroups,
+    syncedGroupScans: forceZeroSynced ? 0 : (bGroups === 0 ? 0 : null),
+    baselineGroupScans: bGroups,
+    mapsScans: bMaps,
+    syncedMapsScans: forceZeroSynced ? 0 : (bMaps === 0 ? 0 : null),
+    baselineMapsScans: bMaps
+  };
+}
+
+/**
+ * Ghi nhận tăng (+1) số bài đăng hoặc lượt quét vào sổ cái bất biến cục bộ (dailyUserTelemetryLedger).
+ * Hoàn toàn tách biệt khỏi dailyPostStats (bộ đếm giới hạn 20 bài/nick có thể Đặt lại),
+ * giúp tổng số bài trong ngày KHÔNG BAO GIỜ bị tụt khi khách bấm nút "Đặt lại" hay chạy đa Profile.
+ */
+export async function recordLocalTelemetryIncrement(deltas = {}, options = {}) {
+  return withTelemetryMutex(async () => {
+    const todayVn = getVietnamDateStr();
+    const store = await readTelemetryStorage([TELEMETRY_LEDGER_KEY, 'dailyPostStats', 'dailyScanStats']);
+    let ledger = store?.[TELEMETRY_LEDGER_KEY];
+
+    if (!ledger || ledger.date !== todayVn) {
+      let basePosts = 0;
+      let baseGroups = 0;
+      let baseMaps = 0;
+      if (!options.isWebExtensionBridged) {
+        basePosts = options.preExistingPostsSum !== undefined
+          ? Math.max(0, Number(options.preExistingPostsSum) || 0)
+          : sumTodayPostsFromMap(store?.dailyPostStats, todayVn);
+        const ds = store?.dailyScanStats;
+        if (ds && ds.date === todayVn) {
+          baseGroups = options.preExistingGroupScans !== undefined
+            ? Math.max(0, Number(options.preExistingGroupScans) || 0)
+            : Math.max(0, Number(ds.groupScans) || 0);
+          baseMaps = options.preExistingMapsScans !== undefined
+            ? Math.max(0, Number(options.preExistingMapsScans) || 0)
+            : Math.max(0, Number(ds.mapsScans) || 0);
+        }
+      }
+      ledger = createFreshTelemetryLedger(todayVn, { baselinePosts: basePosts, baselineGroups: baseGroups, baselineMaps: baseMaps });
+    }
+
+    ledger.posts = Math.max(0, (Number(ledger.posts) || 0) + Math.max(0, Number(deltas.posts) || 0));
+    ledger.groupScans = Math.max(0, (Number(ledger.groupScans) || 0) + Math.max(0, Number(deltas.groupScans) || 0));
+    ledger.mapsScans = Math.max(0, (Number(ledger.mapsScans) || 0) + Math.max(0, Number(deltas.mapsScans) || 0));
+
+    await writeTelemetryStorage({ [TELEMETRY_LEDGER_KEY]: ledger });
+    return ledger;
+  });
+}
+
+/**
+ * [TELEMETRY AN TOÀN] Cộng dồn số liệu trong ngày lên Supabase bằng Compare-And-Set (CAS).
+ * Không bao giờ ghi đè làm giảm số liệu từ máy/profile khác hoặc chỉnh tay của Admin.
+ */
+export async function supabaseAddUserDailyTelemetry(username, {
+  deltaPosts = 0,
+  deltaGroupScans = 0,
+  deltaMapsScans = 0,
+  floorPosts = 0,
+  floorGroupScans = 0,
+  floorMapsScans = 0,
+  fb_count,
+  fanpage_count,
+  skipLastLogin = false
+} = {}) {
+  const u = (username || '').trim().toLowerCase();
+  if (!u) return { ok: false };
+
+  const dPosts = Math.max(0, Number(deltaPosts) || 0);
+  const dGroups = Math.max(0, Number(deltaGroupScans) || 0);
+  const dMaps = Math.max(0, Number(deltaMapsScans) || 0);
+  const fPosts = Math.max(0, Number(floorPosts) || 0);
+  const fGroups = Math.max(0, Number(floorGroupScans) || 0);
+  const fMaps = Math.max(0, Number(floorMapsScans) || 0);
+
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const rows = await supabaseRequest(
+        `ntd_users?username=eq.${encodeURIComponent(u)}&select=username,today_posts,today_group_scans,today_maps_scans,last_login,fb_count,fanpage_count`
+      );
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row) return { ok: false, error: 'User not found' };
+
+      const activeToday = isTodayVietnamTime(row.last_login);
+      const curPosts = activeToday ? (Number(row.today_posts) || 0) : 0;
+      const curGroups = activeToday ? (Number(row.today_group_scans) || 0) : 0;
+      const curMaps = activeToday ? (Number(row.today_maps_scans) || 0) : 0;
+
+      const nextPosts = Math.max(curPosts + dPosts, fPosts);
+      const nextGroups = Math.max(curGroups + dGroups, fGroups);
+      const nextMaps = Math.max(curMaps + dMaps, fMaps);
+
+      const payload = {};
+      if (fb_count !== undefined) payload.fb_count = Math.max(0, Number(fb_count) || 0);
+      if (fanpage_count !== undefined) payload.fanpage_count = Math.max(0, Number(fanpage_count) || 0);
+
+      const postsChanged = !activeToday || nextPosts !== curPosts;
+      const groupsChanged = !activeToday || nextGroups !== curGroups;
+      const mapsChanged = !activeToday || nextMaps !== curMaps;
+
+      if (postsChanged || dPosts > 0) payload.today_posts = nextPosts;
+      if (groupsChanged || dGroups > 0) payload.today_group_scans = nextGroups;
+      if (mapsChanged || dMaps > 0) payload.today_maps_scans = nextMaps;
+      if (!skipLastLogin) payload.last_login = new Date().toISOString();
+
+      if (!postsChanged && !groupsChanged && !mapsChanged && dPosts === 0 && dGroups === 0 && dMaps === 0) {
+        if (Object.keys(payload).length > 0) {
+          await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+          });
+        }
+        return { ok: true, row, applied: { posts: 0, groupScans: 0, mapsScans: 0 } };
+      }
+
+      const filters = [`username=eq.${encodeURIComponent(u)}`];
+      const addEqOrNullFilter = (col, rawVal) => {
+        if (rawVal === null || rawVal === undefined) {
+          filters.push(`${col}=is.null`);
+        } else {
+          filters.push(`${col}=eq.${encodeURIComponent(String(rawVal))}`);
+        }
+      };
+      if (payload.today_posts !== undefined) addEqOrNullFilter('today_posts', row.today_posts);
+      if (payload.today_group_scans !== undefined) addEqOrNullFilter('today_group_scans', row.today_group_scans);
+      if (payload.today_maps_scans !== undefined) addEqOrNullFilter('today_maps_scans', row.today_maps_scans);
+
+      const updated = await supabaseRequest(`ntd_users?${filters.join('&')}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+
+      if (Array.isArray(updated) && updated.length > 0) {
+        return {
+          ok: true,
+          row: updated[0],
+          applied: { posts: dPosts, groupScans: dGroups, mapsScans: dMaps }
+        };
+      }
+      await new Promise(r => setTimeout(r, 80 + Math.floor(Math.random() * 140)));
+    }
+
+    const finalRows = await supabaseRequest(
+      `ntd_users?username=eq.${encodeURIComponent(u)}&select=today_posts,today_group_scans,today_maps_scans,last_login`
+    );
+    const fr = Array.isArray(finalRows) ? finalRows[0] : null;
+    const activeToday = fr ? isTodayVietnamTime(fr.last_login) : false;
+    const fallbackPayload = {
+      today_posts: Math.max((activeToday ? (Number(fr?.today_posts) || 0) : 0) + dPosts, fPosts),
+      today_group_scans: Math.max((activeToday ? (Number(fr?.today_group_scans) || 0) : 0) + dGroups, fGroups),
+      today_maps_scans: Math.max((activeToday ? (Number(fr?.today_maps_scans) || 0) : 0) + dMaps, fMaps)
+    };
+    if (fb_count !== undefined) fallbackPayload.fb_count = Math.max(0, Number(fb_count) || 0);
+    if (fanpage_count !== undefined) fallbackPayload.fanpage_count = Math.max(0, Number(fanpage_count) || 0);
+    if (!skipLastLogin) fallbackPayload.last_login = new Date().toISOString();
+
+    await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(fallbackPayload)
+    });
+    return { ok: true, applied: { posts: dPosts, groupScans: dGroups, mapsScans: dMaps } };
+  } catch (err) {
+    console.warn('Không thể gửi telemetry cộng dồn Supabase:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Đồng bộ phần chênh lệch chưa đẩy (delta) từ dailyUserTelemetryLedger của thiết bị/profile hiện tại lên Supabase.
+ */
+export async function syncLocalTelemetryToSupabase(username, { isWebExtensionBridged = false, skipAccountCountsIfEmpty = false } = {}) {
+  const u = (username || '').trim().toLowerCase();
+  if (!u || !(await isSupabaseConfigured())) return { ok: false };
+
+  return withTelemetryMutex(async () => {
+    const todayVn = getVietnamDateStr();
+    const store = await readTelemetryStorage([
+      TELEMETRY_LEDGER_KEY,
+      'accounts',
+      'dailyPostStats',
+      'dailyScanStats',
+      'rinFbGroup',
+      'rinMaps'
+    ]);
+
+    const accounts = Array.isArray(store?.accounts) ? store.accounts : [];
+    const fbCount = accounts.filter(a => a?.type !== 'fanpage').length;
+    const fanpageCount = accounts.filter(a => a?.type === 'fanpage').length;
+    const shouldSendAccountCounts = !(skipAccountCountsIfEmpty && accounts.length === 0);
+
+    let ledger = store?.[TELEMETRY_LEDGER_KEY];
+    if (!ledger || ledger.date !== todayVn) {
+      if (isWebExtensionBridged) {
+        // Trên Web đã kết nối Extension: Extension tự quản lý & đẩy dailyPostStats + quét từ Extension.
+        // Web KHÔNG kế thừa dailyPostStats copy từ Extension để tránh đếm trùng hoặc ghi đè về 0.
+        ledger = createFreshTelemetryLedger(todayVn, { baselinePosts: 0, baselineGroups: 0, baselineMaps: 0, forceZeroSynced: true });
+      } else {
+        const localPosts = sumTodayPostsFromMap(store?.dailyPostStats, todayVn);
+        const ds = store?.dailyScanStats;
+        const scanGroups = (ds && ds.date === todayVn) ? Math.max(0, Number(ds.groupScans) || 0) : 0;
+        const scanMaps = (ds && ds.date === todayVn) ? Math.max(0, Number(ds.mapsScans) || 0) : 0;
+        const tableGroups = countTodayRowsFromStore(store?.rinFbGroup?.rows, todayVn, 'fg');
+        const tableMaps = countTodayRowsFromStore(store?.rinMaps?.rows, todayVn, 'mp');
+        ledger = createFreshTelemetryLedger(todayVn, {
+          baselinePosts: localPosts,
+          baselineGroups: Math.max(scanGroups, tableGroups),
+          baselineMaps: Math.max(scanMaps, tableMaps)
+        });
+      }
+      await writeTelemetryStorage({ [TELEMETRY_LEDGER_KEY]: ledger });
+    }
+
+    // Đối soát lần đầu trong ngày nếu nâng cấp giữa ngày (synced* === null)
+    if (ledger.syncedPosts === null || ledger.syncedGroupScans === null || ledger.syncedMapsScans === null) {
+      try {
+        const rows = await supabaseRequest(
+          `ntd_users?username=eq.${encodeURIComponent(u)}&select=today_posts,today_group_scans,today_maps_scans,last_login`
+        );
+        const row = Array.isArray(rows) ? rows[0] : null;
+        const activeToday = row ? isTodayVietnamTime(row.last_login) : false;
+        const remotePosts = activeToday ? (Number(row?.today_posts) || 0) : 0;
+        const remoteGroups = activeToday ? (Number(row?.today_group_scans) || 0) : 0;
+        const remoteMaps = activeToday ? (Number(row?.today_maps_scans) || 0) : 0;
+
+        if (ledger.syncedPosts === null) {
+          const baseP = ledger.baselinePosts !== undefined ? (Number(ledger.baselinePosts) || 0) : (Number(ledger.posts) || 0);
+          ledger.syncedPosts = Math.min(baseP, remotePosts);
+        }
+        if (ledger.syncedGroupScans === null) {
+          const baseG = ledger.baselineGroupScans !== undefined ? (Number(ledger.baselineGroupScans) || 0) : (Number(ledger.groupScans) || 0);
+          ledger.syncedGroupScans = Math.min(baseG, remoteGroups);
+        }
+        if (ledger.syncedMapsScans === null) {
+          const baseM = ledger.baselineMapsScans !== undefined ? (Number(ledger.baselineMapsScans) || 0) : (Number(ledger.mapsScans) || 0);
+          ledger.syncedMapsScans = Math.min(baseM, remoteMaps);
+        }
+        await writeTelemetryStorage({ [TELEMETRY_LEDGER_KEY]: ledger });
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    }
+
+    const deltaPosts = Math.max(0, (Number(ledger.posts) || 0) - (Number(ledger.syncedPosts) || 0));
+    const deltaGroupScans = Math.max(0, (Number(ledger.groupScans) || 0) - (Number(ledger.syncedGroupScans) || 0));
+    const deltaMapsScans = Math.max(0, (Number(ledger.mapsScans) || 0) - (Number(ledger.syncedMapsScans) || 0));
+
+    const statsArgs = {
+      deltaPosts,
+      deltaGroupScans,
+      deltaMapsScans
+    };
+    if (shouldSendAccountCounts) {
+      statsArgs.fb_count = fbCount;
+      statsArgs.fanpage_count = fanpageCount;
+    }
+
+    const res = await supabaseAddUserDailyTelemetry(u, statsArgs);
+    if (res && res.ok) {
+      ledger.syncedPosts = (Number(ledger.syncedPosts) || 0) + deltaPosts;
+      ledger.syncedGroupScans = (Number(ledger.syncedGroupScans) || 0) + deltaGroupScans;
+      ledger.syncedMapsScans = (Number(ledger.syncedMapsScans) || 0) + deltaMapsScans;
+      await writeTelemetryStorage({ [TELEMETRY_LEDGER_KEY]: ledger });
+    }
+    return res;
+  });
+}
+
 /**
  * [TELEMETRY] Cập nhật số liệu hoạt động của người dùng lên Supabase
+ * Mặc định bảo vệ KHÔNG BAO GIỜ hạ thấp today_posts / today_group_scans / today_maps_scans trong cùng ngày VN.
  */
 export async function supabaseUpdateUserStats(username, stats = {}) {
   const u = (username || '').trim().toLowerCase();
   if (!u) return { ok: false };
 
-  try {
-    const payload = {};
-    if (stats.fb_count !== undefined) payload.fb_count = Math.max(0, Number(stats.fb_count) || 0);
-    if (stats.fanpage_count !== undefined) payload.fanpage_count = Math.max(0, Number(stats.fanpage_count) || 0);
-    if (stats.today_posts !== undefined) payload.today_posts = Math.max(0, Number(stats.today_posts) || 0);
-    if (stats.today_group_scans !== undefined) payload.today_group_scans = Math.max(0, Number(stats.today_group_scans) || 0);
-    if (stats.today_maps_scans !== undefined) payload.today_maps_scans = Math.max(0, Number(stats.today_maps_scans) || 0);
-    if (!stats.skipLastLogin) payload.last_login = new Date().toISOString();
+  if (stats.forceOverwrite) {
+    try {
+      const payload = {};
+      if (stats.fb_count !== undefined) payload.fb_count = Math.max(0, Number(stats.fb_count) || 0);
+      if (stats.fanpage_count !== undefined) payload.fanpage_count = Math.max(0, Number(stats.fanpage_count) || 0);
+      if (stats.today_posts !== undefined) payload.today_posts = Math.max(0, Number(stats.today_posts) || 0);
+      if (stats.today_group_scans !== undefined) payload.today_group_scans = Math.max(0, Number(stats.today_group_scans) || 0);
+      if (stats.today_maps_scans !== undefined) payload.today_maps_scans = Math.max(0, Number(stats.today_maps_scans) || 0);
+      if (!stats.skipLastLogin) payload.last_login = new Date().toISOString();
 
-    await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload)
-    });
-
-    return { ok: true };
-  } catch (err) {
-    console.warn('Không thể gửi telemetry Supabase:', err.message);
-    return { ok: false, error: err.message };
+      await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      return { ok: true };
+    } catch (err) {
+      console.warn('Không thể gửi telemetry Supabase:', err.message);
+      return { ok: false, error: err.message };
+    }
   }
+
+  return await supabaseAddUserDailyTelemetry(u, {
+    deltaPosts: 0,
+    deltaGroupScans: 0,
+    deltaMapsScans: 0,
+    floorPosts: stats.today_posts !== undefined ? Math.max(0, Number(stats.today_posts) || 0) : 0,
+    floorGroupScans: stats.today_group_scans !== undefined ? Math.max(0, Number(stats.today_group_scans) || 0) : 0,
+    floorMapsScans: stats.today_maps_scans !== undefined ? Math.max(0, Number(stats.today_maps_scans) || 0) : 0,
+    fb_count: stats.fb_count,
+    fanpage_count: stats.fanpage_count,
+    skipLastLogin: Boolean(stats.skipLastLogin)
+  });
 }
 
 /**
@@ -1589,6 +1983,8 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
     ...SYNC_WORKSPACE_KEYS,
     'rinMaps',
     'rinFbGroup',
+    'dailyScanStats',
+    TELEMETRY_LEDGER_KEY,
     'isGroupScanning'
   ]);
 
@@ -1726,6 +2122,27 @@ export async function hydrateLocalFromSupabase(username, options = {}) {
     if (toSet[spec.localKey] !== undefined && didScopeClearAdvance(startLedger, endLedger, scope)) {
       delete toSet[spec.localKey];
     }
+  }
+
+  // Bảo vệ telemetry: neo sổ cái cục bộ theo dữ liệu TRƯỚC KHI gộp từ Cloud để không đếm trùng số liệu từ máy khác kéo về
+  const todayVn = getVietnamDateStr();
+  if ((!local[TELEMETRY_LEDGER_KEY] || local[TELEMETRY_LEDGER_KEY].date !== todayVn) &&
+      (toSet.dailyPostStats !== undefined || toSet.rinMaps !== undefined || toSet.rinFbGroup !== undefined)) {
+    const prePosts = sumTodayPostsFromMap(local.dailyPostStats, todayVn);
+    const ds = local.dailyScanStats;
+    const preGroups = Math.max(
+      (ds && ds.date === todayVn) ? (Number(ds.groupScans) || 0) : 0,
+      countTodayRowsFromStore(local.rinFbGroup?.rows, todayVn, 'fg')
+    );
+    const preMaps = Math.max(
+      (ds && ds.date === todayVn) ? (Number(ds.mapsScans) || 0) : 0,
+      countTodayRowsFromStore(local.rinMaps?.rows, todayVn, 'mp')
+    );
+    toSet[TELEMETRY_LEDGER_KEY] = createFreshTelemetryLedger(todayVn, {
+      baselinePosts: prePosts,
+      baselineGroups: preGroups,
+      baselineMaps: preMaps
+    });
   }
 
   const updatedKeys = Object.keys(toSet);

@@ -299,7 +299,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261112_1030')
+    _workerLoadPromise = import('./worker.js?v=20261125_1700')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
@@ -387,6 +387,7 @@
         'GET_FACEBOOK_COOKIES',
         'SYNC_COOKIES_NOW',
         'SYNC_DATA_TO_EXTENSION',
+        'FLUSH_TELEMETRY',
         'WARMUP_START',
         'WARMUP_STOP',
         'WARMUP_CANCEL',
