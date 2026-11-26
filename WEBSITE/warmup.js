@@ -341,12 +341,18 @@ async function startWarmup() {
   // Bắt đầu ngay đồng hồ đếm ngược nick 1 trên giao diện Web
   startAccountWarmupUI(0);
 
+  // Lấy kho nội dung để đính kèm vào lệnh WARMUP_START (đảm bảo worker có ngay dữ liệu ngay cả khi SYNC chưa xong)
+  const { ntd_shared_content_library: _libForStart = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+  const contentLibForStart = Array.isArray(_libForStart) && _libForStart.length > 0
+    ? _libForStart
+    : DEFAULT_SHARED_CONTENT_LIBRARY;
+
   // Gửi lệnh kích hoạt tự động hóa nền
   try {
     const res = await chrome.runtime.sendMessage({
       type: 'WARMUP_START',
       accountIds: selectedIds,
-      config: { ...cfg, backgroundMode: false }
+      config: { ...cfg, backgroundMode: false, ntd_shared_content_library: contentLibForStart }
     });
     if (res && res.ok) {
       appendLog('✅ Đã kết nối tự động hóa Facebook tới Tiện ích mở rộng.', '✅');

@@ -17,7 +17,8 @@ import {
   supabaseUpdateUserStats,
   recordLocalTelemetryIncrement,
   syncLocalTelemetryToSupabase,
-  TELEMETRY_LEDGER_KEY
+  TELEMETRY_LEDGER_KEY,
+  DEFAULT_SHARED_CONTENT_LIBRARY
 } from './supabase.js';
 
 const isWebEmbeddedWorker = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
@@ -3816,6 +3817,10 @@ async function runWarmupLoop(accountIds, config) {
   const postContentSource = config?.postContentSource ?? savedWConfig.postContentSource ?? 'random_all';
   const postCondition = config?.postCondition ?? savedWConfig.postCondition ?? 'days_1';
   const customPostContent = config?.customPostContent ?? savedWConfig.customPostContent ?? '';
+  // Kho nội dung có thể được truyền trực tiếp qua config (từ warmup.js) để tránh race condition với SYNC_DATA_TO_EXTENSION
+  const sharedLibFromConfig = Array.isArray(config?.ntd_shared_content_library) && config.ntd_shared_content_library.length > 0
+    ? config.ntd_shared_content_library
+    : null;
 
   const isBg = config?.backgroundMode ?? savedWConfig.backgroundMode ?? true;
   const shouldAutoClose = config?.autoCloseTab ?? savedWConfig.autoCloseTab ?? true;
@@ -3972,8 +3977,13 @@ async function runWarmupLoop(accountIds, config) {
               if (postContentSource === 'custom' && customPostContent) {
                 accountPostText = resolveWarmupSpintax(customPostContent);
               } else {
+                // Đọc từ Extension storage, fallback sang kho mặc định nếu rỗng
                 const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
-                let pool = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0 ? ntd_shared_content_library : [];
+                let pool = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
+                  ? ntd_shared_content_library
+                  : (Array.isArray(config?.ntd_shared_content_library) && config.ntd_shared_content_library.length > 0
+                    ? config.ntd_shared_content_library
+                    : DEFAULT_SHARED_CONTENT_LIBRARY);
                 if (postContentSource.startsWith('cat_')) {
                   const catKey = postContentSource.replace('cat_', '');
                   const filtered = pool.filter(t => t.category === catKey);
@@ -3982,6 +3992,8 @@ async function runWarmupLoop(accountIds, config) {
                 if (pool.length > 0) {
                   const picked = pool[Math.floor(Math.random() * pool.length)];
                   accountPostText = resolveWarmupSpintax(picked.content);
+                } else {
+                  broadcastWarmupLog(`⚠️ Kho nội dung trống, bỏ qua đăng bài cá nhân cho nick "${acc.name}".`, '⚠️');
                 }
               }
               if (accountPostText) {
