@@ -13,6 +13,9 @@ const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 let personalAccounts = [];
+let allAccountGroups = [];
+let currentWarmupGroupFilter = 'all';
+let selectedAccountIds = new Set();
 let currentWarmupAccountId = null;
 let currentWarmupAccountName = null;
 let currentContentCategoryFilter = 'all';
@@ -183,14 +186,43 @@ async function saveCurrentConfig() {
   await chrome.storage.local.set({ warmupConfig: cfg });
 }
 
-// ── 3. Nạp danh sách tài khoản cá nhân ──────────────────────────────────────
+// ── 3. Nạp danh sách tài khoản cá nhân & Nhóm tài khoản ──────────────────
+async function loadAccountGroupsList() {
+  const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const set = new Set();
+  if (Array.isArray(accountGroupsList)) {
+    accountGroupsList.forEach(g => {
+      const s = String(g || '').trim();
+      if (s) set.add(s);
+    });
+  }
+  (accounts || []).forEach(a => {
+    const g = String(a.accountGroup || '').trim();
+    if (g) set.add(g);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
 async function loadAccounts() {
   const { accounts } = await chrome.storage.local.get('accounts');
   const allAccs = Array.isArray(accounts) ? accounts : [];
   // Lọc chỉ lấy tài khoản cá nhân (loại trừ Fanpage)
   personalAccounts = allAccs.filter(a => a.type !== 'fanpage');
+  allAccountGroups = await loadAccountGroupsList();
+
+  // Khởi tạo hoặc dọn dẹp danh sách tài khoản được chọn
+  if (selectedAccountIds.size === 0) {
+    personalAccounts.forEach(a => selectedAccountIds.add(a.id));
+  } else {
+    const validIds = new Set(personalAccounts.map(a => a.id));
+    selectedAccountIds.forEach(id => {
+      if (!validIds.has(id)) selectedAccountIds.delete(id);
+    });
+  }
 
   $('statTotalAccs').textContent = personalAccounts.length;
+  renderWarmupGroupPills();
   renderAccountTable();
   updateSelectedCount();
 
@@ -203,14 +235,68 @@ async function loadAccounts() {
   renderAuditLogsDashboard();
 }
 
+function renderWarmupGroupPills() {
+  const container = $('warmupGroupPillsContainer');
+  if (!container) return;
+
+  const totalCount = personalAccounts.length;
+  const unassignedCount = personalAccounts.filter(a => !a.accountGroup || !a.accountGroup.trim()).length;
+  const groupCountsMap = {};
+  allAccountGroups.forEach(g => { groupCountsMap[g] = 0; });
+  personalAccounts.forEach(a => {
+    const g = String(a.accountGroup || '').trim();
+    if (g) groupCountsMap[g] = (groupCountsMap[g] || 0) + 1;
+  });
+
+  let pillsHtml = `
+    <button type="button" class="acc-group-pill ${currentWarmupGroupFilter === 'all' ? 'active' : ''}" data-group="all">
+      Tất cả <span class="pill-count">${totalCount}</span>
+    </button>
+    <button type="button" class="acc-group-pill ${currentWarmupGroupFilter === 'unassigned' ? 'active' : ''}" data-group="unassigned">
+      Chưa phân nhóm <span class="pill-count">${unassignedCount}</span>
+    </button>
+  `;
+
+  allAccountGroups.forEach(g => {
+    pillsHtml += `
+      <button type="button" class="acc-group-pill ${currentWarmupGroupFilter === g ? 'active' : ''}" data-group="${escapeHtml(g)}">
+        📁 ${escapeHtml(g)} <span class="pill-count">${groupCountsMap[g] || 0}</span>
+      </button>
+    `;
+  });
+
+  container.innerHTML = pillsHtml;
+
+  // Gắn sự kiện click vào từng pill
+  container.querySelectorAll('.acc-group-pill').forEach(pill => {
+    pill.onclick = () => {
+      currentWarmupGroupFilter = pill.dataset.group || 'all';
+      renderWarmupGroupPills();
+      renderAccountTable();
+    };
+  });
+}
+
+function getFilteredWarmupAccounts() {
+  if (currentWarmupGroupFilter === 'unassigned') {
+    return personalAccounts.filter(a => !a.accountGroup || !a.accountGroup.trim());
+  }
+  if (currentWarmupGroupFilter !== 'all') {
+    return personalAccounts.filter(a => String(a.accountGroup || '').trim() === currentWarmupGroupFilter);
+  }
+  return personalAccounts;
+}
+
 function renderAccountTable() {
   const tbody = $('accTableBody');
   if (!tbody) return;
 
+  const filteredAccounts = getFilteredWarmupAccounts();
+
   if (personalAccounts.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">
+        <td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">
           Chưa có tài khoản Facebook cá nhân nào.<br>
           <a href="accounts.html" style="color:var(--accent);font-weight:700;text-decoration:underline;margin-top:6px;display:inline-block">
             Bấm vào đây để thêm tài khoản cá nhân
@@ -218,21 +304,42 @@ function renderAccountTable() {
         </td>
       </tr>
     `;
+    updateHeaderCheckboxState();
+    return;
+  }
+
+  if (filteredAccounts.length === 0) {
+    const groupLabel = currentWarmupGroupFilter === 'unassigned' ? 'Chưa phân nhóm' : `Nhóm "${currentWarmupGroupFilter}"`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">
+          Không có tài khoản nào thuộc <b>${escapeHtml(groupLabel)}</b>.<br>
+          <span style="font-size:12px;margin-top:4px;display:inline-block">Hãy chọn nhóm khác hoặc bấm "Tất cả" để xem danh sách tài khoản.</span>
+        </td>
+      </tr>
+    `;
+    updateHeaderCheckboxState();
     return;
   }
 
   let html = '';
-  personalAccounts.forEach((acc) => {
+  filteredAccounts.forEach((acc) => {
+    const isChecked = selectedAccountIds.has(acc.id);
     const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
     const uidDisplay = acc.fbId || acc.username || acc.id || 'N/A';
     const lastWarmup = acc.lastWarmupAt
       ? new Date(acc.lastWarmupAt).toLocaleString('vi-VN')
       : '<span style="color:var(--text-muted);font-style:italic">Chưa nuôi</span>';
 
+    const groupName = String(acc.accountGroup || '').trim();
+    const groupBadge = groupName
+      ? `<span class="badge" style="background:rgba(237,107,34,0.12);color:var(--accent);border:1px solid rgba(237,107,34,0.3);font-size:11px;font-weight:700">📁 ${escapeHtml(groupName)}</span>`
+      : `<span style="color:var(--text-muted);font-style:italic;font-size:11px">Chưa phân nhóm</span>`;
+
     html += `
       <tr id="rowAcc_${acc.id}">
         <td style="text-align:center">
-          <input type="checkbox" class="acc-chk" data-id="${acc.id}" checked>
+          <input type="checkbox" class="acc-chk" data-id="${acc.id}" ${isChecked ? 'checked' : ''}>
         </td>
         <td>
           <div class="acc-user-cell">
@@ -246,7 +353,8 @@ function renderAccountTable() {
         <td>
           <span style="font-family:monospace;font-size:12px;color:var(--text-muted)">${escapeHtml(uidDisplay)}</span>
         </td>
-        <td>${lastWarmup}</td>
+        <td>${groupBadge}</td>
+        <td id="lastWarmup_${acc.id}">${lastWarmup}</td>
         <td style="text-align:right" id="statusBadge_${acc.id}">
           <span class="badge badge-waiting">Sẵn sàng</span>
         </td>
@@ -256,33 +364,52 @@ function renderAccountTable() {
 
   tbody.innerHTML = html;
 
-  // Gắn sự kiện thay đổi checkbox
+  // Gắn sự kiện thay đổi checkbox từng dòng
   tbody.querySelectorAll('.acc-chk').forEach(chk => {
     chk.addEventListener('change', () => {
+      const accId = chk.getAttribute('data-id');
+      if (chk.checked) {
+        selectedAccountIds.add(accId);
+      } else {
+        selectedAccountIds.delete(accId);
+      }
       updateSelectedCount();
-      const allChecked = [...tbody.querySelectorAll('.acc-chk')].every(c => c.checked);
-      $('chkHeaderSelectAll').checked = allChecked;
+      updateHeaderCheckboxState();
     });
   });
+
+  updateHeaderCheckboxState();
+}
+
+function updateHeaderCheckboxState() {
+  const chkHeader = $('chkHeaderSelectAll');
+  if (!chkHeader) return;
+  const filtered = getFilteredWarmupAccounts();
+  if (filtered.length === 0) {
+    chkHeader.checked = false;
+    return;
+  }
+  const allFilteredChecked = filtered.every(a => selectedAccountIds.has(a.id));
+  chkHeader.checked = allFilteredChecked;
 }
 
 function updateSelectedCount() {
-  const chks = document.querySelectorAll('.acc-chk:checked');
-  const count = chks.length;
+  const count = selectedAccountIds.size;
   $('statSelectedAccs').textContent = count;
-  $('btnStartWarmup').querySelector('span').textContent = `▶️ Bắt đầu nuôi tự động (${count} tài khoản)`;
+  const startBtn = $('btnStartWarmup');
+  if (startBtn) {
+    const span = startBtn.querySelector('span');
+    if (span) span.textContent = `▶️ Bắt đầu nuôi tự động (${count} tài khoản)`;
+  }
 }
 
 // ── 4. Điều phối tiến trình Nuôi tài khoản tự động (Web Controller) ─────────
 async function startWarmup() {
-  const selectedChks = [...document.querySelectorAll('.acc-chk:checked')];
-  if (selectedChks.length === 0) {
+  const targetAccounts = personalAccounts.filter(a => selectedAccountIds.has(a.id));
+  if (targetAccounts.length === 0) {
     alert('Vui lòng chọn ít nhất 1 tài khoản để bắt đầu nuôi.');
     return;
   }
-
-  const selectedIds = selectedChks.map(c => c.getAttribute('data-id'));
-  const targetAccounts = personalAccounts.filter(a => selectedIds.includes(a.id));
 
   // Kiểm tra thời hạn bản quyền trước khi bắt đầu
   const licenseValid = await checkCurrentLicense();
@@ -467,9 +594,14 @@ function onAccountCompleted(index) {
   updateAccountBadge(currentAcc.id, 'done', 'Hoàn thành');
   updateAccountLastWarmup(currentAcc.id, Date.now());
 
-  const row = $(`rowAcc_${currentAcc.id}`);
-  if (row && row.children[3]) {
-    row.children[3].textContent = new Date().toLocaleString('vi-VN');
+  const lastWarmupCell = $(`lastWarmup_${currentAcc.id}`);
+  if (lastWarmupCell) {
+    lastWarmupCell.textContent = new Date().toLocaleString('vi-VN');
+  } else {
+    const row = $(`rowAcc_${currentAcc.id}`);
+    if (row && row.children[4]) {
+      row.children[4].textContent = new Date().toLocaleString('vi-VN');
+    }
   }
 
   // Tạo và hiển thị bản ghi báo cáo chi tiết cho nick này
@@ -872,19 +1004,49 @@ $('btnFocusFbTab')?.addEventListener('click', async () => {
 
 $('chkHeaderSelectAll')?.addEventListener('change', e => {
   const checked = e.target.checked;
-  document.querySelectorAll('.acc-chk').forEach(c => c.checked = checked);
+  const filtered = getFilteredWarmupAccounts();
+  filtered.forEach(a => {
+    if (checked) selectedAccountIds.add(a.id);
+    else selectedAccountIds.delete(a.id);
+  });
+  renderAccountTable();
   updateSelectedCount();
 });
 
 $('btnSelectAllAccs')?.addEventListener('click', () => {
-  $('chkHeaderSelectAll').checked = true;
-  document.querySelectorAll('.acc-chk').forEach(c => c.checked = true);
+  personalAccounts.forEach(a => selectedAccountIds.add(a.id));
+  renderAccountTable();
   updateSelectedCount();
 });
 
 $('btnUnselectAllAccs')?.addEventListener('click', () => {
-  $('chkHeaderSelectAll').checked = false;
-  document.querySelectorAll('.acc-chk').forEach(c => c.checked = false);
+  selectedAccountIds.clear();
+  renderAccountTable();
+  updateSelectedCount();
+});
+
+// Chỉ chọn nhóm này (bỏ chọn tất cả các nick khác ngoài nhóm đang xem)
+$('btnOnlySelectCurrentGroupAccs')?.addEventListener('click', () => {
+  selectedAccountIds.clear();
+  const filtered = getFilteredWarmupAccounts();
+  filtered.forEach(a => selectedAccountIds.add(a.id));
+  renderAccountTable();
+  updateSelectedCount();
+});
+
+// Chọn cả nhóm này (cộng dồn các nick trong nhóm vào danh sách chọn)
+$('btnSelectCurrentGroupAccs')?.addEventListener('click', () => {
+  const filtered = getFilteredWarmupAccounts();
+  filtered.forEach(a => selectedAccountIds.add(a.id));
+  renderAccountTable();
+  updateSelectedCount();
+});
+
+// Bỏ chọn nhóm này
+$('btnUnselectCurrentGroupAccs')?.addEventListener('click', () => {
+  const filtered = getFilteredWarmupAccounts();
+  filtered.forEach(a => selectedAccountIds.delete(a.id));
+  renderAccountTable();
   updateSelectedCount();
 });
 
@@ -2350,7 +2512,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.warmupReports) {
     renderReportTable();
   }
-  if (area === 'local' && changes.accounts) {
+  if (area === 'local' && (changes.accounts || changes.accountGroupsList)) {
     loadAccounts();
   }
 });
