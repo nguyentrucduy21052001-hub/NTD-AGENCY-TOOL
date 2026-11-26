@@ -58,18 +58,30 @@
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
-      "js": ["web_bridge.js"],
+      "js": [
+        "web_bridge.js"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["*://*.facebook.com/search/*", "*://*.facebook.com/groups/*"],
-      "js": ["fb_scroll_hook.js"],
+      "matches": [
+        "*://*.facebook.com/search/*",
+        "*://*.facebook.com/groups/*"
+      ],
+      "js": [
+        "fb_scroll_hook.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["*://*.facebook.com/*", "*://facebook.com/*"],
-      "js": ["fb_login_guard.js"],
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://facebook.com/*"
+      ],
+      "js": [
+        "fb_login_guard.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     }
@@ -113,7 +125,9 @@
         "theme_toggle.js",
         "GoogleAppsScript_Code.js"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

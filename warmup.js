@@ -333,7 +333,7 @@ async function startWarmup() {
         ntd_shared_content_library: sharedLib,
         warmupContentSchedules
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   appendLog(`🚀 Bắt đầu chiến dịch nuôi tự động cho ${targetAccounts.length} tài khoản (Thời lượng: ${durationMin} phút/nick)...`, '🚀');
@@ -556,10 +556,10 @@ async function togglePauseWarmup() {
     appendLog('Đang tạm dừng chiến dịch nuôi tài khoản...', '⏸️');
     try {
       if (window.chrome?.runtime?.sendToExtension) {
-        await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => {});
+        await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => { });
       }
-      await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
-    } catch (_) {}
+      await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => { });
+    } catch (_) { }
 
     warmupState.paused = true;
     persistWarmupState();
@@ -609,12 +609,12 @@ async function cancelWarmup() {
 
   try {
     if (window.chrome?.runtime?.sendToExtension) {
-      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_CANCEL' }).catch(() => {});
-      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => {});
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_CANCEL' }).catch(() => { });
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => { });
     }
-    await chrome.runtime.sendMessage({ type: 'WARMUP_CANCEL' }).catch(() => {});
-    await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
-  } catch (_) {}
+    await chrome.runtime.sendMessage({ type: 'WARMUP_CANCEL' }).catch(() => { });
+    await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => { });
+  } catch (_) { }
 
   await chrome.storage.local.set({
     warmupStatus: {
@@ -985,7 +985,7 @@ async function addAuditLogEntry(entry) {
     warmupAuditLogs.unshift(newLog);
     if (warmupAuditLogs.length > 300) warmupAuditLogs.length = 300;
     await chrome.storage.local.set({ warmupAuditLogs });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 // ── 9.3. Đánh giá sức khỏe tài khoản & Giám sát phiên (Health Check) ────────
@@ -2325,7 +2325,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (Array.isArray(lib) && lib.length > 0) {
       renderSharedContentLibrary();
     }
-  }).catch(() => {});
+  }).catch(() => { });
 
   // Kiểm tra trạng thái đã lưu trong localStorage của Web trước
   const savedStr = localStorage.getItem('ntd_web_warmup_state');
@@ -2337,7 +2337,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         resumeWarmupFromSaved(saved, elapsedSec);
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // Nếu không có tiến trình chạy trước đó, đặt lại giao diện sẵn sàng
