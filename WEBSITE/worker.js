@@ -6361,6 +6361,287 @@ function handleRuntimeMessage(m, sender, reply) {
   }
 
   // WARMUP background runner messages
+  if (m.type === 'WARMUP_EVENT') {
+    if (m.event === 'log' && m.text) {
+      broadcastWarmupMessage({
+        type: 'WARMUP_LOG_EVENT',
+        text: m.text,
+        icon: '',
+        time: m.time || new Date().toLocaleTimeString('vi-VN')
+      });
+    }
+    reply({ ok: true });
+    return true;
+  }
+  if (m.type === 'WARMUP_CHECKPOINT_DETECTED') {
+    broadcastWarmupLog(`🚨 ${m.reason || 'Phát hiện Checkpoint / Đăng xuất Facebook'}`, '⛔');
+    reply({ ok: true });
+    return true;
+  }
+  if (m.type === 'WARMUP_MAIN_FILL_AND_POST') {
+    const targetTabId = sender?.tab?.id || warmupCurrentTabId;
+    if (!targetTabId || !m.text) {
+      reply({ ok: false, error: 'Thiếu tabId hoặc nội dung bài viết' });
+      return true;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      world: 'MAIN',
+      args: [String(m.text)],
+      func: async (postText) => {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const visible = e => {
+          if (!e || !e.isConnected) return false;
+          try {
+            if (e.hidden || e.getAttribute('aria-hidden') === 'true') return false;
+            if (e.closest('[hidden], [aria-hidden="true"]')) return false;
+            const s = getComputedStyle(e);
+            if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return false;
+            const rects = e.getClientRects();
+            if (rects.length > 0 && (rects[0].width > 0 || rects[0].height > 0)) return true;
+            if (e.offsetWidth > 0 || e.offsetHeight > 0 || e.offsetParent !== null) return true;
+            if (typeof e.checkVisibility === 'function') {
+              try { return e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }); } catch (_) {}
+            }
+            return true;
+          } catch (_) { return false; }
+        };
+        const label = e => {
+          if (!e) return '';
+          return (
+            e.getAttribute('aria-label') ||
+            e.placeholder ||
+            e.getAttribute('data-placeholder') ||
+            e.getAttribute('aria-placeholder') ||
+            e.getAttribute('title') ||
+            e.innerText ||
+            e.textContent ||
+            ''
+          ).trim();
+        };
+
+        try {
+          const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter(visible);
+          const dialog = dialogs.find(d =>
+            (d.querySelector('[contenteditable="true"][role="textbox"]') || d.querySelector('[contenteditable="true"]')) &&
+            (/tạo bài viết|create post|bạn đang nghĩ gì|what's on your mind/i.test(d.innerText || '') ||
+             [...d.querySelectorAll('[role="button"], button')].some(b => /^(Đăng|Post|Tiếp|Next)$/i.test(label(b))))
+          ) || dialogs.find(d =>
+            (d.querySelector('[contenteditable="true"][role="textbox"]') || d.querySelector('[data-lexical-editor="true"]')) &&
+            !/gửi tin nhắn|nhắn tin|messenger|chat/i.test(d.getAttribute('aria-label') || '')
+          );
+
+          if (!dialog) {
+            return { ok: false, step: 'find_dialog', error: `Không tìm thấy hộp thoại Tạo bài viết (tổng dialog thấy: ${dialogs.length})` };
+          }
+
+          const editor =
+            [...dialog.querySelectorAll('[contenteditable="true"][role="textbox"]')].find(visible) ||
+            [...dialog.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"]')].find(visible) ||
+            [...dialog.querySelectorAll('[contenteditable="true"]')].find(visible) ||
+            dialog.querySelector('[contenteditable="true"]');
+
+          if (!editor) {
+            return { ok: false, step: 'find_editor', error: 'Không tìm thấy ô nhập [contenteditable="true"] bên trong dialog' };
+          }
+
+          const placeCaret = () => {
+            try { editor.focus(); } catch (_) {}
+            try {
+              const sel = window.getSelection();
+              if (sel) {
+                sel.removeAllRanges();
+                const targetNode = editor.querySelector('p') || editor;
+                const range = document.createRange();
+                range.selectNodeContents(targetNode);
+                range.collapse(false);
+                sel.addRange(range);
+              }
+            } catch (_) {}
+          };
+
+          const getEdText = () => (editor.innerText || editor.textContent || '').replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim();
+          const hasInserted = () => getEdText().length >= Math.min(4, postText.trim().length);
+
+          // Kích hoạt focus + click vào editor trong MAIN world
+          try {
+            const r = editor.getBoundingClientRect();
+            const cx = Math.round(r.left + Math.min(80, r.width / 2)) || 200;
+            const cy = Math.round(r.top + Math.min(25, r.height / 2)) || 200;
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evtName => {
+              editor.dispatchEvent(new MouseEvent(evtName, { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy }));
+            });
+          } catch (_) {}
+          placeCaret();
+          await sleep(250);
+
+          // Cách 1: ClipboardEvent 'paste' trực tiếp trong MAIN world (DataTransfer cùng realm với Facebook Lexical)
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', postText);
+            const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const htmlLines = postText.split('\n').map(l =>
+              l.trim() ? `<p class="xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8"><span data-lexical-text="true">${esc(l)}</span></p>` : '<p class="xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8"><br></p>'
+            ).join('');
+            dt.setData('text/html', htmlLines);
+            editor.dispatchEvent(new ClipboardEvent('paste', {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true,
+              composed: true
+            }));
+            await sleep(600);
+          } catch (_) {}
+
+          // Cách 2: InputEvent 'beforeinput' (insertFromPaste & insertText) trong MAIN world
+          if (!hasInserted()) {
+            placeCaret();
+            try {
+              const dt = new DataTransfer();
+              dt.setData('text/plain', postText);
+              editor.dispatchEvent(new InputEvent('beforeinput', {
+                inputType: 'insertFromPaste',
+                dataTransfer: dt,
+                data: postText,
+                bubbles: true,
+                cancelable: true,
+                composed: true
+              }));
+            } catch (_) {}
+            await sleep(400);
+          }
+
+          if (!hasInserted()) {
+            placeCaret();
+            try {
+              editor.dispatchEvent(new InputEvent('beforeinput', {
+                inputType: 'insertText',
+                data: postText,
+                bubbles: true,
+                cancelable: true,
+                composed: true
+              }));
+            } catch (_) {}
+            await sleep(400);
+          }
+
+          // Cách 3: document.execCommand('insertText') với caret đặt trong thẻ <p>
+          if (!hasInserted()) {
+            placeCaret();
+            try {
+              document.execCommand('insertText', false, postText);
+            } catch (_) {}
+            await sleep(500);
+          }
+
+          // Cách 4: Chromium TextEvent 'textInput'
+          if (!hasInserted()) {
+            placeCaret();
+            try {
+              const te = document.createEvent('TextEvent');
+              te.initTextEvent('textInput', true, true, window, postText, 0, '');
+              editor.dispatchEvent(te);
+            } catch (_) {}
+            await sleep(500);
+          }
+
+          // Cách 5: Gọi trực tiếp React __reactProps$ onPaste nếu có
+          if (!hasInserted()) {
+            placeCaret();
+            try {
+              const rpKey = Object.keys(editor).find(k => k.startsWith('__reactProps$'));
+              const rp = rpKey ? editor[rpKey] : null;
+              if (rp && typeof rp.onPaste === 'function') {
+                const dt = new DataTransfer();
+                dt.setData('text/plain', postText);
+                rp.onPaste({
+                  clipboardData: dt,
+                  currentTarget: editor,
+                  target: editor,
+                  preventDefault: () => {},
+                  stopPropagation: () => {},
+                  persist: () => {}
+                });
+                await sleep(500);
+              }
+            } catch (_) {}
+          }
+
+          if (!hasInserted()) {
+            return {
+              ok: false,
+              step: 'fill_text',
+              error: `Không chèn được chữ vào editor (tag=${editor.tagName}, ce=${editor.getAttribute('contenteditable')})`
+            };
+          }
+
+          // Nudge editor để Facebook bật sáng nút Đăng
+          try {
+            editor.focus();
+            editor.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: '', bubbles: true, composed: true }));
+            editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+            editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+          } catch (_) {}
+          await sleep(600);
+
+          // Tìm và bấm nút Tiếp / Đăng
+          const POST_RE = /^(Đăng|Post|Đăng bài|Đăng bài viết|Publish)$/i;
+          const NEXT_RE = /^(Tiếp|Tiếp tục|Next)$/i;
+          let postBtn = null;
+
+          for (let i = 0; i < 30; i++) {
+            const btns = [...dialog.querySelectorAll('[role="button"], button')].filter(visible);
+            const nextBtn = btns.find(b => NEXT_RE.test(label(b)) && !b.disabled && b.getAttribute('aria-disabled') !== 'true');
+            if (nextBtn) {
+              nextBtn.click();
+              await sleep(800);
+              continue;
+            }
+            const candidate = btns.find(b => POST_RE.test(label(b)));
+            if (candidate) {
+              const isDisabled = candidate.disabled || candidate.getAttribute('aria-disabled') === 'true';
+              if (!isDisabled) {
+                postBtn = candidate;
+                break;
+              }
+              try {
+                editor.focus();
+                document.execCommand('insertText', false, ' ');
+                await sleep(120);
+                document.execCommand('delete', false, null);
+                editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
+              } catch (_) {}
+            }
+            await sleep(500);
+          }
+
+          if (!postBtn) {
+            return {
+              ok: false,
+              step: 'find_post_btn',
+              error: 'Đã điền chữ nhưng nút Đăng chưa bật sáng (aria-disabled=true)',
+              filledText: getEdText().slice(0, 40)
+            };
+          }
+
+          try {
+            postBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+            postBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+          } catch (_) {}
+          postBtn.click();
+
+          return { ok: true, step: 'clicked_post', filledText: getEdText().slice(0, 50) };
+        } catch (err) {
+          return { ok: false, step: 'exception', error: err?.message || String(err) };
+        }
+      }
+    }).then(results => {
+      reply(results?.[0]?.result || { ok: false, error: 'Không nhận được kết quả từ MAIN world' });
+    }).catch(err => {
+      reply({ ok: false, error: err?.message || String(err) });
+    });
+    return true;
+  }
   if (m.type === 'WARMUP_SESSION_FINISHED') {
     reply({ ok: true });
     return true;

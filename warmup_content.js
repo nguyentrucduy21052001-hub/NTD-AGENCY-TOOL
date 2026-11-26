@@ -568,30 +568,36 @@
     }
   }
 
-  // ── Helper điền văn bản vào bộ soạn Lexical của Facebook ─────────────────────
+  // ── Helper điền văn bản vào bộ soạn Lexical của Facebook (ISOLATED fallback) ─
   async function fillFacebookEditor(el, text) {
     if (!el || !text) return false;
-    try {
-      el.scrollIntoView({ block: 'center', behavior: 'instant' });
-      el.focus();
-      triggerHumanClick(el);
-    } catch (_) {}
-    await delay(300);
-
-    const sel = window.getSelection();
-    if (sel) {
+    const placeCaret = () => {
+      try { el.focus(); } catch (_) {}
       try {
-        sel.removeAllRanges();
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        sel.addRange(range);
+        const sel = window.getSelection();
+        if (sel) {
+          sel.removeAllRanges();
+          const targetNode = el.querySelector('p') || el;
+          const range = document.createRange();
+          range.selectNodeContents(targetNode);
+          range.collapse(false);
+          sel.addRange(range);
+        }
       } catch (_) {}
-    }
+    };
 
-    let filled = false;
+    try {
+      el.focus();
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+    } catch (_) {}
+    placeCaret();
+    await delay(250);
 
-    // Cách 1: ClipboardEvent 'paste' (truyền cả plain và cấu trúc thẻ Lexical)
+    const getEdText = () => (el.innerText || el.textContent || '').replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim();
+    const hasInserted = () => getEdText().length >= Math.min(4, text.trim().length);
+
+    // Cách 1: ClipboardEvent 'paste'
     try {
       const dt = new DataTransfer();
       dt.setData('text/plain', text);
@@ -608,12 +614,11 @@
         composed: true
       }));
       await delay(600);
-      const current = (el.innerText || el.textContent || '').trim();
-      if (current.length > 5) filled = true;
     } catch (_) {}
 
-    // Cách 2: InputEvent 'beforeinput' (chuẩn Lexical Meta)
-    if (!filled) {
+    // Cách 2: InputEvent 'beforeinput'
+    if (!hasInserted()) {
+      placeCaret();
       try {
         const dt = new DataTransfer();
         dt.setData('text/plain', text);
@@ -639,47 +644,26 @@
         } catch (_) {}
 
         await delay(500);
-        const current = (el.innerText || el.textContent || '').trim();
-        if (current.length > 5) filled = true;
       } catch (_) {}
     }
 
     // Cách 3: document.execCommand('insertText')
-    if (!filled) {
+    if (!hasInserted()) {
+      placeCaret();
       try {
-        el.focus();
         document.execCommand('insertText', false, text);
         await delay(500);
-        const current = (el.innerText || el.textContent || '').trim();
-        if (current.length > 5) filled = true;
       } catch (_) {}
     }
 
-    // Cách 4: Tạo cấu trúc DOM Lexical trực tiếp
-    if (!filled) {
+    // Cách 4: Chromium TextEvent 'textInput'
+    if (!hasInserted()) {
+      placeCaret();
       try {
-        el.innerHTML = '';
-        const lines = text.split('\n');
-        for (const line of lines) {
-          const p = document.createElement('p');
-          p.className = 'xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8';
-          if (line.trim().length > 0) {
-            const span = document.createElement('span');
-            span.setAttribute('data-lexical-text', 'true');
-            span.textContent = line;
-            p.appendChild(span);
-          } else {
-            p.appendChild(document.createElement('br'));
-          }
-          el.appendChild(p);
-        }
-
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: text, bubbles: true, composed: true }));
-        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', bubbles: true }));
-        el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Unidentified', bubbles: true }));
+        const te = document.createEvent('TextEvent');
+        te.initTextEvent('textInput', true, true, window, text, 0, '');
+        el.dispatchEvent(te);
         await delay(500);
-        filled = true;
       } catch (_) {}
     }
 
@@ -691,7 +675,7 @@
       el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
     } catch (_) {}
 
-    return filled;
+    return hasInserted();
   }
 
   // ── 7.1. Tự động đăng bài viết lên Trang cá nhân (Timeline) ─────────────────
@@ -713,7 +697,6 @@
       const OPENER_RE = /Bạn đang nghĩ gì|Bạn viết gì đi|Viết gì đó|Viết gì đi|Bạn muốn chia sẻ|Chia sẻ điều gì|Bắt đầu thảo luận|Tạo bài viết|Tạo bài|Viết bài|What's on your mind|Create a post|Create post|Write something|Share something/i;
 
       const findOpenerWithTarget = () => {
-        // Lớp 1: Quét các nút tương tác role="button", button, combobox, tabindex="0"
         const clickable = [...document.querySelectorAll('[role="button"], button, [role="combobox"], [tabindex="0"]')].filter(visible);
         for (const el of clickable) {
           if (el.closest('nav, header, [role="banner"], [role="navigation"]')) continue;
@@ -724,7 +707,6 @@
           }
         }
 
-        // Lớp 2: Quét trực tiếp các thẻ span / div hiển thị chữ trên giao diện (bắt chính xác "Tuấn Duy ơi, bạn đang nghĩ gì thế?")
         const textEls = [...document.querySelectorAll('span, div')].filter(visible);
         for (const el of textEls) {
           const txt = (el.innerText || el.getAttribute('aria-placeholder') || '').trim();
@@ -738,7 +720,6 @@
         return null;
       };
 
-      // Vòng lặp chờ ô soạn bài Facebook xuất hiện (retry tối đa 25 giây khi Facebook đang tải feed)
       let target = null;
       const findStart = Date.now();
       while (Date.now() - findStart < 25000 && !isCancelled) {
@@ -755,22 +736,33 @@
       const { opener, span } = target;
       sendLog('Đang bấm mở hộp thoại tạo bài viết mới...', '✍️');
 
-      // CHỈ CLICK 1 LẦN DUY NHẤT VÀO NÚT SOẠN BÀI (TUYỆT ĐỐI KHÔNG CLICK THÊM LẦN 2 VÀO PHẦN TỬ KHÁC VÌ SẼ BỊ FACEBOOK COI LÀ CLICK RA NGOÀI ĐÓNG POPUP)
+      // CHỈ CLICK 1 LẦN DUY NHẤT VÀO NÚT SOẠN BÀI
       const clickTarget = opener || span;
       try { clickTarget.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
       await delay(250);
       triggerHumanClick(clickTarget);
 
-      // 3. Chờ hộp thoại soạn bài (dialog) mở ra
+      // 3. Chờ hộp thoại soạn bài (dialog) mở ra VÀ có chứa textbox
+      const findComposerDialog = () => {
+        const candidates = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter(visible);
+        const exact = candidates.find(d =>
+          (d.querySelector('[contenteditable="true"][role="textbox"]') || d.querySelector('[contenteditable="true"]')) &&
+          (/tạo bài viết|create post|bạn đang nghĩ gì|what's on your mind/i.test(d.innerText || '') ||
+           [...d.querySelectorAll('[role="button"], button')].some(b => /^(Đăng|Post|Tiếp|Next)$/i.test(label(b))))
+        );
+        if (exact) return exact;
+        return candidates.find(d =>
+          (d.querySelector('[contenteditable="true"][role="textbox"]') || d.querySelector('[data-lexical-editor="true"]')) &&
+          !/gửi tin nhắn|nhắn tin|messenger|chat/i.test(d.getAttribute('aria-label') || '')
+        ) || null;
+      };
+
       let dialog = null;
       const waitStart = Date.now();
       while (Date.now() - waitStart < 25000 && !isCancelled) {
-        dialog = [...document.querySelectorAll('[role="dialog"]')].find(d => {
-          return visible(d) && (d.querySelector('[contenteditable="true"]') || /tạo bài viết|create post|bạn đang nghĩ gì/i.test(d.innerText || ''));
-        });
+        dialog = findComposerDialog();
         if (dialog) break;
 
-        // Chỉ nếu quá 4 giây vẫn chưa mở hộp thoại thì mới thử bấm lại 1 lần vào span
         if (Date.now() - waitStart > 4000 && (Date.now() - waitStart) % 4000 < 500) {
           if (span && span !== clickTarget) {
             triggerHumanClick(span);
@@ -786,85 +778,89 @@
         return;
       }
 
-      sendLog('Đã mở hộp thoại tạo bài viết thành công!', '✅');
+      sendLog('Đã mở hộp thoại tạo bài viết thành công! Đang chuẩn bị điền nội dung...', '✅');
+      await delay(600);
 
-      // 4. Chờ ô soạn bài Lexical editor sẵn sàng trong hộp thoại (tối đa 15 giây)
-      sendLog('Đang tìm ô soạn bài bên trong hộp thoại...', '🔍');
-      let editor = null;
-      const editorStart = Date.now();
-      while (Date.now() - editorStart < 15000 && !isCancelled) {
-        editor = dialog.querySelector('[contenteditable="true"][role="textbox"]') ||
-                 dialog.querySelector('[contenteditable="true"]') ||
-                 dialog.querySelector('[data-lexical-editor="true"]') ||
-                 dialog.querySelector('div[aria-label*="bạn đang nghĩ gì" i]') ||
-                 dialog.querySelector('div[aria-label*="what\'s on your mind" i]');
-        if (editor && visible(editor)) break;
-        await delay(400);
-      }
-
-      if (!editor) {
-        sendLog('⚠️ Không tìm thấy ô nhập nội dung bên trong hộp thoại tạo bài.', '⚠️');
-        return;
-      }
-
-      // 5. Điền nội dung bài viết mô phỏng thao tác chuẩn
-      sendLog('Đang điền nội dung bài viết vào ô soạn thảo...', '⌨️');
-      await fillFacebookEditor(editor, postText);
-      await delay(1200);
-
-      // Kích hoạt re-render nút Đăng
+      // 4. Ưu tiên điền & bấm Đăng trực tiếp trong MAIN world (cùng context JS với React/Lexical của Facebook)
+      let mainHandled = false;
       try {
-        editor.focus();
-        document.execCommand('insertText', false, ' ');
-        await delay(150);
-        document.execCommand('delete', false, null);
-        editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
-      } catch (_) {}
-      await delay(1000);
-
-      // 6. Tìm và bấm nút Đăng (Post)
-      sendLog('Đang tìm nút Đăng bài viết...', '🔍');
-      const POST_RE = /^(Đăng|Post|Đăng bài|Đăng bài viết|Publish)$/i;
-      let postBtn = null;
-      const postWaitStart = Date.now();
-
-      while (Date.now() - postWaitStart < 25000 && !isCancelled) {
-        const allBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(visible);
-        const candidate = allBtns.find(b => {
-          const lbl = label(b);
-          return POST_RE.test(lbl);
+        const mainRes = await chrome.runtime.sendMessage({
+          type: 'WARMUP_MAIN_FILL_AND_POST',
+          text: postText
         });
-
-        if (candidate) {
-          const isDisabled = candidate.disabled || candidate.getAttribute('aria-disabled') === 'true';
-          if (!isDisabled) {
-            postBtn = candidate;
-            break;
-          } else {
-            // Nút Đăng đang disabled -> nudge editor để Facebook cập nhật lại
-            try {
-              editor.focus();
-              document.execCommand('insertText', false, ' ');
-              await delay(150);
-              document.execCommand('delete', false, null);
-              editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
-            } catch (_) {}
-          }
+        if (mainRes && mainRes.ok && mainRes.step === 'clicked_post') {
+          mainHandled = true;
+          sendLog(`Đã điền nội dung ("${(mainRes.filledText || postText).slice(0, 40)}...") và bấm nút Đăng!`, '🚀');
+        } else if (mainRes && mainRes.error) {
+          sendLog(`Thử chế độ dự phòng (MAIN world báo: ${mainRes.error})`, 'ℹ️');
         }
-        await delay(600);
+      } catch (mErr) {
+        sendLog(`Chuyển sang chế độ điền nội dung trực tiếp: ${mErr.message}`, 'ℹ️');
       }
 
-      if (!postBtn) {
-        sendLog('⚠️ Nút Đăng chưa sẵn sàng hoặc bị vô hiệu hóa.', '⚠️');
-        return;
+      // 5. Fallback trong ISOLATED world nếu MAIN world chưa hoàn tất
+      if (!mainHandled && !isCancelled) {
+        sendLog('Đang tìm ô soạn bài bên trong hộp thoại...', '🔍');
+        let editor = null;
+        const editorStart = Date.now();
+        while (Date.now() - editorStart < 15000 && !isCancelled) {
+          editor = [...dialog.querySelectorAll('[contenteditable="true"][role="textbox"]')].find(visible) ||
+                   [...dialog.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"]')].find(visible) ||
+                   [...dialog.querySelectorAll('[contenteditable="true"]')].find(visible) ||
+                   dialog.querySelector('[contenteditable="true"]');
+          if (editor) break;
+          await delay(400);
+        }
+
+        if (!editor) {
+          sendLog('⚠️ Không tìm thấy ô nhập nội dung bên trong hộp thoại tạo bài.', '⚠️');
+          return;
+        }
+
+        sendLog('Đang điền nội dung bài viết vào ô soạn thảo...', '⌨️');
+        await fillFacebookEditor(editor, postText);
+        await delay(1000);
+
+        sendLog('Đang tìm nút Đăng bài viết...', '🔍');
+        const POST_RE = /^(Đăng|Post|Đăng bài|Đăng bài viết|Publish)$/i;
+        let postBtn = null;
+        const postWaitStart = Date.now();
+
+        while (Date.now() - postWaitStart < 20000 && !isCancelled) {
+          const allBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(visible);
+          const candidate = allBtns.find(b => POST_RE.test(label(b)));
+
+          if (candidate) {
+            const isDisabled = candidate.disabled || candidate.getAttribute('aria-disabled') === 'true';
+            if (!isDisabled) {
+              postBtn = candidate;
+              break;
+            } else {
+              try {
+                editor.focus();
+                document.execCommand('insertText', false, ' ');
+                await delay(150);
+                document.execCommand('delete', false, null);
+                editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
+              } catch (_) {}
+            }
+          }
+          await delay(600);
+        }
+
+        if (!postBtn) {
+          sendLog('⚠️ Nút Đăng chưa sẵn sàng hoặc bị vô hiệu hóa.', '⚠️');
+          return;
+        }
+
+        sendLog('Đang bấm nút Đăng bài viết...', '🚀');
+        try {
+          postBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+          postBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        } catch (_) {}
+        postBtn.click();
       }
 
-      sendLog('Đang bấm nút Đăng bài viết...', '🚀');
-      try {
-        postBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-        postBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-      } catch (_) {}
-      postBtn.click();
       await delay(1500);
 
       // 7. Chờ hộp thoại tạo bài đóng lại xác nhận thành công
