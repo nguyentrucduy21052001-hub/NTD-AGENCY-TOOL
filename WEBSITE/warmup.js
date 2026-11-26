@@ -176,7 +176,7 @@ async function saveCurrentConfig() {
     reels: $('chkReels')?.checked !== false,
     notif: $('chkNotif')?.checked !== false,
     personalPost: Boolean($('chkPersonalPost')?.checked),
-    postCondition: $('selectPostCondition')?.value || 'days_1',
+    postCondition: $('selectPostCondition')?.value || 'always',
     postContentSource: $('selectPostContentSource')?.value || 'random_all',
     customPostContent: $('txtCustomPostContent')?.value || ''
   };

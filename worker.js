@@ -3818,7 +3818,7 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
   const { warmupConfig: savedWConfig = {} } = await chrome.storage.local.get('warmupConfig');
   const enablePersonalPost = Boolean(config?.personalPost ?? config?.enablePersonalPost ?? savedWConfig.personalPost);
   const postContentSource = config?.postContentSource ?? savedWConfig.postContentSource ?? 'random_all';
-  const postCondition = config?.postCondition ?? savedWConfig.postCondition ?? 'days_1';
+  const postCondition = config?.postCondition ?? savedWConfig.postCondition ?? 'always';
   const customPostContent = config?.customPostContent ?? savedWConfig.customPostContent ?? '';
   // Kho nội dung có thể được truyền trực tiếp qua config (từ warmup.js) để tránh race condition với SYNC_DATA_TO_EXTENSION
   const sharedLibFromConfig = Array.isArray(config?.ntd_shared_content_library) && config.ntd_shared_content_library.length > 0
@@ -3973,9 +3973,10 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
 
             let shouldPost = false;
             if (postCondition === 'always') shouldPost = true;
-            else if (postCondition === 'days_1' && daysSince >= 1) shouldPost = true;
-            else if (postCondition === 'days_2' && daysSince >= 2) shouldPost = true;
-            else if (postCondition === 'days_3' && daysSince >= 3) shouldPost = true;
+            else if (postCondition === 'days_1') shouldPost = (daysSince >= 1);
+            else if (postCondition === 'days_2') shouldPost = (daysSince >= 2);
+            else if (postCondition === 'days_3') shouldPost = (daysSince >= 3);
+            else shouldPost = true;
 
             if (shouldPost) {
               if (postContentSource === 'custom' && customPostContent) {
@@ -4004,7 +4005,7 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
                 broadcastWarmupLog(`📝 Chuẩn bị đăng bài cá nhân cho nick "${acc.name}": "${accountPostText.slice(0, 50)}..."`, '📝');
               }
             } else {
-              broadcastWarmupLog(`Nick "${acc.name}" đã đăng bài gần đây (${daysSince} ngày), bỏ qua đăng cá nhân đợt này.`, 'ℹ️');
+              broadcastWarmupLog(`ℹ️ Nick "${acc.name}" đã đăng bài gần đây (${daysSince === 0 ? 'hôm nay' : daysSince + ' ngày trước'}). Theo điều kiện "${postCondition}", sẽ bỏ qua đăng cá nhân trong phiên này.`, 'ℹ️');
             }
           } catch (cErr) {
             console.warn('[Warmup] Lỗi chuẩn bị bài đăng cá nhân:', cErr);

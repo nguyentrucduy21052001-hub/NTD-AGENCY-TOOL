@@ -24,6 +24,45 @@
   const delay = ms => new Promise(r => setTimeout(r, ms));
   let isCancelled = false;
 
+  // ── Helper kiểm tra phần tử có thực sự hiển thị trên giao diện Facebook ────
+  const visible = e => {
+    if (!e || !e.isConnected) return false;
+    try {
+      if (e.hidden || e.getAttribute('aria-hidden') === 'true') return false;
+      if (e.closest('[hidden], [aria-hidden="true"]')) return false;
+
+      const s = getComputedStyle(e);
+      if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return false;
+
+      const rects = e.getClientRects();
+      if (rects.length > 0 && (rects[0].width > 0 || rects[0].height > 0)) return true;
+      if (e.offsetWidth > 0 || e.offsetHeight > 0 || e.offsetParent !== null) return true;
+
+      if (typeof e.checkVisibility === 'function') {
+        try {
+          return e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+        } catch (_) {}
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const label = e => {
+    if (!e) return '';
+    return (
+      e.getAttribute('aria-label') ||
+      e.placeholder ||
+      e.getAttribute('data-placeholder') ||
+      e.getAttribute('aria-placeholder') ||
+      e.getAttribute('title') ||
+      e.innerText ||
+      e.textContent ||
+      ''
+    ).trim();
+  };
+
   // ── 2. Tự động phát hiện và đóng các hộp thoại/pop-up cản trở của Facebook ───
   function dismissObstructingDialogs() {
     try {
@@ -41,12 +80,24 @@
           continue;
         }
 
+        // BẢO VỆ TUYỆT ĐỐI HỘP THOẠI TẠO BÀI VIẾT (POST COMPOSER) CỦA FACEBOOK
+        if (
+          dialog.querySelector('[contenteditable="true"]') ||
+          dialog.querySelector('form') ||
+          text.includes('tạo bài viết') ||
+          text.includes('create post') ||
+          text.includes('bạn đang nghĩ gì') ||
+          text.includes("what's on your mind")
+        ) {
+          continue;
+        }
+
         // 1. Ưu tiên tìm nút đóng (X) ở góc hộp thoại (như bảng "Tài khoản Meta của bạn đã sẵn sàng")
         const closeBtn = dialog.querySelector(
           '[aria-label="Đóng"], [aria-label="Close"], [aria-label*="Đóng"], [aria-label*="Close"], [aria-label*="dong"], [aria-label*="Dong"]'
         );
 
-        if (closeBtn && closeBtn.offsetParent !== null) {
+        if (closeBtn && visible(closeBtn)) {
           closeBtn.click();
           anyDismissed = true;
           sendLog('Đã tự động tắt bảng thông báo pop-up của Facebook (Nút X)', '🛡️');
@@ -76,7 +127,7 @@
           );
         });
 
-        if (actionBtn && actionBtn.offsetParent !== null) {
+        if (actionBtn && visible(actionBtn)) {
           const actionText = actionBtn.innerText.trim();
           actionBtn.click();
           anyDismissed = true;
@@ -255,30 +306,28 @@
   // ── Helper click chuẩn React cho các phần tử Facebook ──────────────────────
   function triggerHumanClick(el) {
     if (!el) return;
-    try {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } catch (_) {}
-
-    const rect = el.getBoundingClientRect();
-    const clientX = Math.round(rect.left + rect.width / 2);
-    const clientY = Math.round(rect.top + rect.height / 2);
-
-    const eventInit = {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      clientX: clientX || 100,
-      clientY: clientY || 100
-    };
-
     try { el.focus({ preventScroll: true }); } catch (_) {}
-    el.dispatchEvent(new MouseEvent('mouseenter', eventInit));
-    el.dispatchEvent(new MouseEvent('mouseover', eventInit));
-    el.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-    el.dispatchEvent(new MouseEvent('mousedown', eventInit));
-    el.dispatchEvent(new PointerEvent('pointerup', eventInit));
-    el.dispatchEvent(new MouseEvent('mouseup', eventInit));
-    el.click();
+    try {
+      const rect = el.getBoundingClientRect();
+      const clientX = Math.round(rect.left + rect.width / 2) || 100;
+      const clientY = Math.round(rect.top + rect.height / 2) || 100;
+
+      const eventInit = {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY
+      };
+
+      el.dispatchEvent(new MouseEvent('mouseenter', eventInit));
+      el.dispatchEvent(new MouseEvent('mouseover', eventInit));
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...eventInit, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1 }));
+      el.dispatchEvent(new MouseEvent('mousedown', { ...eventInit, button: 0, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...eventInit, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0 }));
+      el.dispatchEvent(new MouseEvent('mouseup', { ...eventInit, button: 0, buttons: 0 }));
+    } catch (_) {}
+    try { el.click(); } catch (_) {}
   }
 
   // ── 4. Lướt Bảng tin & Đọc bài viết & Thả Like/Tim ngẫu nhiên ───────────────
@@ -524,60 +573,88 @@
 
     try {
       // 1. Cuộn trang lên đầu để thấy ô soạn bài nếu đang ở giữa trang
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      await delay(1200);
+      try {
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      } catch (_) {
+        window.scrollTo(0, 0);
+      }
+      await delay(1000);
       dismissObstructingDialogs();
 
       // 2. Tìm nút mở hộp thoại soạn bài "Bạn đang nghĩ gì thế?"
-      const OPENER_RE = /Bạn đang nghĩ gì|Bạn viết gì đi|Viết gì đó|Tạo bài viết|What's on your mind|Create a post|Write something/i;
-      const findOpener = () => {
-        const candidates = [...document.querySelectorAll('[role="button"], button, [role="combobox"], [tabindex="0"]')];
-        for (const el of candidates) {
+      const OPENER_RE = /Bạn đang nghĩ gì|Bạn viết gì đi|Viết gì đó|Viết gì đi|Bạn muốn chia sẻ|Chia sẻ điều gì|Bắt đầu thảo luận|Tạo bài viết|Tạo bài|Viết bài|What's on your mind|Create a post|Create post|Write something|Share something/i;
+
+      const findOpenerWithTarget = () => {
+        // Lớp 1: Quét các nút tương tác role="button", button, combobox, tabindex="0"
+        const clickable = [...document.querySelectorAll('[role="button"], button, [role="combobox"], [tabindex="0"]')].filter(visible);
+        for (const el of clickable) {
           if (el.closest('nav, header, [role="banner"], [role="navigation"]')) continue;
-          const t = (el.innerText || el.textContent || '').trim();
-          const aria = (el.getAttribute('aria-label') || '').trim();
-          if (OPENER_RE.test(t) || OPENER_RE.test(aria)) {
-            const r = el.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0 && r.top < window.innerHeight + 150) {
-              return el;
-            }
+          const lbl = label(el) || el.getAttribute('aria-placeholder') || el.getAttribute('placeholder') || '';
+          if (OPENER_RE.test(lbl)) {
+            if (/^(Thảo luận|Discussion)$/i.test(lbl.trim()) && el.tagName === 'A') continue;
+            return { opener: el, span: el.querySelector('span, div') || el };
           }
         }
+
+        // Lớp 2: Quét trực tiếp các thẻ span / div hiển thị chữ trên giao diện (bắt chính xác "Tuấn Duy ơi, bạn đang nghĩ gì thế?")
+        const textEls = [...document.querySelectorAll('span, div')].filter(visible);
+        for (const el of textEls) {
+          const txt = (el.innerText || el.getAttribute('aria-placeholder') || '').trim();
+          if (txt && OPENER_RE.test(txt) && txt.length < 90) {
+            if (el.closest('nav, header, [role="banner"], [role="navigation"]')) continue;
+            const btn = el.closest('[role="button"], button, [tabindex="0"]') || el.parentElement || el;
+            if (visible(btn)) return { opener: btn, span: el };
+          }
+        }
+
         return null;
       };
 
-      let opener = findOpener();
-      if (!opener) {
-        // Thử tìm trong feed header
-        const feedMain = document.querySelector('div[role="feed"], div[role="main"]');
-        if (feedMain) {
-          const btn = feedMain.querySelector('[role="button"]');
-          if (btn) opener = btn;
-        }
+      // Vòng lặp chờ ô soạn bài Facebook xuất hiện (retry tối đa 25 giây khi Facebook đang tải feed)
+      let target = null;
+      const findStart = Date.now();
+      while (Date.now() - findStart < 25000 && !isCancelled) {
+        target = findOpenerWithTarget();
+        if (target) break;
+        await delay(500);
       }
 
-      if (!opener) {
+      if (!target || !target.opener) {
         sendLog('⚠️ Không tìm thấy ô mở soạn bài "Bạn đang nghĩ gì thế?" trên trang cá nhân.', '⚠️');
         return;
       }
 
+      const { opener, span } = target;
       sendLog('Đang bấm mở hộp thoại tạo bài viết mới...', '✍️');
-      triggerHumanClick(opener);
-      await delay(1800);
 
-      // 3. Chờ hộp thoại soạn bài (dialog) mở ra
+      // Bấm vào cả thẻ span bên trong và thẻ nút bên ngoài để React 18 bắt sự kiện chuẩn xác
+      try { span.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
+      await delay(200);
+      triggerHumanClick(span);
+      if (opener !== span) {
+        await delay(150);
+        triggerHumanClick(opener);
+      }
+
+      // 3. Chờ hộp thoại soạn bài (dialog) mở ra (DÙNG visible(d), BỎ HOÀN TOÀN offsetParent)
       let dialog = null;
       const waitStart = Date.now();
-      while (Date.now() - waitStart < 15000 && !isCancelled) {
+      while (Date.now() - waitStart < 25000 && !isCancelled) {
         dialog = [...document.querySelectorAll('[role="dialog"]')].find(d => {
-          return d.offsetParent !== null && d.querySelector('[contenteditable="true"]');
+          return visible(d) && (d.querySelector('[contenteditable="true"]') || /tạo bài viết|create post|bạn đang nghĩ gì/i.test(d.innerText || ''));
         });
         if (dialog) break;
+
+        // Nếu quá 3.5 giây vẫn chưa mở hộp thoại, thử bấm lại một lần nữa
+        if (Date.now() - waitStart > 3500 && (Date.now() - waitStart) % 3500 < 600) {
+          triggerHumanClick(span);
+          if (opener !== span) triggerHumanClick(opener);
+        }
         await delay(500);
       }
 
       if (!dialog) {
-        sendLog('⚠️ Không mở được hộp thoại tạo bài viết Facebook sau 15 giây.', '⚠️');
+        sendLog('⚠️ Không mở được hộp thoại tạo bài viết Facebook sau 25 giây.', '⚠️');
         return;
       }
 
@@ -591,55 +668,69 @@
       // 5. Điền nội dung bài viết mô phỏng thao tác chuẩn
       sendLog('Đang điền nội dung bài viết vào ô soạn thảo...', '⌨️');
       editor.focus();
-      await delay(400);
+      await delay(300);
 
+      // Điền nội dung qua cơ chế DataTransfer / ClipboardEvent paste của Facebook Lexical
+      let filled = false;
       try {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (_) {}
-
-      // Dispatch beforeinput
-      try {
-        editor.dispatchEvent(new InputEvent('beforeinput', {
-          inputType: 'insertText',
-          data: postText,
+        const dt = new DataTransfer();
+        dt.setData('text/plain', postText);
+        editor.dispatchEvent(new ClipboardEvent('paste', {
+          clipboardData: dt,
           bubbles: true,
           cancelable: true,
           composed: true
         }));
+        await delay(400);
+        const edText = (editor.innerText || editor.textContent || '').trim();
+        if (edText.length > 5) filled = true;
       } catch (_) {}
 
-      // execCommand insertText
-      try {
-        document.execCommand('insertText', false, postText);
-      } catch (_) {}
+      if (!filled) {
+        try {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (_) {}
 
-      // Dispatch input
-      try {
-        editor.dispatchEvent(new InputEvent('input', {
-          inputType: 'insertText',
-          data: postText,
-          bubbles: true,
-          composed: true
-        }));
-      } catch (_) {}
+        try {
+          editor.dispatchEvent(new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: postText,
+            bubbles: true,
+            cancelable: true,
+            composed: true
+          }));
+        } catch (_) {}
 
-      await delay(1500);
+        try {
+          document.execCommand('insertText', false, postText);
+        } catch (_) {}
+
+        try {
+          editor.dispatchEvent(new InputEvent('input', {
+            inputType: 'insertText',
+            data: postText,
+            bubbles: true,
+            composed: true
+          }));
+        } catch (_) {}
+      }
+
+      await delay(1200);
 
       // Nudge editor để kích hoạt re-render trạng thái nút Đăng
       try {
-        editor.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }));
-        document.execCommand('insertText', false, ' ');
-        await delay(200);
-        document.execCommand('delete', false, null);
-        editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
+        editor.focus();
+        editor.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: '', bubbles: true, composed: true }));
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+        editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
       } catch (_) {}
 
-      await delay(1200);
+      await delay(1000);
 
       // 6. Tìm và bấm nút Đăng (Post)
       sendLog('Đang tìm nút Đăng bài viết...', '🔍');
@@ -647,10 +738,10 @@
       let postBtn = null;
       const postWaitStart = Date.now();
 
-      while (Date.now() - postWaitStart < 15000 && !isCancelled) {
-        const allBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(b => b.offsetParent !== null);
+      while (Date.now() - postWaitStart < 25000 && !isCancelled) {
+        const allBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(visible);
         const candidate = allBtns.find(b => {
-          const lbl = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim();
+          const lbl = label(b);
           return POST_RE.test(lbl);
         });
 
@@ -659,6 +750,15 @@
           if (!isDisabled) {
             postBtn = candidate;
             break;
+          } else {
+            // Nút Đăng đang disabled -> nudge editor để Facebook cập nhật lại
+            try {
+              editor.focus();
+              document.execCommand('insertText', false, ' ');
+              await delay(150);
+              document.execCommand('delete', false, null);
+              editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
+            } catch (_) {}
           }
         }
         await delay(600);
@@ -676,8 +776,8 @@
       // 7. Chờ hộp thoại tạo bài đóng lại xác nhận thành công
       const closeWaitStart = Date.now();
       let isClosed = false;
-      while (Date.now() - closeWaitStart < 25000 && !isCancelled) {
-        if (!dialog.isConnected || dialog.offsetParent === null) {
+      while (Date.now() - closeWaitStart < 30000 && !isCancelled) {
+        if (!dialog.isConnected || !visible(dialog)) {
           isClosed = true;
           break;
         }
