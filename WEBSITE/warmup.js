@@ -333,7 +333,7 @@ async function startWarmup() {
         ntd_shared_content_library: sharedLib,
         warmupContentSchedules
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   appendLog(`🚀 Bắt đầu chiến dịch nuôi tự động cho ${targetAccounts.length} tài khoản (Thời lượng: ${durationMin} phút/nick)...`, '🚀');
@@ -352,7 +352,8 @@ async function startWarmup() {
     const res = await chrome.runtime.sendMessage({
       type: 'WARMUP_START',
       accountIds: selectedIds,
-      config: { ...cfg, backgroundMode: false, ntd_shared_content_library: contentLibForStart }
+      accounts: targetAccounts,
+      config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: contentLibForStart }
     });
     if (res && res.ok) {
       appendLog('✅ Đã kết nối tự động hóa Facebook tới Tiện ích mở rộng.', '✅');
@@ -556,10 +557,10 @@ async function togglePauseWarmup() {
     appendLog('Đang tạm dừng chiến dịch nuôi tài khoản...', '⏸️');
     try {
       if (window.chrome?.runtime?.sendToExtension) {
-        await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => {});
+        await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => { });
       }
-      await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
-    } catch (_) {}
+      await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => { });
+    } catch (_) { }
 
     warmupState.paused = true;
     persistWarmupState();
@@ -609,12 +610,12 @@ async function cancelWarmup() {
 
   try {
     if (window.chrome?.runtime?.sendToExtension) {
-      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_CANCEL' }).catch(() => {});
-      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => {});
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_CANCEL' }).catch(() => { });
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_STOP' }).catch(() => { });
     }
-    await chrome.runtime.sendMessage({ type: 'WARMUP_CANCEL' }).catch(() => {});
-    await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => {});
-  } catch (_) {}
+    await chrome.runtime.sendMessage({ type: 'WARMUP_CANCEL' }).catch(() => { });
+    await chrome.runtime.sendMessage({ type: 'WARMUP_STOP' }).catch(() => { });
+  } catch (_) { }
 
   await chrome.storage.local.set({
     warmupStatus: {
@@ -985,7 +986,7 @@ async function addAuditLogEntry(entry) {
     warmupAuditLogs.unshift(newLog);
     if (warmupAuditLogs.length > 300) warmupAuditLogs.length = 300;
     await chrome.storage.local.set({ warmupAuditLogs });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 // ── 9.3. Đánh giá sức khỏe tài khoản & Giám sát phiên (Health Check) ────────
@@ -2325,7 +2326,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (Array.isArray(lib) && lib.length > 0) {
       renderSharedContentLibrary();
     }
-  }).catch(() => {});
+  }).catch(() => { });
 
   // Kiểm tra trạng thái đã lưu trong localStorage của Web trước
   const savedStr = localStorage.getItem('ntd_web_warmup_state');
@@ -2337,7 +2338,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         resumeWarmupFromSaved(saved, elapsedSec);
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // Nếu không có tiến trình chạy trước đó, đặt lại giao diện sẵn sàng
@@ -2378,6 +2379,35 @@ chrome.runtime.onMessage.addListener(m => {
   if (m.type === 'WARMUP_SESSION_REPORT') {
     if (m.stats) saveDetailedReport(m.stats);
     else if (m.report) saveDetailedReport(m.report);
+  }
+
+  // Đồng bộ thời gian đếm ngược thực tế từ background worker
+  if (m.type === 'WARMUP_STATUS_EVENT' && m.status) {
+    if (warmupState.running && !warmupState.paused) {
+      if (typeof m.status.remainingSec === 'number' && m.status.remainingSec >= 0) {
+        warmupState.accountRemainingSec = m.status.remainingSec;
+        const timeStr = formatTime(m.status.remainingSec);
+        if ($('countdownText')) {
+          $('countdownText').textContent = `⏳ Đang nuôi ${m.status.currentAccountName || currentWarmupAccountName}: còn lại ${timeStr}`;
+        }
+        if (m.status.currentAccountId) {
+          updateAccountBadge(m.status.currentAccountId, 'running', `Đang nuôi (${timeStr})`);
+        }
+        updateProgressDisplay();
+      }
+    }
+  }
+
+  // Worker báo toàn bộ đợt nuôi đã kết thúc
+  if (m.type === 'WARMUP_ALL_DONE') {
+    if (warmupState.running) {
+      finishWarmupCampaign();
+    }
+  }
+
+  // Worker báo tài khoản gặp lỗi
+  if (m.type === 'WARMUP_ACCOUNT_ERROR' && m.accountId) {
+    updateAccountBadge(m.accountId, 'error', m.error || 'Lỗi tương tác');
   }
 
   if (m.type === 'WARMUP_CHECKPOINT_DETECTED') {

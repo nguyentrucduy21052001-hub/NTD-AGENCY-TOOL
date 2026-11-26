@@ -3790,13 +3790,16 @@ function resolveWarmupSpintax(text) {
   return str.trim();
 }
 
-async function runWarmupLoop(accountIds, config) {
+async function runWarmupLoop(accountIds, config, directAccounts = []) {
   if (warmupRunning) return { ok: true, alreadyRunning: true };
   warmupRunning = true;
   warmupStop = false;
 
-  const { accounts = [] } = await chrome.storage.local.get('accounts');
-  const targetAccounts = accounts.filter(a => accountIds.includes(a.id) && a.type !== 'fanpage');
+  const { accounts: storageAccounts = [] } = await chrome.storage.local.get('accounts');
+  const allAccounts = (Array.isArray(directAccounts) && directAccounts.length > 0)
+    ? directAccounts
+    : storageAccounts;
+  const targetAccounts = allAccounts.filter(a => accountIds.includes(a.id) && a.type !== 'fanpage');
 
   if (!targetAccounts.length) {
     warmupRunning = false;
@@ -3823,7 +3826,8 @@ async function runWarmupLoop(accountIds, config) {
     : null;
 
   const isBg = config?.backgroundMode ?? savedWConfig.backgroundMode ?? true;
-  const shouldAutoClose = config?.autoCloseTab ?? savedWConfig.autoCloseTab ?? true;
+  // Mặc định KHÔNG tự động đóng tab Facebook khi nuôi để người dùng luôn nhìn thấy và giám sát được
+  const shouldAutoClose = Boolean(config?.autoCloseTab ?? savedWConfig.autoCloseTab ?? false);
 
   const totalDurationMs = durationMin * 60 * 1000;
   let feedDuration = 0;
@@ -4019,10 +4023,27 @@ async function runWarmupLoop(accountIds, config) {
         };
 
         // Gửi lệnh khởi động chu trình tương tác và nhận phản hồi đồng bộ tức thì
-        const startResult = await chrome.tabs.sendMessage(warmupCurrentTabId, {
+        let startResult = await chrome.tabs.sendMessage(warmupCurrentTabId, {
           type: 'START_WARMUP_SESSION',
           config: sessionConfig
         }).catch(err => ({ ok: false, error: err.message }));
+
+        // Nếu lần đầu chưa kết nối được (do tab vừa chuyển trang hoặc mạng trễ), inject lại và thử kết nối lại
+        if (!startResult?.ok) {
+          for (let retry = 1; retry <= 2 && !warmupStop; retry++) {
+            await sleepMs(1500);
+            await chrome.scripting.executeScript({
+              target: { tabId: warmupCurrentTabId },
+              files: ['warmup_content.js']
+            }).catch(() => {});
+            await sleepMs(1000);
+            startResult = await chrome.tabs.sendMessage(warmupCurrentTabId, {
+              type: 'START_WARMUP_SESSION',
+              config: sessionConfig
+            }).catch(err => ({ ok: false, error: err.message }));
+            if (startResult?.ok) break;
+          }
+        }
 
         let sessionError = null;
 
@@ -4065,6 +4086,12 @@ async function runWarmupLoop(accountIds, config) {
           }
         } else {
           sessionError = startResult?.error || 'Không thể kết nối kịch bản tương tác Facebook';
+          broadcastWarmupLog(`⚠️ Lỗi tương tác cho nick "${acc.name}": ${sessionError}`, '⚠️');
+          broadcastWarmupMessage({
+            type: 'WARMUP_ACCOUNT_ERROR',
+            accountId: acc.id,
+            error: sessionError
+          });
         }
 
         if (warmupStop) break;
@@ -4207,6 +4234,11 @@ async function runWarmupLoop(accountIds, config) {
         running: false,
         endedAt: Date.now()
       }
+    });
+
+    broadcastWarmupMessage({
+      type: 'WARMUP_ALL_DONE',
+      endedAt: Date.now()
     });
 
     if (shouldAutoClose && warmupCurrentTabId) {
@@ -6333,7 +6365,7 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
   if (m.type === 'WARMUP_START') {
-    runWarmupLoop(m.accountIds || [], m.config || {}).catch(err => {
+    runWarmupLoop(m.accountIds || [], m.config || {}, m.accounts || []).catch(err => {
       console.error('[Warmup] Lỗi chạy warmup:', err);
     });
     reply({ ok: true, running: true });
@@ -6376,6 +6408,13 @@ function handleRuntimeMessage(m, sender, reply) {
   if (m.type === 'WARMUP_SHOW_TAB') {
     if (warmupCurrentTabId) {
       chrome.tabs.update(warmupCurrentTabId, { active: true }).catch(() => {});
+      chrome.tabs.get(warmupCurrentTabId, (tab) => {
+        if (tab && tab.windowId) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+      });
+    } else {
+      chrome.tabs.create({ url: 'https://www.facebook.com/', active: true }, (tab) => {
+        warmupCurrentTabId = tab?.id || null;
+      });
     }
     reply({ ok: true });
     return true;

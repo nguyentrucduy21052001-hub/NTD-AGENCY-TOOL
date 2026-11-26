@@ -756,21 +756,21 @@
           // Bước 1 (ƯU TIÊN ĐẦU TIÊN): Tự động đăng 1 bài viết lên Trang cá nhân (Timeline) nếu được bật
           if (cfg.enablePersonalPost && cfg.personalPostText && !isCancelled) {
             sendLog('📝 Bắt đầu đăng bài lên Trang cá nhân trước các hoạt động nuôi...', '📝');
-            // Đảm bảo đang ở trang chủ Facebook trước khi đăng bài
-            if (!window.location.hostname.includes('facebook.com') ||
-                window.location.pathname.includes('/reel') ||
-                window.location.pathname.includes('/watch') ||
-                window.location.pathname.includes('/groups')) {
-              const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i]');
-              if (homeLink) {
-                triggerHumanClick(homeLink);
-                await delay(2500);
-              } else {
-                window.location.href = 'https://www.facebook.com/';
-                await delay(3500);
+            try {
+              // Đảm bảo đang ở trang chủ Facebook trước khi đăng bài
+              if (window.location.pathname.includes('/reel') ||
+                  window.location.pathname.includes('/watch') ||
+                  window.location.pathname.includes('/groups')) {
+                const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i], a[aria-label*="Facebook" i]');
+                if (homeLink) {
+                  triggerHumanClick(homeLink);
+                  await delay(2500);
+                }
               }
+              await runPersonalTimelinePost(cfg.personalPostText, stats);
+            } catch (pErr) {
+              sendLog(`⚠️ Lỗi khi đăng bài cá nhân: ${pErr.message}`, '⚠️');
             }
-            await runPersonalTimelinePost(cfg.personalPostText, stats);
           }
 
           // Bước 2: Lướt Newsfeed và Thả cảm xúc

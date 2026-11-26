@@ -429,7 +429,7 @@
           const { warmupConfig = {} } = await localStore.get('warmupConfig');
           await window.chrome.runtime.sendToExtension({
             type: 'SYNC_DATA_TO_EXTENSION',
-            data: { accounts, warmupConfig: { ...warmupConfig, ...(message.config || {}) } }
+            data: { accounts, warmupConfig: { ...warmupConfig, ...(message.config || {}), autoCloseTab: false } }
           });
         } catch (_) {}
       }

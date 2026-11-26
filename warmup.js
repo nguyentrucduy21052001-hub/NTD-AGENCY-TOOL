@@ -352,7 +352,8 @@ async function startWarmup() {
     const res = await chrome.runtime.sendMessage({
       type: 'WARMUP_START',
       accountIds: selectedIds,
-      config: { ...cfg, backgroundMode: false, ntd_shared_content_library: contentLibForStart }
+      accounts: targetAccounts,
+      config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: contentLibForStart }
     });
     if (res && res.ok) {
       appendLog('✅ Đã kết nối tự động hóa Facebook tới Tiện ích mở rộng.', '✅');
@@ -2378,6 +2379,35 @@ chrome.runtime.onMessage.addListener(m => {
   if (m.type === 'WARMUP_SESSION_REPORT') {
     if (m.stats) saveDetailedReport(m.stats);
     else if (m.report) saveDetailedReport(m.report);
+  }
+
+  // Đồng bộ thời gian đếm ngược thực tế từ background worker
+  if (m.type === 'WARMUP_STATUS_EVENT' && m.status) {
+    if (warmupState.running && !warmupState.paused) {
+      if (typeof m.status.remainingSec === 'number' && m.status.remainingSec >= 0) {
+        warmupState.accountRemainingSec = m.status.remainingSec;
+        const timeStr = formatTime(m.status.remainingSec);
+        if ($('countdownText')) {
+          $('countdownText').textContent = `⏳ Đang nuôi ${m.status.currentAccountName || currentWarmupAccountName}: còn lại ${timeStr}`;
+        }
+        if (m.status.currentAccountId) {
+          updateAccountBadge(m.status.currentAccountId, 'running', `Đang nuôi (${timeStr})`);
+        }
+        updateProgressDisplay();
+      }
+    }
+  }
+
+  // Worker báo toàn bộ đợt nuôi đã kết thúc
+  if (m.type === 'WARMUP_ALL_DONE') {
+    if (warmupState.running) {
+      finishWarmupCampaign();
+    }
+  }
+
+  // Worker báo tài khoản gặp lỗi
+  if (m.type === 'WARMUP_ACCOUNT_ERROR' && m.accountId) {
+    updateAccountBadge(m.accountId, 'error', m.error || 'Lỗi tương tác');
   }
 
   if (m.type === 'WARMUP_CHECKPOINT_DETECTED') {
