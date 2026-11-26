@@ -568,6 +568,132 @@
     }
   }
 
+  // ── Helper điền văn bản vào bộ soạn Lexical của Facebook ─────────────────────
+  async function fillFacebookEditor(el, text) {
+    if (!el || !text) return false;
+    try {
+      el.scrollIntoView({ block: 'center', behavior: 'instant' });
+      el.focus();
+      triggerHumanClick(el);
+    } catch (_) {}
+    await delay(300);
+
+    const sel = window.getSelection();
+    if (sel) {
+      try {
+        sel.removeAllRanges();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.addRange(range);
+      } catch (_) {}
+    }
+
+    let filled = false;
+
+    // Cách 1: ClipboardEvent 'paste' (truyền cả plain và cấu trúc thẻ Lexical)
+    try {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      const htmlLines = text.split('\n').map(line => {
+        if (!line.trim()) return '<p class="xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8"><br></p>';
+        return `<p class="xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8"><span data-lexical-text="true">${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span></p>`;
+      }).join('');
+      dt.setData('text/html', htmlLines);
+
+      el.dispatchEvent(new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      }));
+      await delay(600);
+      const current = (el.innerText || el.textContent || '').trim();
+      if (current.length > 5) filled = true;
+    } catch (_) {}
+
+    // Cách 2: InputEvent 'beforeinput' (chuẩn Lexical Meta)
+    if (!filled) {
+      try {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        try {
+          el.dispatchEvent(new InputEvent('beforeinput', {
+            inputType: 'insertFromPaste',
+            dataTransfer: dt,
+            data: text,
+            bubbles: true,
+            cancelable: true,
+            composed: true
+          }));
+        } catch (_) {}
+
+        try {
+          el.dispatchEvent(new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: text,
+            bubbles: true,
+            cancelable: true,
+            composed: true
+          }));
+        } catch (_) {}
+
+        await delay(500);
+        const current = (el.innerText || el.textContent || '').trim();
+        if (current.length > 5) filled = true;
+      } catch (_) {}
+    }
+
+    // Cách 3: document.execCommand('insertText')
+    if (!filled) {
+      try {
+        el.focus();
+        document.execCommand('insertText', false, text);
+        await delay(500);
+        const current = (el.innerText || el.textContent || '').trim();
+        if (current.length > 5) filled = true;
+      } catch (_) {}
+    }
+
+    // Cách 4: Tạo cấu trúc DOM Lexical trực tiếp
+    if (!filled) {
+      try {
+        el.innerHTML = '';
+        const lines = text.split('\n');
+        for (const line of lines) {
+          const p = document.createElement('p');
+          p.className = 'xdj266r x11i5rnm xat24cr x1mh8g0r x16tdsg8';
+          if (line.trim().length > 0) {
+            const span = document.createElement('span');
+            span.setAttribute('data-lexical-text', 'true');
+            span.textContent = line;
+            p.appendChild(span);
+          } else {
+            p.appendChild(document.createElement('br'));
+          }
+          el.appendChild(p);
+        }
+
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: text, bubbles: true, composed: true }));
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Unidentified', bubbles: true }));
+        await delay(500);
+        filled = true;
+      } catch (_) {}
+    }
+
+    // Nudge editor để kích hoạt re-render nút Đăng
+    try {
+      el.focus();
+      el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: '', bubbles: true, composed: true }));
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+    } catch (_) {}
+
+    return filled;
+  }
+
   // ── 7.1. Tự động đăng bài viết lên Trang cá nhân (Timeline) ─────────────────
   async function runPersonalTimelinePost(postText, stats) {
     if (isCancelled || !postText || !postText.trim()) return;
@@ -662,8 +788,20 @@
 
       sendLog('Đã mở hộp thoại tạo bài viết thành công!', '✅');
 
-      // 4. Tìm ô soạn bài Lexical editor trong hộp thoại
-      const editor = dialog.querySelector('[contenteditable="true"][role="textbox"]') || dialog.querySelector('[contenteditable="true"]');
+      // 4. Chờ ô soạn bài Lexical editor sẵn sàng trong hộp thoại (tối đa 15 giây)
+      sendLog('Đang tìm ô soạn bài bên trong hộp thoại...', '🔍');
+      let editor = null;
+      const editorStart = Date.now();
+      while (Date.now() - editorStart < 15000 && !isCancelled) {
+        editor = dialog.querySelector('[contenteditable="true"][role="textbox"]') ||
+                 dialog.querySelector('[contenteditable="true"]') ||
+                 dialog.querySelector('[data-lexical-editor="true"]') ||
+                 dialog.querySelector('div[aria-label*="bạn đang nghĩ gì" i]') ||
+                 dialog.querySelector('div[aria-label*="what\'s on your mind" i]');
+        if (editor && visible(editor)) break;
+        await delay(400);
+      }
+
       if (!editor) {
         sendLog('⚠️ Không tìm thấy ô nhập nội dung bên trong hộp thoại tạo bài.', '⚠️');
         return;
@@ -671,69 +809,17 @@
 
       // 5. Điền nội dung bài viết mô phỏng thao tác chuẩn
       sendLog('Đang điền nội dung bài viết vào ô soạn thảo...', '⌨️');
-      editor.focus();
-      await delay(300);
-
-      // Điền nội dung qua cơ chế DataTransfer / ClipboardEvent paste của Facebook Lexical
-      let filled = false;
-      try {
-        const dt = new DataTransfer();
-        dt.setData('text/plain', postText);
-        editor.dispatchEvent(new ClipboardEvent('paste', {
-          clipboardData: dt,
-          bubbles: true,
-          cancelable: true,
-          composed: true
-        }));
-        await delay(400);
-        const edText = (editor.innerText || editor.textContent || '').trim();
-        if (edText.length > 5) filled = true;
-      } catch (_) {}
-
-      if (!filled) {
-        try {
-          const sel = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(editor);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch (_) {}
-
-        try {
-          editor.dispatchEvent(new InputEvent('beforeinput', {
-            inputType: 'insertText',
-            data: postText,
-            bubbles: true,
-            cancelable: true,
-            composed: true
-          }));
-        } catch (_) {}
-
-        try {
-          document.execCommand('insertText', false, postText);
-        } catch (_) {}
-
-        try {
-          editor.dispatchEvent(new InputEvent('input', {
-            inputType: 'insertText',
-            data: postText,
-            bubbles: true,
-            composed: true
-          }));
-        } catch (_) {}
-      }
-
+      await fillFacebookEditor(editor, postText);
       await delay(1200);
 
-      // Nudge editor để kích hoạt re-render trạng thái nút Đăng
+      // Kích hoạt re-render nút Đăng
       try {
         editor.focus();
-        editor.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: '', bubbles: true, composed: true }));
-        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
-        editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+        document.execCommand('insertText', false, ' ');
+        await delay(150);
+        document.execCommand('delete', false, null);
+        editor.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true, composed: true }));
       } catch (_) {}
-
       await delay(1000);
 
       // 6. Tìm và bấm nút Đăng (Post)
