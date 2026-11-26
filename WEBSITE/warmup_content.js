@@ -23,6 +23,7 @@
 
   const delay = ms => new Promise(r => setTimeout(r, ms));
   let isCancelled = false;
+  let isPostingTimeline = false;
 
   // ── Helper kiểm tra phần tử có thực sự hiển thị trên giao diện Facebook ────
   const visible = e => {
@@ -65,9 +66,19 @@
 
   // ── 2. Tự động phát hiện và đóng các hộp thoại/pop-up cản trở của Facebook ───
   function dismissObstructingDialogs() {
+    // Nếu đang trong tiến trình soạn hoặc đăng bài cá nhân, TUYỆT ĐỐI không can thiệp
+    if (isPostingTimeline) return false;
+
     try {
       const dialogs = document.querySelectorAll('[role="dialog"], div[aria-modal="true"]');
       if (!dialogs.length) return false;
+
+      // Nếu trên trang đang có hộp thoại tạo bài viết, TUYỆT ĐỐI không đóng
+      const hasComposer = [...dialogs].some(d => {
+        return d.querySelector('[contenteditable="true"]') ||
+          /tạo bài viết|create post|bạn đang nghĩ gì|what's on your mind/i.test(d.innerText || '');
+      });
+      if (hasComposer) return false;
 
       let anyDismissed = false;
 
@@ -134,21 +145,13 @@
           sendLog(`Đã tự động bấm "${actionText}" để đóng pop-up`, '🛡️');
           continue;
         }
-
-        // 3. Nếu chưa đóng được, phát phím Escape
-        try {
-          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-          dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-          anyDismissed = true;
-        } catch (_) {}
       }
 
       // Khôi phục khả năng cuộn trang nếu Facebook khóa overflow do mở modal
-      if (document.body.style.overflow === 'hidden') {
+      if (document.body && document.body.style.overflow === 'hidden') {
         document.body.style.overflow = '';
       }
-      if (document.documentElement.style.overflow === 'hidden') {
+      if (document.documentElement && document.documentElement.style.overflow === 'hidden') {
         document.documentElement.style.overflow = '';
       }
 
@@ -568,7 +571,7 @@
   // ── 7.1. Tự động đăng bài viết lên Trang cá nhân (Timeline) ─────────────────
   async function runPersonalTimelinePost(postText, stats) {
     if (isCancelled || !postText || !postText.trim()) return;
-    dismissObstructingDialogs();
+    isPostingTimeline = true;
     sendLog('📝 Bắt đầu chuẩn bị đăng bài viết lên Trang cá nhân (Timeline)...', '📝');
 
     try {
@@ -578,8 +581,7 @@
       } catch (_) {
         window.scrollTo(0, 0);
       }
-      await delay(1000);
-      dismissObstructingDialogs();
+      await delay(800);
 
       // 2. Tìm nút mở hộp thoại soạn bài "Bạn đang nghĩ gì thế?"
       const OPENER_RE = /Bạn đang nghĩ gì|Bạn viết gì đi|Viết gì đó|Viết gì đi|Bạn muốn chia sẻ|Chia sẻ điều gì|Bắt đầu thảo luận|Tạo bài viết|Tạo bài|Viết bài|What's on your mind|Create a post|Create post|Write something|Share something/i;
@@ -627,16 +629,13 @@
       const { opener, span } = target;
       sendLog('Đang bấm mở hộp thoại tạo bài viết mới...', '✍️');
 
-      // Bấm vào cả thẻ span bên trong và thẻ nút bên ngoài để React 18 bắt sự kiện chuẩn xác
-      try { span.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
-      await delay(200);
-      triggerHumanClick(span);
-      if (opener !== span) {
-        await delay(150);
-        triggerHumanClick(opener);
-      }
+      // CHỈ CLICK 1 LẦN DUY NHẤT VÀO NÚT SOẠN BÀI (TUYỆT ĐỐI KHÔNG CLICK THÊM LẦN 2 VÀO PHẦN TỬ KHÁC VÌ SẼ BỊ FACEBOOK COI LÀ CLICK RA NGOÀI ĐÓNG POPUP)
+      const clickTarget = opener || span;
+      try { clickTarget.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (_) {}
+      await delay(250);
+      triggerHumanClick(clickTarget);
 
-      // 3. Chờ hộp thoại soạn bài (dialog) mở ra (DÙNG visible(d), BỎ HOÀN TOÀN offsetParent)
+      // 3. Chờ hộp thoại soạn bài (dialog) mở ra
       let dialog = null;
       const waitStart = Date.now();
       while (Date.now() - waitStart < 25000 && !isCancelled) {
@@ -645,18 +644,23 @@
         });
         if (dialog) break;
 
-        // Nếu quá 3.5 giây vẫn chưa mở hộp thoại, thử bấm lại một lần nữa
-        if (Date.now() - waitStart > 3500 && (Date.now() - waitStart) % 3500 < 600) {
-          triggerHumanClick(span);
-          if (opener !== span) triggerHumanClick(opener);
+        // Chỉ nếu quá 4 giây vẫn chưa mở hộp thoại thì mới thử bấm lại 1 lần vào span
+        if (Date.now() - waitStart > 4000 && (Date.now() - waitStart) % 4000 < 500) {
+          if (span && span !== clickTarget) {
+            triggerHumanClick(span);
+          } else {
+            triggerHumanClick(clickTarget);
+          }
         }
-        await delay(500);
+        await delay(400);
       }
 
       if (!dialog) {
         sendLog('⚠️ Không mở được hộp thoại tạo bài viết Facebook sau 25 giây.', '⚠️');
         return;
       }
+
+      sendLog('Đã mở hộp thoại tạo bài viết thành công!', '✅');
 
       // 4. Tìm ô soạn bài Lexical editor trong hộp thoại
       const editor = dialog.querySelector('[contenteditable="true"][role="textbox"]') || dialog.querySelector('[contenteditable="true"]');
@@ -770,7 +774,11 @@
       }
 
       sendLog('Đang bấm nút Đăng bài viết...', '🚀');
-      triggerHumanClick(postBtn);
+      try {
+        postBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        postBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+      } catch (_) {}
+      postBtn.click();
       await delay(1500);
 
       // 7. Chờ hộp thoại tạo bài đóng lại xác nhận thành công
@@ -802,6 +810,8 @@
       }
     } catch (err) {
       sendLog(`Lỗi khi đăng bài cá nhân: ${err.message}`, '⚠️');
+    } finally {
+      isPostingTimeline = false;
     }
   }
 
