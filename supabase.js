@@ -1821,11 +1821,11 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null, o
   const local = await chrome.storage.local.get(keysToRead);
   const wsMap = {};
   for (const k of SYNC_WORKSPACE_KEYS) {
-    if (keysToRead.includes(k) && local[k] !== undefined) {
+    if (keysToRead.includes(k) && (local[k] !== undefined || options?.[k] !== undefined)) {
       if (k === 'lastScannedGroups' && startLedger.scanned_groups?.pending) continue;
       const simpleScope = SIMPLE_KEY_CLEAR_SCOPE[k];
       if (simpleScope && startLedger[simpleScope]?.pending) continue;
-      wsMap[k] = local[k];
+      wsMap[k] = options?.[k] !== undefined ? options[k] : local[k];
     }
   }
 

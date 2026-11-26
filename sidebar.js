@@ -18,12 +18,12 @@ mountThemeToggle();
 let activeLicense = null;
 try {
   activeLicense = JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
-} catch (_) {}
+} catch (_) { }
 if (!activeLicense) {
   try {
     const rawLic = localStorage.getItem('dg_license_cache');
     if (rawLic) activeLicense = JSON.parse(rawLic);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 (() => {
@@ -103,12 +103,12 @@ if (!activeLicense) {
   // 4. Kiểm tra quyền Admin & Giao diện Dark / Light để áp dụng style hòa hợp
   const uName = (activeLicense?.username || '').toLowerCase();
   const isAdmin = (activeLicense?.role || '').toLowerCase() === 'admin' ||
-                  uName.startsWith('nguyentrucduy') ||
-                  ['admin', 'admin_test'].includes(uName);
+    uName.startsWith('nguyentrucduy') ||
+    ['admin', 'admin_test'].includes(uName);
   const currentThemeMode = localStorage.getItem('ntd_theme') || 'dark';
-  const isDarkPage = currentThemeMode === 'dark' || 
-                     document.documentElement.classList.contains('ntd-dark-theme') ||
-                     (document.body && document.body.classList.contains('ntd-dark-theme'));
+  const isDarkPage = currentThemeMode === 'dark' ||
+    document.documentElement.classList.contains('ntd-dark-theme') ||
+    (document.body && document.body.classList.contains('ntd-dark-theme'));
 
   // 4b. Thông tin tài khoản & Bản quyền để ghim cố định ở góc dưới thanh menu
   const username = activeLicense?.username || 'Tài khoản';
@@ -345,9 +345,9 @@ if (!activeLicense) {
         const currentPath = window.location.pathname.toLowerCase();
         // 1. Nếu đang ở chính trang đó thì không làm gì (tránh reload làm gián đoạn việc đang chạy)
         const targetClean = targetPage.replace(/\.html$/i, '');
-        if (currentPath.includes(targetPage.toLowerCase()) || 
-            currentPath.endsWith('/' + targetClean) || 
-            (targetClean === 'panel' && (currentPath === '/' || currentPath === '' || currentPath.endsWith('/panel')))) {
+        if (currentPath.includes(targetPage.toLowerCase()) ||
+          currentPath.endsWith('/' + targetClean) ||
+          (targetClean === 'panel' && (currentPath === '/' || currentPath === '' || currentPath.endsWith('/panel')))) {
           return;
         }
 
@@ -366,7 +366,7 @@ if (!activeLicense) {
           if (existingTab) {
             await chrome.tabs.update(existingTab.id, { active: true });
             if (existingTab.windowId) {
-              await chrome.windows.update(existingTab.windowId, { focused: true }).catch(() => {});
+              await chrome.windows.update(existingTab.windowId, { focused: true }).catch(() => { });
             }
           } else {
             await chrome.tabs.create({ url: targetUrl, active: true });
@@ -382,7 +382,7 @@ if (!activeLicense) {
           if (existingGroupsTab) {
             await chrome.tabs.update(existingGroupsTab.id, { active: true });
             if (existingGroupsTab.windowId) {
-              await chrome.windows.update(existingGroupsTab.windowId, { focused: true }).catch(() => {});
+              await chrome.windows.update(existingGroupsTab.windowId, { focused: true }).catch(() => { });
             }
             return;
           }
@@ -448,15 +448,15 @@ if (!activeLicense) {
           renderLicenseInfo(lic);
           const uN = (lic.username || '').toLowerCase();
           const isNowAdmin = (lic.role || '').toLowerCase() === 'admin' ||
-                             uN.startsWith('nguyentrucduy') ||
-                             ['admin', 'admin_test'].includes(uN);
+            uN.startsWith('nguyentrucduy') ||
+            ['admin', 'admin_test'].includes(uN);
           const manageItem = document.getElementById('sbItemManage');
           if (manageItem) {
             manageItem.style.display = isNowAdmin ? 'flex' : 'none';
           }
         }
-      }).catch(() => {});
-    } catch (_) {}
+      }).catch(() => { });
+    } catch (_) { }
 
     // Xử lý bấm vào card tài khoản để đồng bộ trực tiếp hạn dùng mới từ Google Sheets
     const userCard = sidebarEl.querySelector('#ntdSbUserCard');
@@ -736,9 +736,9 @@ if (!activeLicense) {
           setTimeout(connect, 1500);
         });
         pingInterval = setInterval(() => {
-          try { port?.postMessage({ type: 'PING' }); } catch (_) {}
+          try { port?.postMessage({ type: 'PING' }); } catch (_) { }
         }, 25000);
-      } catch (_) {}
+      } catch (_) { }
     }
     connect();
   }
@@ -763,7 +763,7 @@ if (!activeLicense) {
           if (document.documentElement) document.documentElement.dataset.ntdExtensionConnected = 'true';
           return true;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     return false;
   }
@@ -776,7 +776,7 @@ if (!activeLicense) {
         if (!_pendingTelemetryTimer) {
           _pendingTelemetryTimer = setTimeout(() => {
             _pendingTelemetryTimer = null;
-            reportUserActivity(true, opts).catch(() => {});
+            reportUserActivity(true, opts).catch(() => { });
           }, 6000 - (now - _lastTelemetryReport));
         }
         return;
@@ -795,7 +795,7 @@ if (!activeLicense) {
       if (isExtensionInternalTab) {
         try {
           await chrome.runtime.sendMessage({ type: 'FLUSH_TELEMETRY' });
-        } catch (_) {}
+        } catch (_) { }
         return;
       }
 
@@ -803,13 +803,13 @@ if (!activeLicense) {
       if (!lic?.username) {
         try {
           lic = JSON.parse(localStorage.getItem('ntd_store_license') || 'null');
-        } catch (_) {}
+        } catch (_) { }
       }
       if (!lic?.username && chrome?.storage?.local) {
         try {
           const st = await chrome.storage.local.get('license');
           lic = st?.license || null;
-        } catch (_) {}
+        } catch (_) { }
       }
       const username = (lic?.username || '').trim().toLowerCase();
       if (!username) return;
@@ -824,7 +824,7 @@ if (!activeLicense) {
             data: { license: lic }
           }).catch(() => { _licenseSyncedToExt = false; });
         }
-        window.chrome.runtime.sendToExtension({ type: 'FLUSH_TELEMETRY' }).catch(() => {});
+        window.chrome.runtime.sendToExtension({ type: 'FLUSH_TELEMETRY' }).catch(() => { });
       }
 
       // 2. Đồng bộ an toàn theo cơ chế sổ cái cộng dồn CAS trên Supabase
@@ -905,9 +905,9 @@ if (!activeLicense) {
   // Tự động đồng bộ Cloud trước, sau đó mới gửi telemetry để đảm bảo dữ liệu tài khoản đầy đủ
   setTimeout(() => {
     runInitialCloudWorkspaceSync()
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => {
-        reportUserActivity().catch(() => {});
+        reportUserActivity().catch(() => { });
       });
   }, 1500);
 
@@ -955,12 +955,12 @@ if (!activeLicense) {
 
         if (isAccountReduced) {
           if (_telemetryTimer) clearTimeout(_telemetryTimer);
-          reportUserActivity(true, { allowZeroAccountCounts: true }).catch(() => {});
-          flushPendingCloudSync().catch(() => {});
+          reportUserActivity(true, { allowZeroAccountCounts: true }).catch(() => { });
+          flushPendingCloudSync().catch(() => { });
         } else {
           if (_telemetryTimer) clearTimeout(_telemetryTimer);
           _telemetryTimer = setTimeout(() => {
-            reportUserActivity().catch(() => {});
+            reportUserActivity().catch(() => { });
           }, 2500);
         }
       }
@@ -976,7 +976,7 @@ if (!activeLicense) {
       if (hasSyncChange) {
         if (_cloudPushTimer) clearTimeout(_cloudPushTimer);
         _cloudPushTimer = setTimeout(() => {
-          flushPendingCloudSync().catch(() => {});
+          flushPendingCloudSync().catch(() => { });
         }, 2500);
       }
     });

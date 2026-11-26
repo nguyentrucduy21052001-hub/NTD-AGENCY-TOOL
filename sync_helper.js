@@ -158,6 +158,21 @@ export async function applyRestoredData(data) {
   }
 
   await chrome.storage.local.set(toSet);
+
+  // Tự động đẩy ngay lên Supabase nếu có tài khoản vừa được khôi phục
+  if (toSet.accounts && Array.isArray(toSet.accounts) && toSet.accounts.length > 0) {
+    try {
+      const { resolveActiveSyncUsername, pushLocalChangesToSupabase, supabaseUpdateUserStats } = await import('./supabase.js?v=20261126_1620');
+      const u = await resolveActiveSyncUsername();
+      if (u) {
+        await pushLocalChangesToSupabase(u, ['accounts'], { allowReduce: true, accounts: toSet.accounts });
+        const fbCount = toSet.accounts.filter(a => a?.type !== 'fanpage').length;
+        const fanpageCount = toSet.accounts.filter(a => a?.type === 'fanpage').length;
+        await supabaseUpdateUserStats(u, { fb_count: fbCount, fanpage_count: fanpageCount });
+      }
+    } catch (_) {}
+  }
+
   return {
     accCount,
     catCount,

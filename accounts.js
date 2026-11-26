@@ -2101,9 +2101,9 @@ async function syncAccountsToCloudImmediately(remainingAccs) {
     }
     if (!username) return;
 
-    const sb = await import('./supabase.js?v=20261125_1700');
+    const sb = await import('./supabase.js?v=20261126_1620');
     if (typeof sb.pushLocalChangesToSupabase === 'function') {
-      await sb.pushLocalChangesToSupabase(username, ['accounts'], { allowReduce: true });
+      await sb.pushLocalChangesToSupabase(username, ['accounts'], { allowReduce: true, accounts: remainingAccs });
     }
 
     const all = Array.isArray(remainingAccs) ? remainingAccs : [];
