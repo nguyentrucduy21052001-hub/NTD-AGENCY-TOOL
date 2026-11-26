@@ -829,7 +829,7 @@ if (!activeLicense) {
 
       // 2. Đồng bộ an toàn theo cơ chế sổ cái cộng dồn CAS trên Supabase
       try {
-        const sb = await import('./supabase.js?v=20261125_1700');
+        const sb = await import('./supabase.js?v=20261126_1635');
         if (typeof sb.syncLocalTelemetryToSupabase === 'function') {
           await sb.syncLocalTelemetryToSupabase(username, {
             isWebExtensionBridged: extBridged,
@@ -863,7 +863,7 @@ if (!activeLicense) {
     const keys = Array.from(_pendingCloudSyncKeys);
     _pendingCloudSyncKeys.clear();
     try {
-      const sb = await import('./supabase.js?v=20261125_1700');
+      const sb = await import('./supabase.js?v=20261126_1635');
       if (typeof sb.pushLocalChangesToSupabase === 'function') {
         await sb.pushLocalChangesToSupabase(username, keys);
       }
@@ -876,7 +876,7 @@ if (!activeLicense) {
     const username = getActiveUsernameForSync();
     if (!username) return;
     try {
-      const sb = await import('./supabase.js?v=20261125_1700');
+      const sb = await import('./supabase.js?v=20261126_1635');
       if (typeof sb.hydrateLocalFromSupabase !== 'function') return;
 
       _applyingRemoteSupabaseSync = true;

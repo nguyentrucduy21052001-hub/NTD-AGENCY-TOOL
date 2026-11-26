@@ -162,7 +162,7 @@ export async function applyRestoredData(data) {
   // Tự động đẩy ngay lên Supabase nếu có tài khoản vừa được khôi phục
   if (toSet.accounts && Array.isArray(toSet.accounts) && toSet.accounts.length > 0) {
     try {
-      const { resolveActiveSyncUsername, pushLocalChangesToSupabase, supabaseUpdateUserStats } = await import('./supabase.js?v=20261126_1620');
+      const { resolveActiveSyncUsername, pushLocalChangesToSupabase, supabaseUpdateUserStats } = await import('./supabase.js?v=20261126_1635');
       const u = await resolveActiveSyncUsername();
       if (u) {
         await pushLocalChangesToSupabase(u, ['accounts'], { allowReduce: true, accounts: toSet.accounts });

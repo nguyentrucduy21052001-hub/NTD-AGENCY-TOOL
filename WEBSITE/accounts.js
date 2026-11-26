@@ -148,6 +148,7 @@ async function loadAccounts() {
   const { accounts } = await chrome.storage.local.get('accounts');
   return accounts || [];
 }
+let _saveAccountsCloudSyncTimer = null;
 async function saveAccounts(accounts) {
   await chrome.storage.local.set({ accounts });
   const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
@@ -159,6 +160,12 @@ async function saveAccounts(accounts) {
       });
     } catch (_) {}
   }
+  // Tự động đồng bộ ngay lên Cloud sau khi lưu tài khoản (debounce 1.5s)
+  if (_saveAccountsCloudSyncTimer) clearTimeout(_saveAccountsCloudSyncTimer);
+  _saveAccountsCloudSyncTimer = setTimeout(() => {
+    _saveAccountsCloudSyncTimer = null;
+    syncAccountsToCloudImmediately(accounts).catch(() => {});
+  }, 1500);
 }
 
 // ── Account Groups (Nhóm tài khoản) State & Helpers ───────────────────────────
@@ -2101,7 +2108,7 @@ async function syncAccountsToCloudImmediately(remainingAccs) {
     }
     if (!username) return;
 
-    const sb = await import('./supabase.js?v=20261126_1620');
+    const sb = await import('./supabase.js?v=20261126_1635');
     if (typeof sb.pushLocalChangesToSupabase === 'function') {
       await sb.pushLocalChangesToSupabase(username, ['accounts'], { allowReduce: true, accounts: remainingAccs });
     }

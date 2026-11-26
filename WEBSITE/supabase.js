@@ -750,16 +750,14 @@ export async function supabaseAddUserDailyTelemetry(username, {
       const payload = {};
       if (fb_count !== undefined) {
         const parsedFb = Math.max(0, Number(fb_count) || 0);
-        const curDbFb = Math.max(0, Number(row.fb_count) || 0);
-        // Bảo vệ: Tuyệt đối không để telemetry vô tình hạ số lượng nick về 0 khi trên Supabase đã có nick
-        if (parsedFb > 0 || curDbFb === 0 || forceZeroAccountCounts) {
+        // Bảo vệ: Tuyệt đối không để telemetry vô tình hạ số lượng nick về 0 trừ khi được yêu cầu chủ động (forceZeroAccountCounts)
+        if (parsedFb > 0 || forceZeroAccountCounts) {
           payload.fb_count = parsedFb;
         }
       }
       if (fanpage_count !== undefined) {
         const parsedFp = Math.max(0, Number(fanpage_count) || 0);
-        const curDbFp = Math.max(0, Number(row.fanpage_count) || 0);
-        if (parsedFp > 0 || curDbFp === 0 || forceZeroAccountCounts) {
+        if (parsedFp > 0 || forceZeroAccountCounts) {
           payload.fanpage_count = parsedFp;
         }
       }
@@ -811,7 +809,7 @@ export async function supabaseAddUserDailyTelemetry(username, {
     }
 
     const finalRows = await supabaseRequest(
-      `ntd_users?username=eq.${encodeURIComponent(u)}&select=today_posts,today_group_scans,today_maps_scans,last_login`
+      `ntd_users?username=eq.${encodeURIComponent(u)}&select=today_posts,today_group_scans,today_maps_scans,last_login,fb_count,fanpage_count`
     );
     const fr = Array.isArray(finalRows) ? finalRows[0] : null;
     const activeToday = fr ? isTodayVietnamTime(fr.last_login) : false;
@@ -822,15 +820,13 @@ export async function supabaseAddUserDailyTelemetry(username, {
     };
     if (fb_count !== undefined) {
       const parsedFb = Math.max(0, Number(fb_count) || 0);
-      const curDbFb = Math.max(0, Number(fr?.fb_count) || 0);
-      if (parsedFb > 0 || curDbFb === 0 || forceZeroAccountCounts) {
+      if (parsedFb > 0 || forceZeroAccountCounts) {
         fallbackPayload.fb_count = parsedFb;
       }
     }
     if (fanpage_count !== undefined) {
       const parsedFp = Math.max(0, Number(fanpage_count) || 0);
-      const curDbFp = Math.max(0, Number(fr?.fanpage_count) || 0);
-      if (parsedFp > 0 || curDbFp === 0 || forceZeroAccountCounts) {
+      if (parsedFp > 0 || forceZeroAccountCounts) {
         fallbackPayload.fanpage_count = parsedFp;
       }
     }
