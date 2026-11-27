@@ -2957,16 +2957,25 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
     ` : ''}
   `;
 
-  // Toggle job drawer handler
+  // Toggle job drawer handler (toggle trực tiếp trên DOM để không re-render làm mất vị trí cuộn)
   const toggleBtn = card.querySelector('.prog-toggle-details-btn');
   if (toggleBtn) {
-    toggleBtn.onclick = () => {
-      if (expandedJobAccs.has(acc.id)) {
-        expandedJobAccs.delete(acc.id);
-      } else {
+    toggleBtn.onclick = (e) => {
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+      const drawer = card.querySelector('.prog-job-drawer');
+      const isNowExpanded = !expandedJobAccs.has(acc.id);
+      if (isNowExpanded) {
         expandedJobAccs.add(acc.id);
+        if (drawer) drawer.style.display = 'block';
+        const span = toggleBtn.querySelector('span');
+        if (span) span.textContent = 'Thu gọn ▲';
+      } else {
+        expandedJobAccs.delete(acc.id);
+        if (drawer) drawer.style.display = 'none';
+        const span = toggleBtn.querySelector('span');
+        if (span) span.textContent = c ? `Chi tiết (${c.jobs?.length || 0} nhóm) ▼` : `Xem link để đăng (${total} nhóm) ▼`;
       }
-      render();
     };
   }
 
@@ -3136,6 +3145,15 @@ async function render() {
   }
 
   const list = $('accStatusList');
+  const savedListScroll = list ? list.scrollTop : 0;
+  const savedDrawerScrolls = new Map();
+  if (list) {
+    list.querySelectorAll('.prog-job-drawer').forEach(dr => {
+      if (dr.id && dr.scrollTop > 0) {
+        savedDrawerScrolls.set(dr.id, dr.scrollTop);
+      }
+    });
+  }
   list.replaceChildren();
 
   const accountsUrl = chrome.runtime.getURL('accounts.html');
@@ -3226,6 +3244,19 @@ async function render() {
     }
   }
   list.appendChild(frag);
+
+  // Khôi phục vị trí cuộn của danh sách tài khoản và các ngăn chi tiết
+  if (list) {
+    if (savedListScroll > 0) {
+      list.scrollTop = savedListScroll;
+    }
+    if (savedDrawerScrolls.size > 0) {
+      savedDrawerScrolls.forEach((st, id) => {
+        const d = document.getElementById(id);
+        if (d) d.scrollTop = st;
+      });
+    }
+  }
 
   // Per-account button handlers
   list.querySelectorAll('.btn-pause-one').forEach(btn => {
@@ -4499,8 +4530,8 @@ function scheduleNextRender() {
   }
   _lastAnyRunning = anyRunning;
 
-  // Cập nhật số giây đếm ngược và đồng bộ tiến độ từ Extension Runner mỗi 1.2s
-  if (anyRunning || anyPaused) {
+  // Cập nhật số giây đếm ngược và đồng bộ tiến độ từ Extension Runner mỗi 1.2s khi đang có nick chạy
+  if (anyRunning) {
     _renderPollTimer = setTimeout(async () => {
       const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
       if (isWeb && window.__ntdExtensionActive) {
@@ -4510,6 +4541,9 @@ function scheduleNextRender() {
       }
       scheduleNextRender();
     }, 1200);
+  } else if (anyPaused) {
+    // Khi đang tạm dừng: chỉ tick đếm ngược (nếu có), không re-render toàn bộ để giữ nguyên vị trí cuộn
+    updateCountdownTicks();
   }
 }
 

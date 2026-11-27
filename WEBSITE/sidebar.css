@@ -1779,12 +1779,33 @@ body.ntd-dark-theme .prog-bar-track {
   background: rgba(255, 255, 255, 0.08) !important;
 }
 body.ntd-dark-theme .prog-job-drawer {
-  background: rgba(10, 16, 30, 0.75) !important;
+  background: rgba(10, 16, 30, 0.88) !important;
   color: #cbd5e1 !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  max-height: 380px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(96, 165, 250, 0.45) rgba(255, 255, 255, 0.05) !important;
+}
+body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar {
+  width: 6px !important;
+}
+body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-radius: 4px !important;
+}
+body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-thumb {
+  background: rgba(96, 165, 250, 0.4) !important;
+  border-radius: 4px !important;
+}
+body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-thumb:hover {
+  background: rgba(96, 165, 250, 0.7) !important;
 }
 body.ntd-dark-theme .prog-job-drawer li {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  padding-bottom: 4px !important;
 }
 
 /* C. Banner chống spam khi thu gọn trong Phần 3 (Ảnh 2) */

@@ -46,7 +46,7 @@
     }
   </style>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="sidebar.css">
+  <link rel="stylesheet" href="sidebar.css?v=20261127_0850">
 </head>
 <style>
   /* Multi-account section */
@@ -103,17 +103,20 @@
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
-    max-height: 585px;
+    max-height: 750px;
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 6px;
     scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
   }
 
   @media (max-width: 768px) {
     #accStatusList {
       grid-template-columns: 1fr;
-      max-height: 585px;
+      max-height: 700px;
     }
   }
 
@@ -133,6 +136,19 @@
 
   #accStatusList::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
+  }
+
+  body.ntd-dark-theme #accStatusList {
+    scrollbar-color: rgba(96, 165, 250, 0.45) rgba(255, 255, 255, 0.05) !important;
+  }
+  body.ntd-dark-theme #accStatusList::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04) !important;
+  }
+  body.ntd-dark-theme #accStatusList::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.4) !important;
+  }
+  body.ntd-dark-theme #accStatusList::-webkit-scrollbar-thumb:hover {
+    background: rgba(96, 165, 250, 0.7) !important;
   }
 
   .acc-status-card {
@@ -2427,22 +2443,75 @@
   }
 
   .prog-job-drawer {
-    padding: 8px 16px 12px;
+    padding: 10px 16px 14px;
     border-top: 1px solid #f1f5f9;
     background: #fafbfc;
-    max-height: 160px;
+    max-height: 380px;
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 rgba(0, 0, 0, 0.05);
   }
 
   .prog-job-drawer ol {
     margin: 0;
-    padding-left: 18px;
-    font-size: 11.5px;
+    padding-left: 20px;
+    font-size: 12px;
     color: #475569;
   }
 
   .prog-job-drawer ol li {
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+
+  .prog-job-drawer::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .prog-job-drawer::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 4px;
+  }
+
+  .prog-job-drawer::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+
+  .prog-job-drawer::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer {
+    background: rgba(10, 16, 30, 0.88) !important;
+    color: #cbd5e1 !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    max-height: 380px !important;
+    scrollbar-color: rgba(96, 165, 250, 0.45) rgba(255, 255, 255, 0.05) !important;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer ol {
+    color: #94a3b8 !important;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer ol li {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    padding-bottom: 4px;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04) !important;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.4) !important;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-thumb:hover {
+    background: rgba(96, 165, 250, 0.7) !important;
   }
 
   .view-switch-btn {
@@ -4651,7 +4720,7 @@
     </div>
 
   </main>
-  <script type="module" src="panel.js?v=20261125_1700"></script>
+  <script type="module" src="panel.js?v=20261127_0850"></script>
   <script type="module" src="sidebar.js?v=20261125_1700"></script>
 </body>
 
