@@ -319,29 +319,62 @@
     overflow-y: auto;
   }
   .table-wrap.scrollable-5 {
-    max-height: 295px;
+    max-height: 330px;
     overflow-y: auto;
     overflow-x: auto;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
   }
-  .table-wrap.scrollable-5::-webkit-scrollbar, .report-table-wrap::-webkit-scrollbar {
+  .table-wrap.scrollable-5.report-table-scroll,
+  .table-wrap.scrollable-5:has(.report-table) {
+    max-height: 388px;
+  }
+  #profileAuditContainer {
+    max-height: 580px;
+    overflow-y: auto;
+    padding-right: 6px;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+  .table-wrap.scrollable-5::-webkit-scrollbar,
+  .report-table-wrap::-webkit-scrollbar,
+  #profileAuditContainer::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
-  .table-wrap.scrollable-5::-webkit-scrollbar-track, .report-table-wrap::-webkit-scrollbar-track {
+  .table-wrap.scrollable-5::-webkit-scrollbar-track,
+  .report-table-wrap::-webkit-scrollbar-track,
+  #profileAuditContainer::-webkit-scrollbar-track {
     background: #f1f5f9;
     border-radius: 4px;
   }
-  .table-wrap.scrollable-5::-webkit-scrollbar-thumb, .report-table-wrap::-webkit-scrollbar-thumb {
+  .table-wrap.scrollable-5::-webkit-scrollbar-thumb,
+  .report-table-wrap::-webkit-scrollbar-thumb,
+  #profileAuditContainer::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 4px;
   }
-  .table-wrap.scrollable-5::-webkit-scrollbar-thumb:hover, .report-table-wrap::-webkit-scrollbar-thumb:hover {
+  .table-wrap.scrollable-5::-webkit-scrollbar-thumb:hover,
+  .report-table-wrap::-webkit-scrollbar-thumb:hover,
+  #profileAuditContainer::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
   }
-  .ntd-dark-theme .table-wrap.scrollable-5::-webkit-scrollbar-track, .ntd-dark-theme .report-table-wrap::-webkit-scrollbar-track {
+  .ntd-dark-theme .table-wrap.scrollable-5,
+  .ntd-dark-theme #profileAuditContainer {
+    scrollbar-color: #334155 #1a2635;
+  }
+  .ntd-dark-theme .table-wrap.scrollable-5::-webkit-scrollbar-track,
+  .ntd-dark-theme .report-table-wrap::-webkit-scrollbar-track,
+  .ntd-dark-theme #profileAuditContainer::-webkit-scrollbar-track {
     background: #1a2635;
   }
-  .ntd-dark-theme .table-wrap.scrollable-5::-webkit-scrollbar-thumb, .ntd-dark-theme .report-table-wrap::-webkit-scrollbar-thumb {
+  .ntd-dark-theme .table-wrap.scrollable-5::-webkit-scrollbar-thumb,
+  .ntd-dark-theme .report-table-wrap::-webkit-scrollbar-thumb,
+  .ntd-dark-theme #profileAuditContainer::-webkit-scrollbar-thumb {
     background: #334155;
   }
 
@@ -352,7 +385,7 @@
     text-align: left;
   }
   table.acc-table th, table.report-table th {
-    background: rgba(241, 245, 249, 0.7);
+    background: #f1f5f9;
     color: var(--text-muted);
     font-weight: 700;
     padding: 11px 14px;
@@ -363,7 +396,8 @@
     z-index: 2;
   }
   .ntd-dark-theme table.acc-table th, .ntd-dark-theme table.report-table th {
-    background: #14202e;
+    background: #0f172a;
+    border-bottom: 1px solid var(--border);
   }
   table.acc-table td, table.report-table td {
     padding: 12px 14px;
@@ -1265,7 +1299,7 @@
         </div>
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap scrollable-5 report-table-scroll">
         <table class="report-table">
           <thead>
             <tr>
@@ -1356,7 +1390,7 @@
         <a href="groups.html" class="btn-sm-text" style="text-decoration:none">Quản lý chi tiết nhóm ➔</a>
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap scrollable-5 report-table-scroll">
         <table class="report-table">
           <thead>
             <tr>
@@ -1408,7 +1442,7 @@
         </div>
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap scrollable-5 report-table-scroll">
         <table class="report-table">
           <thead>
             <tr>
@@ -1570,7 +1604,7 @@
         <div style="font-size:12px;color:var(--text-muted)">Khuyên dùng 2FA để tránh checkpoint khi chạy Proxy</div>
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap scrollable-5 report-table-scroll">
         <table class="report-table">
           <thead>
             <tr>
@@ -1814,7 +1848,7 @@
   </div>
 </main>
 
-<script type="module" src="warmup.js?v=20261127_1025"></script>
+<script type="module" src="warmup.js?v=20261127_1615"></script>
 <script type="module" src="sidebar.js?v=20261127_0825"></script>
 </body>
 </html>
