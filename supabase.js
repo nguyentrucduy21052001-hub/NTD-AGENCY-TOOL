@@ -2360,6 +2360,20 @@ export async function pushSharedContentLibrary(library, options = {}) {
     finalLib = Array.from(postMap.values());
     // Sắp xếp bài viết mới nhất lên trước
     finalLib.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    // Khử trùng lặp nội dung khi gộp bài viết lên Cloud
+    const seenContent = new Set();
+    const uniqueList = [];
+    for (const item of finalLib) {
+      if (!item || !item.content) continue;
+      const key = String(item.content).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '').trim();
+      if (key && key.length >= 10) {
+        if (seenContent.has(key)) continue;
+        seenContent.add(key);
+      }
+      uniqueList.push(item);
+    }
+    finalLib = uniqueList;
   }
 
   // 3. Lưu bản hoàn chỉnh vào bộ nhớ máy người dùng

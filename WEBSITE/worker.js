@@ -4060,6 +4060,7 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
         // Chuẩn bị nội dung bài viết cá nhân nếu được kích hoạt
         let accountPostText = null;
         let accountPostPicture = null;
+        let accountPostTemplateId = null;
         if (enablePersonalPost) {
           try {
             const { warmupContentSchedules = {} } = await chrome.storage.local.get('warmupContentSchedules');
@@ -4096,7 +4097,26 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
                   if (filtered.length > 0) pool = filtered;
                 }
                 if (pool.length > 0) {
-                  const picked = pool[Math.floor(Math.random() * pool.length)];
+                  // Ưu tiên chọn bài viết chưa từng đăng cho tài khoản này để chống trùng lặp
+                  let picked = null;
+                  try {
+                    const { ntd_posted_contents_history = [] } = await chrome.storage.local.get('ntd_posted_contents_history');
+                    const accPostedTemplateIds = new Set(
+                      (Array.isArray(ntd_posted_contents_history) ? ntd_posted_contents_history : [])
+                        .filter(h => (h.accId === acc.id || h.accName === acc.name) && h.templateId)
+                        .map(h => h.templateId)
+                    );
+                    const unpostedPool = pool.filter(t => !accPostedTemplateIds.has(t.id));
+                    if (unpostedPool.length > 0) {
+                      picked = unpostedPool[Math.floor(Math.random() * unpostedPool.length)];
+                    }
+                  } catch (_) {}
+
+                  if (!picked) {
+                    picked = pool[Math.floor(Math.random() * pool.length)];
+                  }
+
+                  accountPostTemplateId = picked?.id || null;
                   accountPostText = resolveWarmupSpintax(picked.content);
                   if (picked.picture && picked.picture.data) {
                     accountPostPicture = picked.picture;
@@ -4256,6 +4276,7 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
           duration: `${durationMin} phút`,
           status: isSuccess ? 'success' : 'error',
           statusText: statusText,
+          postText: accountPostText || null,
           time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           date: new Date().toLocaleDateString('vi-VN'),
           timestamp: Date.now()
@@ -4266,6 +4287,26 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
           warmupReports.unshift(reportItem);
           if (warmupReports.length > 200) warmupReports.length = 200;
           await chrome.storage.local.set({ warmupReports });
+
+          // Lưu lịch sử bài viết đã đăng để kiểm tra trùng lặp cho Kho nội dung
+          if (accountPostText && isSuccess) {
+            try {
+              const { ntd_posted_contents_history = [] } = await chrome.storage.local.get('ntd_posted_contents_history');
+              const history = Array.isArray(ntd_posted_contents_history) ? ntd_posted_contents_history : [];
+              history.unshift({
+                id: 'posted_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                content: accountPostText,
+                templateId: accountPostTemplateId || '',
+                accId: acc.id,
+                accName: acc.name,
+                time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                date: new Date().toLocaleDateString('vi-VN'),
+                timestamp: Date.now()
+              });
+              if (history.length > 500) history.length = 500;
+              await chrome.storage.local.set({ ntd_posted_contents_history: history });
+            } catch (_) {}
+          }
         } catch (_) {}
 
         // Phát sóng báo cáo chi tiết cho Web UI

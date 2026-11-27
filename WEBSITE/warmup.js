@@ -2069,6 +2069,151 @@ function openSpinPreviewModal(template) {
   if (modal) modal.style.display = 'flex';
 }
 
+// Chuẩn hóa văn bản để kiểm tra trùng lặp nội dung
+function normalizeContentForCompare(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .toLowerCase()
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
+// Bóc tách cốt lõi ký tự chữ & số (bỏ qua dấu câu, khoảng cách để phát hiện trùng lặp tinh vi)
+function getSemanticContentKey(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .trim();
+}
+
+/**
+ * Kiểm tra xem nội dung nhập vào có trùng với:
+ * 1. Bất kỳ bài viết nào đã có trong Kho nội dung (ngoại trừ chính bài đang sửa nếu có)
+ * 2. Bất kỳ bài viết nào đã từng được đăng lên Facebook trước đó (lịch sử ntd_posted_contents_history, warmupContentSchedules, warmupReports, warmupAuditLogs)
+ * @returns {Promise<{ isDuplicate: boolean, reason: string, matchedItem?: any }>}
+ */
+async function checkContentDuplicate(inputContent, inputTitle = '', currentId = null) {
+  const normInput = normalizeContentForCompare(inputContent);
+  const semanticInput = getSemanticContentKey(inputContent);
+
+  if (!normInput || normInput.length < 5) {
+    return { isDuplicate: false, reason: '' };
+  }
+
+  // 1. Kiểm tra đối chiếu với Kho nội dung dùng chung hiện tại
+  try {
+    const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+    const lib = Array.isArray(ntd_shared_content_library) ? ntd_shared_content_library : [];
+
+    for (const item of lib) {
+      if (!item || !item.content || (currentId && item.id === currentId)) continue;
+      const normExisting = normalizeContentForCompare(item.content);
+      const semanticExisting = getSemanticContentKey(item.content);
+
+      const isExactMatch = normInput === normExisting;
+      const isSemanticMatch = semanticInput.length >= 15 && semanticInput === semanticExisting;
+
+      if (isExactMatch || isSemanticMatch) {
+        return {
+          isDuplicate: true,
+          reason: `Nội dung này trùng lặp với bài viết "${item.title || 'Bài viết có sẵn'}" đã có trong Kho nội dung dùng chung!`,
+          matchedItem: item,
+          source: 'library'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[CheckDuplicate] Lỗi khi kiểm tra kho nội dung:', err);
+  }
+
+  // 2. Kiểm tra đối chiếu với Lịch sử các bài viết đã từng được đăng lên Facebook trước đó
+  try {
+    const {
+      ntd_posted_contents_history = [],
+      warmupContentSchedules = {},
+      warmupReports = [],
+      warmupAuditLogs = []
+    } = await chrome.storage.local.get([
+      'ntd_posted_contents_history',
+      'warmupContentSchedules',
+      'warmupReports',
+      'warmupAuditLogs'
+    ]);
+
+    // 2.1. Kiểm tra trong ntd_posted_contents_history
+    if (Array.isArray(ntd_posted_contents_history)) {
+      for (const p of ntd_posted_contents_history) {
+        if (!p || !p.content) continue;
+        const normPosted = normalizeContentForCompare(p.content);
+        const semanticPosted = getSemanticContentKey(p.content);
+
+        const isExactMatch = normInput === normPosted;
+        const isSemanticMatch = semanticInput.length >= 15 && semanticInput === semanticPosted;
+
+        if (isExactMatch || isSemanticMatch) {
+          const authorInfo = p.accName ? ` bởi nick "${p.accName}"` : '';
+          const dateInfo = p.date ? ` ngày ${p.date}` : '';
+          return {
+            isDuplicate: true,
+            reason: `Nội dung này trùng với bài viết đã từng được đăng lên Facebook trước đó${authorInfo}${dateInfo}!`,
+            matchedItem: p,
+            source: 'posted_history'
+          };
+        }
+      }
+    }
+
+    // 2.2. Kiểm tra trong lịch sử đăng gần nhất của các nick (warmupContentSchedules)
+    if (warmupContentSchedules && typeof warmupContentSchedules === 'object') {
+      for (const accId in warmupContentSchedules) {
+        const sched = warmupContentSchedules[accId];
+        if (sched && sched.lastPostText) {
+          const normSched = normalizeContentForCompare(sched.lastPostText);
+          const semanticSched = getSemanticContentKey(sched.lastPostText);
+          if (normInput === normSched || (semanticInput.length >= 15 && semanticInput === semanticSched)) {
+            return {
+              isDuplicate: true,
+              reason: `Nội dung này trùng với bài viết đã đăng gần đây trên Facebook của tài khoản (lịch sử đăng bài)!`,
+              matchedItem: sched,
+              source: 'schedule'
+            };
+          }
+        }
+      }
+    }
+
+    // 2.3. Kiểm tra trong báo cáo phiên nuôi (warmupReports)
+    if (Array.isArray(warmupReports)) {
+      for (const r of warmupReports) {
+        if (!r) continue;
+        const postText = r.postText || '';
+        if (postText) {
+          const normReport = normalizeContentForCompare(postText);
+          const semanticReport = getSemanticContentKey(postText);
+          if (normInput === normReport || (semanticInput.length >= 15 && semanticInput === semanticReport)) {
+            return {
+              isDuplicate: true,
+              reason: `Nội dung này trùng với bài viết đã đăng trong báo cáo của nick "${r.accName || 'Facebook'}" (${r.date || 'gần đây'})!`,
+              matchedItem: r,
+              source: 'report'
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[CheckDuplicate] Lỗi khi kiểm tra lịch sử đã đăng:', err);
+  }
+
+  return { isDuplicate: false, reason: '' };
+}
+
 function openTemplateModal(template = null) {
   currentEditingTemplateId = template ? template.id : null;
   const isEdit = Boolean(template);
@@ -2080,6 +2225,13 @@ function openTemplateModal(template = null) {
   $('inputModalTemplateBadge').value = template ? template.badge || '' : '';
   $('textareaModalTemplateContent').value = template ? template.content || '' : '';
   $('boxModalSpintaxPreview').style.display = 'none';
+
+  if ($('boxModalDuplicateWarning')) $('boxModalDuplicateWarning').style.display = 'none';
+  if ($('textareaModalTemplateContent')) $('textareaModalTemplateContent').style.borderColor = 'var(--border)';
+  if ($('btnSaveTemplateModal')) {
+    $('btnSaveTemplateModal').disabled = false;
+    $('btnSaveTemplateModal').title = '';
+  }
 
   // Khởi tạo trạng thái hình ảnh đính kèm
   if (template && template.picture && template.picture.data) {
@@ -2468,6 +2620,49 @@ function initSharedContentLibrary() {
     $('textModalSpintaxPreview').textContent = `"${rolled}"`;
   });
 
+  // Lắng nghe nhập liệu thời gian thực để phát hiện trùng lặp nội dung ngay khi gõ / dán
+  let duplicateCheckTimer = null;
+  const textareaContent = $('textareaModalTemplateContent');
+  if (textareaContent) {
+    textareaContent.addEventListener('input', () => {
+      clearTimeout(duplicateCheckTimer);
+      duplicateCheckTimer = setTimeout(async () => {
+        const val = (textareaContent.value || '').trim();
+        const warnBox = $('boxModalDuplicateWarning');
+        const warnText = $('textModalDuplicateReason');
+        const btnSave = $('btnSaveTemplateModal');
+
+        if (!val || val.length < 5) {
+          if (warnBox) warnBox.style.display = 'none';
+          textareaContent.style.borderColor = 'var(--border)';
+          if (btnSave) {
+            btnSave.disabled = false;
+            btnSave.title = '';
+          }
+          return;
+        }
+
+        const check = await checkContentDuplicate(val, '', currentEditingTemplateId);
+        if (check.isDuplicate) {
+          if (warnBox) warnBox.style.display = 'block';
+          if (warnText) warnText.textContent = check.reason;
+          textareaContent.style.borderColor = '#ef4444';
+          if (btnSave) {
+            btnSave.disabled = true;
+            btnSave.title = check.reason;
+          }
+        } else {
+          if (warnBox) warnBox.style.display = 'none';
+          textareaContent.style.borderColor = 'var(--border)';
+          if (btnSave) {
+            btnSave.disabled = false;
+            btnSave.title = '';
+          }
+        }
+      }, 250);
+    });
+  }
+
   // Lưu bài viết vào Kho (Tự động đồng bộ lên Cloud để mọi khách hàng cùng dùng)
   $('btnSaveTemplateModal')?.addEventListener('click', async () => {
     const title = ($('inputModalTemplateTitle')?.value || '').trim();
@@ -2477,6 +2672,18 @@ function initSharedContentLibrary() {
 
     if (!title || !content) {
       alert('Vui lòng nhập đầy đủ Tiêu đề và Nội dung bài viết.');
+      return;
+    }
+
+    // Kiểm tra chống trùng lặp nội dung với các bài viết đã có / đã đăng trước đó
+    const dupCheck = await checkContentDuplicate(content, title, currentEditingTemplateId);
+    if (dupCheck.isDuplicate) {
+      alert(`⛔ KHÔNG THỂ THÊM BÀI VIẾT NÀY VÀO KHO!\n\nLý do: ${dupCheck.reason}\n\nQuy tắc hệ thống: Kho nội dung không cho phép thêm các nội dung trùng lặp để bảo vệ tài khoản khỏi bị Facebook hạn chế / đánh dấu Spam. Vui lòng soạn nội dung mới hoặc chỉnh sửa cho khác biệt!`);
+      const warnBox = $('boxModalDuplicateWarning');
+      const warnText = $('textModalDuplicateReason');
+      if (warnBox) warnBox.style.display = 'block';
+      if (warnText) warnText.textContent = dupCheck.reason;
+      $('textareaModalTemplateContent')?.focus();
       return;
     }
 
