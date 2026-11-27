@@ -45,6 +45,7 @@ const expandedJobAccs = new Set();
 let cachedCampaigns = {};
 let cachedAccounts = [];
 let cachedScheduleJobs = [];
+let cachedCoordinator = null;
 let schedType = 'once';
 let schedDispatchMode = 'per_slot';
 let schedSlotPostChoiceMap = {};
