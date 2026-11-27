@@ -3799,18 +3799,13 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
         if (t && !t.discarded) tabAlive = true;
       } catch (_) {}
     }
-    if (!tabAlive) {
+    if (tabAlive) {
+      console.warn('[Warmup] Tiến trình nuôi đang chạy và tab vẫn hoạt động, bỏ qua khởi động trùng lặp.');
+      return;
+    } else {
       warmupRunning = false;
       warmupStop = false;
       warmupCurrentTabId = null;
-    } else {
-      warmupStop = true;
-      if (warmupCurrentTabId) {
-        chrome.tabs.sendMessage(warmupCurrentTabId, { type: 'STOP_WARMUP_SESSION' }).catch(() => {});
-      }
-      await sleepMs(600);
-      warmupRunning = false;
-      warmupStop = false;
     }
   }
   warmupRunning = true;
@@ -3942,6 +3937,17 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
           }
         }
 
+        // Tái sử dụng tab Facebook đang có sẵn trên trình duyệt, dọn dẹp các tab thừa nếu có
+        if (!warmupCurrentTabId) {
+          const allFbTabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' }).catch(() => []);
+          if (allFbTabs.length > 0) {
+            warmupCurrentTabId = allFbTabs[0].id;
+            for (let i = 1; i < allFbTabs.length; i++) {
+              chrome.tabs.remove(allFbTabs[i].id).catch(() => {});
+            }
+          }
+        }
+
         if (!warmupCurrentTabId) {
           const fbTab = await chrome.tabs.create({
             url: 'https://www.facebook.com/',
@@ -4031,9 +4037,12 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
               if (accountPostText) {
                 // 📌 TỰ ĐỘNG ĐÍNH KÈM THÔNG TIN CỐ ĐỊNH CỦA KHÁCH HÀNG (HOTLINE / LINK / HASHTAG / CHỮ KÝ)
                 try {
-                  const { warmupFixedFooterConfig = {} } = await chrome.storage.local.get('warmupFixedFooterConfig');
-                  const footerEnabled = warmupFixedFooterConfig.enabled !== false;
-                  const footerContent = (warmupFixedFooterConfig.content || '').trim();
+                  const { warmupFixedFooterConfig: extFooter = {} } = await chrome.storage.local.get('warmupFixedFooterConfig');
+                  const footerCfg = (config?.warmupFixedFooterConfig && config.warmupFixedFooterConfig.content)
+                    ? config.warmupFixedFooterConfig
+                    : extFooter;
+                  const footerEnabled = footerCfg?.enabled !== false;
+                  const footerContent = (footerCfg?.content || '').trim();
 
                   if (footerEnabled && footerContent) {
                     const resolvedFooter = resolveWarmupSpintax(footerContent);
@@ -6692,6 +6701,11 @@ function handleRuntimeMessage(m, sender, reply) {
     return true;
   }
   if (m.type === 'WARMUP_START') {
+    if (warmupRunning) {
+      console.warn('[Warmup] Bỏ qua lệnh WARMUP_START trùng lặp vì tiến trình đang chạy.');
+      reply({ ok: true, running: true, alreadyRunning: true });
+      return true;
+    }
     runWarmupLoop(m.accountIds || [], m.config || {}, m.accounts || []).catch(err => {
       console.error('[Warmup] Lỗi chạy warmup:', err);
     });

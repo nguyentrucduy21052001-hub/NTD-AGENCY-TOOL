@@ -447,7 +447,13 @@ async function startWarmup() {
   if ($('btnFocusFbTab')) $('btnFocusFbTab').style.display = 'inline-flex';
   $('progressSection').style.display = 'block';
 
-  // Đồng bộ sang Tiện ích mở rộng (kèm Kho nội dung dùng chung & Lịch đăng cá nhân)
+  // Đồng bộ sang Tiện ích mở rộng (kèm Kho nội dung dùng chung & Lịch đăng cá nhân & Thông tin cố định của khách)
+  let footerCfg = {};
+  try {
+    const resFooter = await chrome.storage.local.get('warmupFixedFooterConfig');
+    footerCfg = resFooter.warmupFixedFooterConfig || {};
+  } catch (_) {}
+
   if (window.chrome?.runtime?.sendToExtension) {
     const {
       accounts = [],
@@ -463,7 +469,8 @@ async function startWarmup() {
         accounts,
         warmupConfig: { ...cfg, backgroundMode: false },
         ntd_shared_content_library: sharedLib,
-        warmupContentSchedules
+        warmupContentSchedules,
+        warmupFixedFooterConfig: footerCfg
       }
     }).catch(() => { });
   }
@@ -479,20 +486,28 @@ async function startWarmup() {
     ? _libForStart
     : DEFAULT_SHARED_CONTENT_LIBRARY;
 
-  // Gửi lệnh kích hoạt tự động hóa nền
+  // Gửi lệnh kích hoạt tự động hóa nền (CHỈ GỬI 1 LẦN DUY NHẤT để tránh mở 2 tab Facebook)
   const targetAccountIds = targetAccounts.map(a => a.id);
   const warmupMsg = {
     type: 'WARMUP_START',
     accountIds: targetAccountIds,
     accounts: targetAccounts,
-    config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: contentLibForStart }
+    config: {
+      ...cfg,
+      backgroundMode: false,
+      autoCloseTab: false,
+      ntd_shared_content_library: contentLibForStart,
+      warmupFixedFooterConfig: footerCfg
+    }
   };
 
   try {
+    let res = null;
     if (window.chrome?.runtime?.sendToExtension) {
-      await window.chrome.runtime.sendToExtension(warmupMsg).catch(() => { });
+      res = await window.chrome.runtime.sendToExtension(warmupMsg).catch(() => null);
+    } else {
+      res = await chrome.runtime.sendMessage(warmupMsg);
     }
-    const res = await chrome.runtime.sendMessage(warmupMsg);
     if (res && (res.ok || res.running)) {
       appendLog('✅ Đã kết nối tự động hóa Facebook tới Tiện ích mở rộng.', '✅');
     }
@@ -2138,6 +2153,14 @@ async function saveFixedFooterConfig(showAlert = true) {
   };
 
   await chrome.storage.local.set({ warmupFixedFooterConfig: cfg });
+
+  // Đồng bộ ngay sang Chrome Extension nền
+  if (window.chrome?.runtime?.sendToExtension) {
+    window.chrome.runtime.sendToExtension({
+      type: 'SYNC_DATA_TO_EXTENSION',
+      data: { warmupFixedFooterConfig: cfg }
+    }).catch(() => {});
+  }
 
   // Lưu riêng theo tài khoản khách hàng trên Cloud Supabase để không ảnh hưởng khách khác
   try {

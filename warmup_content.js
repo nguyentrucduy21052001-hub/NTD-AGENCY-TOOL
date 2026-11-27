@@ -571,6 +571,14 @@
   // ── Helper điền văn bản vào bộ soạn Lexical của Facebook (ISOLATED fallback) ─
   async function fillFacebookEditor(el, text) {
     if (!el || !text) return false;
+
+    // Đảm bảo xóa trắng ô soạn thảo trước khi điền để không bị lặp đôi bài viết
+    try {
+      el.focus();
+      document.execCommand('selectAll', false, null);
+      document.execCommand('delete', false, null);
+    } catch (_) {}
+
     const placeCaret = () => {
       try { el.focus(); } catch (_) {}
       try {
@@ -595,7 +603,7 @@
     await delay(250);
 
     const getEdText = () => (el.innerText || el.textContent || '').replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim();
-    const hasInserted = () => getEdText().length >= Math.min(4, text.trim().length);
+    const hasInserted = () => getEdText().length >= Math.min(10, text.trim().length);
 
     // Cách 1: ClipboardEvent 'paste'
     try {
@@ -613,7 +621,10 @@
         cancelable: true,
         composed: true
       }));
-      await delay(600);
+      await delay(700);
+      if (hasInserted()) {
+        return true;
+      }
     } catch (_) {}
 
     // Cách 2: InputEvent 'beforeinput'
@@ -680,7 +691,7 @@
 
   // ── 7.1. Tự động đăng bài viết lên Trang cá nhân (Timeline) ─────────────────
   async function runPersonalTimelinePost(postText, stats, postPicture = null) {
-    if (isCancelled || !postText || !postText.trim()) return;
+    if (isCancelled || !postText || !postText.trim() || isPostingTimeline) return;
     isPostingTimeline = true;
     sendLog(`📝 Bắt đầu chuẩn bị đăng bài viết lên Trang cá nhân (Timeline)... ${postPicture ? '(kèm hình ảnh)' : ''}`, '📝');
 
@@ -826,34 +837,40 @@
         // Đính kèm hình ảnh nếu bài viết có hình ảnh
         if (postPicture && postPicture.data && !isCancelled) {
           try {
-            sendLog('Đang tải ảnh đính kèm lên bài viết Facebook...', '📷');
-            const beforeImages = new Set([...dialog.querySelectorAll('img')].map(e => e.src));
-            const acceptsImage = e => /image|\.jpe?g|\.png|\.webp/i.test(e.accept || '');
-            let inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
-            if (!inputs.length) {
-              const oldInputs = new Set(document.querySelectorAll('input[type="file"]'));
-              const photoBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(e => /Ảnh|Photo|video/i.test(label(e)));
-              if (photoBtns.length > 0) {
-                photoBtns[0].click();
-                await delay(1200);
-                inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
-                if (!inputs.length) inputs = [...document.querySelectorAll('input[type="file"]')].filter(e => !oldInputs.has(e) && acceptsImage(e));
-              }
-            }
-            if (inputs.length > 0) {
-              const input = inputs[0];
-              const [head, raw] = postPicture.data.split(',');
-              if (/^data:image\/(jpeg|png|webp);base64$/.test(head)) {
-                const bytes = Uint8Array.from(atob(raw), x => x.charCodeAt(0));
-                const dt = new DataTransfer();
-                dt.items.add(new File([bytes], postPicture.name || 'image.jpg', { type: postPicture.type || 'image/jpeg' }));
-                input.files = dt.files;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                await delay(2500);
-                sendLog('✅ Đã đính kèm ảnh vào bài viết Facebook thành công!', '📷');
-              }
+            // Kiểm tra xem trong dialog đã có ảnh đính kèm chưa (tránh nạp trùng 2 lần)
+            const existingAttachedImg = dialog.querySelector('img[src*="blob:"], img[src*="data:"], [aria-label*="Photo"], [aria-label*="Ảnh"] img');
+            if (existingAttachedImg) {
+              sendLog('ℹ️ Hình ảnh bài viết đã được đính kèm sẵn trong hộp thoại.', '📷');
             } else {
-              sendLog('⚠️ Không tìm thấy ô chọn file ảnh trong hộp thoại Facebook.', '⚠️');
+              sendLog('Đang tải ảnh đính kèm lên bài viết Facebook...', '📷');
+              const beforeImages = new Set([...dialog.querySelectorAll('img')].map(e => e.src));
+              const acceptsImage = e => /image|\.jpe?g|\.png|\.webp/i.test(e.accept || '');
+              let inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
+              if (!inputs.length) {
+                const oldInputs = new Set(document.querySelectorAll('input[type="file"]'));
+                const photoBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(e => /Ảnh|Photo|video/i.test(label(e)));
+                if (photoBtns.length > 0) {
+                  photoBtns[0].click();
+                  await delay(1200);
+                  inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
+                  if (!inputs.length) inputs = [...document.querySelectorAll('input[type="file"]')].filter(e => !oldInputs.has(e) && acceptsImage(e));
+                }
+              }
+              if (inputs.length > 0) {
+                const input = inputs[0];
+                const [head, raw] = postPicture.data.split(',');
+                if (/^data:image\/(jpeg|png|webp);base64$/.test(head)) {
+                  const bytes = Uint8Array.from(atob(raw), x => x.charCodeAt(0));
+                  const dt = new DataTransfer();
+                  dt.items.add(new File([bytes], postPicture.name || 'image.jpg', { type: postPicture.type || 'image/jpeg' }));
+                  input.files = dt.files;
+                  input.dispatchEvent(new Event('change', { bubbles: true }));
+                  await delay(2500);
+                  sendLog('✅ Đã đính kèm ảnh vào bài viết Facebook thành công!', '📷');
+                }
+              } else {
+                sendLog('⚠️ Không tìm thấy ô chọn file ảnh trong hộp thoại Facebook.', '⚠️');
+              }
             }
           } catch (imgErr) {
             sendLog(`⚠️ Lỗi đính kèm ảnh: ${imgErr.message}`, '⚠️');
