@@ -4592,8 +4592,16 @@ function scheduleNextRender() {
           if (window.chrome?.runtime?.sendToExtension) {
             const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
             if (extState?.ok && extState.campaigns) {
-              const curFp = Object.entries(extState.campaigns).map(([id, c]) => `${id}:${c?.state}:${c?.index}:${c?.active}`).join('|');
-              const lastFp = Object.entries(cachedCampaigns || {}).map(([id, c]) => `${id}:${c?.state}:${c?.index}:${c?.active}`).join('|');
+              const curFp = JSON.stringify({
+                c: extState.campaigns || {},
+                coord: extState.coordinator || null,
+                stats: extState.dailyPostStats || {}
+              });
+              const lastFp = JSON.stringify({
+                c: cachedCampaigns || {},
+                coord: cachedCoordinator || null,
+                stats: (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {}
+              });
               if (curFp !== lastFp) {
                 hasStateChange = true;
               }
