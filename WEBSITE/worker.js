@@ -4009,8 +4009,11 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
             if (shouldPost) {
               if (postContentSource === 'custom' && customPostContent) {
                 accountPostText = resolveWarmupSpintax(customPostContent);
-                const { warmupCustomPicture = null } = await chrome.storage.local.get('warmupCustomPicture');
-                if (warmupCustomPicture?.data) accountPostPicture = warmupCustomPicture;
+                const { warmupCustomPicture: extPic = null } = await chrome.storage.local.get('warmupCustomPicture');
+                const pic = (config?.warmupCustomPicture && config.warmupCustomPicture.data)
+                  ? config.warmupCustomPicture
+                  : extPic;
+                if (pic && pic.data) accountPostPicture = pic;
               } else {
                 // Đọc từ Extension storage, fallback sang kho config nếu có
                 const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');

@@ -454,6 +454,12 @@ async function startWarmup() {
     footerCfg = resFooter.warmupFixedFooterConfig || {};
   } catch (_) {}
 
+  let customPic = null;
+  try {
+    const resPic = await chrome.storage.local.get('warmupCustomPicture');
+    customPic = resPic.warmupCustomPicture || null;
+  } catch (_) {}
+
   if (window.chrome?.runtime?.sendToExtension) {
     const {
       accounts = [],
@@ -470,7 +476,8 @@ async function startWarmup() {
         warmupConfig: { ...cfg, backgroundMode: false },
         ntd_shared_content_library: sharedLib,
         warmupContentSchedules,
-        warmupFixedFooterConfig: footerCfg
+        warmupFixedFooterConfig: footerCfg,
+        warmupCustomPicture: customPic
       }
     }).catch(() => { });
   }
@@ -497,7 +504,8 @@ async function startWarmup() {
       backgroundMode: false,
       autoCloseTab: false,
       ntd_shared_content_library: contentLibForStart,
-      warmupFixedFooterConfig: footerCfg
+      warmupFixedFooterConfig: footerCfg,
+      warmupCustomPicture: customPic
     }
   };
 
@@ -1986,8 +1994,20 @@ async function renderSharedContentLibrary() {
 
       if (item.picture && item.picture.data) {
         await chrome.storage.local.set({ warmupCustomPicture: item.picture });
+        if (window.chrome?.runtime?.sendToExtension) {
+          window.chrome.runtime.sendToExtension({
+            type: 'SYNC_DATA_TO_EXTENSION',
+            data: { warmupCustomPicture: item.picture }
+          }).catch(() => {});
+        }
       } else {
         await chrome.storage.local.remove('warmupCustomPicture');
+        if (window.chrome?.runtime?.sendToExtension) {
+          window.chrome.runtime.sendToExtension({
+            type: 'SYNC_DATA_TO_EXTENSION',
+            data: { warmupCustomPicture: null }
+          }).catch(() => {});
+        }
       }
 
       updatePersonalPostVisibility();

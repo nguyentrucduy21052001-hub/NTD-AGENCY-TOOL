@@ -837,40 +837,35 @@
         // Đính kèm hình ảnh nếu bài viết có hình ảnh
         if (postPicture && postPicture.data && !isCancelled) {
           try {
-            // Kiểm tra xem trong dialog đã có ảnh đính kèm chưa (tránh nạp trùng 2 lần)
-            const existingAttachedImg = dialog.querySelector('img[src*="blob:"], img[src*="data:"], [aria-label*="Photo"], [aria-label*="Ảnh"] img');
-            if (existingAttachedImg) {
-              sendLog('ℹ️ Hình ảnh bài viết đã được đính kèm sẵn trong hộp thoại.', '📷');
+            sendLog('Đang tải ảnh đính kèm lên bài viết Facebook...', '📷');
+            const acceptsImage = e => /image|\.jpe?g|\.png|\.webp/i.test(e.accept || '');
+            let inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
+            if (!inputs.length) {
+              const oldInputs = new Set(document.querySelectorAll('input[type="file"]'));
+              const photoBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(e => /Ảnh|Photo|video/i.test(label(e)));
+              if (photoBtns.length > 0) {
+                photoBtns[0].click();
+                await delay(1200);
+                inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
+                if (!inputs.length) inputs = [...document.querySelectorAll('input[type="file"]')].filter(e => !oldInputs.has(e) && acceptsImage(e));
+              }
+            }
+            if (inputs.length > 0) {
+              const input = inputs[0];
+              const [head, raw] = postPicture.data.split(',');
+              if (/^data:image\/(jpeg|png|webp);base64$/.test(head)) {
+                const bytes = Uint8Array.from(atob(raw), x => x.charCodeAt(0));
+                const dt = new DataTransfer();
+                dt.items.add(new File([bytes], postPicture.name || 'image.jpg', { type: postPicture.type || 'image/jpeg' }));
+                input.files = dt.files;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                sendLog('Đang chờ Facebook xử lý và hiển thị ảnh...', '⏳');
+                await delay(3500);
+                sendLog('✅ Đã đính kèm ảnh vào bài viết Facebook thành công!', '📷');
+              }
             } else {
-              sendLog('Đang tải ảnh đính kèm lên bài viết Facebook...', '📷');
-              const beforeImages = new Set([...dialog.querySelectorAll('img')].map(e => e.src));
-              const acceptsImage = e => /image|\.jpe?g|\.png|\.webp/i.test(e.accept || '');
-              let inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
-              if (!inputs.length) {
-                const oldInputs = new Set(document.querySelectorAll('input[type="file"]'));
-                const photoBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(e => /Ảnh|Photo|video/i.test(label(e)));
-                if (photoBtns.length > 0) {
-                  photoBtns[0].click();
-                  await delay(1200);
-                  inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
-                  if (!inputs.length) inputs = [...document.querySelectorAll('input[type="file"]')].filter(e => !oldInputs.has(e) && acceptsImage(e));
-                }
-              }
-              if (inputs.length > 0) {
-                const input = inputs[0];
-                const [head, raw] = postPicture.data.split(',');
-                if (/^data:image\/(jpeg|png|webp);base64$/.test(head)) {
-                  const bytes = Uint8Array.from(atob(raw), x => x.charCodeAt(0));
-                  const dt = new DataTransfer();
-                  dt.items.add(new File([bytes], postPicture.name || 'image.jpg', { type: postPicture.type || 'image/jpeg' }));
-                  input.files = dt.files;
-                  input.dispatchEvent(new Event('change', { bubbles: true }));
-                  await delay(2500);
-                  sendLog('✅ Đã đính kèm ảnh vào bài viết Facebook thành công!', '📷');
-                }
-              } else {
-                sendLog('⚠️ Không tìm thấy ô chọn file ảnh trong hộp thoại Facebook.', '⚠️');
-              }
+              sendLog('⚠️ Không tìm thấy ô chọn file ảnh trong hộp thoại Facebook.', '⚠️');
             }
           } catch (imgErr) {
             sendLog(`⚠️ Lỗi đính kèm ảnh: ${imgErr.message}`, '⚠️');
