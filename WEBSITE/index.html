@@ -46,7 +46,7 @@
     }
   </style>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="sidebar.css?v=20261127_0850">
+  <link rel="stylesheet" href="sidebar.css?v=20261127_0915">
 </head>
 <style>
   /* Multi-account section */
@@ -107,7 +107,6 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 6px;
-    scroll-behavior: smooth;
     overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 #f1f5f9;
@@ -2216,7 +2215,7 @@
     border-radius: 12px;
     margin-bottom: 0;
     overflow: hidden;
-    transition: all .15s;
+    transition: border-color .15s, box-shadow .15s;
   }
 
   .prog-acc-item:hover {
@@ -2450,6 +2449,9 @@
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    contain: content;
     scrollbar-width: thin;
     scrollbar-color: #94a3b8 rgba(0, 0, 0, 0.05);
   }
@@ -2468,7 +2470,7 @@
   }
 
   .prog-job-drawer::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
   }
 
   .prog-job-drawer::-webkit-scrollbar-track {
@@ -2490,6 +2492,7 @@
     color: #cbd5e1 !important;
     border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
     max-height: 380px !important;
+    contain: content !important;
     scrollbar-color: rgba(96, 165, 250, 0.45) rgba(255, 255, 255, 0.05) !important;
   }
 
@@ -2500,6 +2503,10 @@
   body.ntd-dark-theme .prog-job-drawer ol li {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
     padding-bottom: 4px;
+  }
+
+  body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar {
+    width: 8px !important;
   }
 
   body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-track {
@@ -4720,7 +4727,7 @@
     </div>
 
   </main>
-  <script type="module" src="panel.js?v=20261127_0850"></script>
+  <script type="module" src="panel.js?v=20261127_0915"></script>
   <script type="module" src="sidebar.js?v=20261125_1700"></script>
 </body>
 

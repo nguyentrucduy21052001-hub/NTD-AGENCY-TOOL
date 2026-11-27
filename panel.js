@@ -2779,7 +2779,22 @@ const stateLabel = {
 };
 
 // ── Build Single Progress Card Element ────────────────────────────────────────
-function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
+function attachDrawerWheelProtection(drawer) {
+  if (!drawer || drawer._wheelAttached) return;
+  drawer._wheelAttached = true;
+  drawer.addEventListener('wheel', (e) => {
+    if (drawer.scrollHeight > drawer.clientHeight) {
+      const atTop = drawer.scrollTop <= 0 && e.deltaY < 0;
+      const atBottom = Math.ceil(drawer.scrollTop + drawer.clientHeight) >= drawer.scrollHeight && e.deltaY > 0;
+      // Khi đang cuộn ở giữa danh sách chi tiết, cô lập sự kiện cuộn để khung cha không cướp sự kiện
+      if (!atTop && !atBottom) {
+        e.stopPropagation();
+      }
+    }
+  }, { passive: true });
+}
+
+function buildProgCardElement(itemData, statsMap, todayStr, coordinator, existingDrawersMap = null) {
   const { acc, c, total, isPausedMidway, isRunning, isWaiting, isDone, hasErrorJob, isStoppedWithError } = itemData;
   const isRunningOrWaiting = isRunning || isWaiting;
 
@@ -2979,6 +2994,29 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator) {
     };
   }
 
+  // Tái sử dụng drawer DOM element cũ nếu đã tồn tại trước đó để giữ trọn vẹn mạch cuộn chuột mượt mà
+  const existingDrawerData = existingDrawersMap?.get(`progJobDrawer_${acc.id}`);
+  if (existingDrawerData) {
+    const newDrawer = card.querySelector('.prog-job-drawer');
+    if (newDrawer) {
+      const oldDrawer = existingDrawerData.element;
+      const newOl = newDrawer.querySelector('ol');
+      const oldOl = oldDrawer.querySelector('ol');
+      if (newOl && oldOl && newOl.innerHTML !== oldOl.innerHTML) {
+        oldOl.innerHTML = newOl.innerHTML;
+      }
+      oldDrawer.style.display = isJobExpanded ? 'block' : 'none';
+      newDrawer.replaceWith(oldDrawer);
+      if (existingDrawerData.scrollTop > 0) {
+        oldDrawer.scrollTop = existingDrawerData.scrollTop;
+      }
+      attachDrawerWheelProtection(oldDrawer);
+    }
+  } else {
+    const d = card.querySelector('.prog-job-drawer');
+    if (d) attachDrawerWheelProtection(d);
+  }
+
   return card;
 }
 
@@ -3000,11 +3038,19 @@ async function render() {
         }
         if (extState.campaigns && Object.keys(extState.campaigns).length > 0) {
           extCampaigns = extState.campaigns;
-          await chrome.storage.local.set({
-            campaigns: extState.campaigns,
-            coordinator: extState.coordinator || null,
-            dailyPostStats: extState.dailyPostStats || {}
-          });
+          const prevCampaignsStr = JSON.stringify(cachedCampaigns || {});
+          const newCampaignsStr = JSON.stringify(extState.campaigns || {});
+          const prevCoordStr = JSON.stringify(cachedCoordinator || null);
+          const newCoordStr = JSON.stringify(extState.coordinator || null);
+          if (prevCampaignsStr !== newCampaignsStr || prevCoordStr !== newCoordStr) {
+            _isSelfSyncingStorage = true;
+            await chrome.storage.local.set({
+              campaigns: extState.campaigns,
+              coordinator: extState.coordinator || null,
+              dailyPostStats: extState.dailyPostStats || {}
+            });
+            _isSelfSyncingStorage = false;
+          }
         } else {
           await chrome.storage.local.remove(['campaigns', 'coordinator']);
           if (extState.dailyPostStats) {
@@ -3021,6 +3067,8 @@ async function render() {
   const accs = accounts || [];
   cachedAccounts = accs;
   const cMap = extCampaigns || campaigns || {};
+  cachedCampaigns = cMap;
+  cachedCoordinator = coordinator || null;
   const statsMap = dailyPostStats || {};
   const todayStr = getTodayDateStr();
   renderPerAccountDailyLimits(accs, statsMap);
@@ -3146,11 +3194,14 @@ async function render() {
 
   const list = $('accStatusList');
   const savedListScroll = list ? list.scrollTop : 0;
-  const savedDrawerScrolls = new Map();
+  const existingDrawersMap = new Map();
   if (list) {
     list.querySelectorAll('.prog-job-drawer').forEach(dr => {
-      if (dr.id && dr.scrollTop > 0) {
-        savedDrawerScrolls.set(dr.id, dr.scrollTop);
+      if (dr.id) {
+        existingDrawersMap.set(dr.id, {
+          element: dr,
+          scrollTop: dr.scrollTop
+        });
       }
     });
   }
@@ -3221,7 +3272,7 @@ async function render() {
       frag.appendChild(hPersonal);
 
       for (const itemData of dispPersonal) {
-        frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator));
+        frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator, existingDrawersMap));
       }
 
       // Group header 2: Fanpage
@@ -3231,16 +3282,16 @@ async function render() {
       frag.appendChild(hFanpage);
 
       for (const itemData of dispFanpage) {
-        frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator));
+        frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator, existingDrawersMap));
       }
     } else {
       for (const itemData of displayedAccs) {
-        frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator));
+        frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator, existingDrawersMap));
       }
     }
   } else {
     for (const itemData of displayedAccs) {
-      frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator));
+      frag.appendChild(buildProgCardElement(itemData, statsMap, todayStr, coordinator, existingDrawersMap));
     }
   }
   list.appendChild(frag);
@@ -3250,12 +3301,12 @@ async function render() {
     if (savedListScroll > 0) {
       list.scrollTop = savedListScroll;
     }
-    if (savedDrawerScrolls.size > 0) {
-      savedDrawerScrolls.forEach((st, id) => {
-        const d = document.getElementById(id);
-        if (d) d.scrollTop = st;
-      });
-    }
+    existingDrawersMap.forEach((data, id) => {
+      const d = document.getElementById(id);
+      if (d && data.scrollTop > 0) {
+        d.scrollTop = data.scrollTop;
+      }
+    });
   }
 
   // Per-account button handlers
@@ -4535,7 +4586,26 @@ function scheduleNextRender() {
     _renderPollTimer = setTimeout(async () => {
       const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
       if (isWeb && window.__ntdExtensionActive) {
-        await render();
+        let hasStateChange = false;
+        try {
+          if (window.chrome?.runtime?.sendToExtension) {
+            const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
+            if (extState?.ok && extState.campaigns) {
+              const curFp = Object.entries(extState.campaigns).map(([id, c]) => `${id}:${c?.state}:${c?.index}:${c?.active}`).join('|');
+              const lastFp = Object.entries(cachedCampaigns || {}).map(([id, c]) => `${id}:${c?.state}:${c?.index}:${c?.active}`).join('|');
+              if (curFp !== lastFp) {
+                hasStateChange = true;
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (hasStateChange) {
+          await render();
+        } else {
+          // Chỉ tick giây đếm ngược in-place, không re-render để bảo toàn trải nghiệm lăn chuột 60fps
+          updateCountdownTicks();
+        }
       } else {
         updateCountdownTicks();
       }
@@ -4548,10 +4618,12 @@ function scheduleNextRender() {
 }
 
 // ── Debounced render để tránh render liên tục khi storage thay đổi nhiều lần ──
+let _isSelfSyncingStorage = false;
 const debouncedRender = debounce(() => render().then(scheduleNextRender), 150);
 const debouncedRenderCategories = debounce(renderAccountCategoryAssignments, 200);
 
 chrome.storage.onChanged.addListener(async (changes) => {
+  if (_isSelfSyncingStorage) return;
   // Chỉ xử lý các key thực sự liên quan để tránh render thừa
   const relevantForRender = ['campaigns', 'coordinator', 'accounts', 'dailyPostStats'];
   const relevantForCategories = ['groupCategories', 'accounts', 'accountGroupsList'];

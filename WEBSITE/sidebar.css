@@ -1786,11 +1786,14 @@ body.ntd-dark-theme .prog-job-drawer {
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-y !important;
+  contain: content !important;
   scrollbar-width: thin !important;
   scrollbar-color: rgba(96, 165, 250, 0.45) rgba(255, 255, 255, 0.05) !important;
 }
 body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar {
-  width: 6px !important;
+  width: 8px !important;
 }
 body.ntd-dark-theme .prog-job-drawer::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.04) !important;
