@@ -2303,28 +2303,88 @@ export async function fetchSharedContentLibrary() {
 
 /**
  * Đẩy Kho nội dung dùng chung lên Cloud Supabase để chia sẻ cho TOÀN BỘ KHÁCH HÀNG
+ * Hỗ trợ Smart Merge: Khách hàng nào thêm bài cũng sẽ được gộp tự động lên Cloud,
+ * không làm mất bài viết của khách hàng khác hay của Admin.
  */
-export async function pushSharedContentLibrary(library) {
-  const lib = Array.isArray(library) ? library : [];
+export async function pushSharedContentLibrary(library, options = {}) {
+  const localLib = Array.isArray(library) ? library : [];
+  const mode = options.mode || 'merge'; // 'merge' | 'overwrite' | 'delete'
+  const deletedId = options.deletedId || null;
 
-  // 1. Lưu ngay vào máy người dùng
-  await chrome.storage.local.set({ ntd_shared_content_library: lib });
+  let finalLib = [];
 
-  // 2. Đẩy lên Supabase ntd_workspaces để mọi khách hàng đồng bộ
+  if (mode === 'overwrite') {
+    // Chỉ dùng khi cố ý ghi đè hoặc xóa sạch toàn bộ kho bài
+    finalLib = localLib;
+  } else {
+    // 1. Tải bản mới nhất từ Cloud Supabase về trước để merge
+    let cloudLib = [];
+    try {
+      const res = await supabaseRequest(`ntd_workspaces?data_key=eq.shared_content_library&select=*`);
+      if (Array.isArray(res) && res.length > 0 && Array.isArray(res[0]?.payload)) {
+        cloudLib = res[0].payload;
+      }
+    } catch (e) {
+      console.warn('[Supabase] Không thể fetch cloud trước khi merge, dùng local:', e?.message || e);
+    }
+
+    // 2. Gộp danh sách thông minh theo Map (id làm khóa)
+    const postMap = new Map();
+
+    // Nạp các bài từ Cloud trước
+    cloudLib.forEach(item => {
+      if (item && item.id) {
+        postMap.set(item.id, item);
+      }
+    });
+
+    // Nạp các bài từ Local (ưu tiên bản có updatedAt mới hơn)
+    localLib.forEach(item => {
+      if (item && item.id) {
+        if (postMap.has(item.id)) {
+          const existing = postMap.get(item.id);
+          if ((item.updatedAt || 0) >= (existing.updatedAt || 0)) {
+            postMap.set(item.id, item);
+          }
+        } else {
+          postMap.set(item.id, item);
+        }
+      }
+    });
+
+    // Nếu có yêu cầu xóa 1 id cụ thể
+    if (deletedId) {
+      postMap.delete(deletedId);
+    }
+
+    finalLib = Array.from(postMap.values());
+    // Sắp xếp bài viết mới nhất lên trước
+    finalLib.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  }
+
+  // 3. Lưu bản hoàn chỉnh vào bộ nhớ máy người dùng
+  await chrome.storage.local.set({ ntd_shared_content_library: finalLib });
+
+  // 4. Đẩy lên Supabase ntd_workspaces để toàn bộ khách hàng đều thấy
   try {
     const row = {
       owner_username: 'shared_system',
       data_key: 'shared_content_library',
-      payload: lib,
-      item_count: lib.length,
+      payload: finalLib,
+      item_count: finalLib.length,
       updated_at: new Date().toISOString()
     };
 
     await upsertBatches('ntd_workspaces', 'owner_username,data_key', [row], r => `${r.owner_username}|${r.data_key}`, 10);
-    return { ok: true, count: lib.length, message: `Đã đồng bộ thành công ${lib.length} bài viết kèm hình ảnh lên Cloud cho toàn bộ khách hàng.` };
+    return {
+      ok: true,
+      count: finalLib.length,
+      library: finalLib,
+      message: `Đã đồng bộ thành công ${finalLib.length} bài viết (kèm hình ảnh) lên Cloud cho toàn bộ khách hàng.`
+    };
   } catch (err) {
     console.error('[Supabase] Lỗi pushSharedContentLibrary:', err);
-    return { ok: false, error: err.message, localOnly: true, count: lib.length };
+    return { ok: false, error: err.message, localOnly: true, count: finalLib.length, library: finalLib };
   }
 }
 

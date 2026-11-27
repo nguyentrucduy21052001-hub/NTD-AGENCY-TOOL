@@ -126,6 +126,9 @@ async function loadConfig() {
     e.preventDefault();
     const tabBtn = document.querySelector('.wn-tab[data-tab="tab-content"]');
     if (tabBtn) tabBtn.click();
+    fetchSharedContentLibrary().then(lib => {
+      if (Array.isArray(lib)) renderSharedContentLibrary();
+    }).catch(() => {});
   });
 
   $('btnPreviewCustomSpintax')?.addEventListener('click', (e) => {
@@ -1882,6 +1885,7 @@ async function renderSharedContentLibrary() {
             </span>
             ${item.badge ? `<span class="badge badge-running" style="font-size:10.5px">${escapeHtml(item.badge)}</span>` : ''}
             ${hasPicture ? `<span class="badge" style="font-size:10.5px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)">📷 Kèm ảnh</span>` : ''}
+            ${item.author ? `<span class="badge" style="font-size:10px;background:rgba(139,92,246,0.12);color:#a78bfa;border:1px solid rgba(139,92,246,0.25)" title="Tài khoản đóng góp bài viết">👤 ${escapeHtml(item.author)}</span>` : ''}
             <span class="template-spintax-tag">{Spin-tax}</span>
           </div>
           <div style="display:flex;gap:4px">
@@ -1995,12 +1999,18 @@ async function renderSharedContentLibrary() {
       const item = library.find(x => x.id === id);
       if (!item) return;
 
-      if (confirm(`Bạn có chắc chắn muốn xóa bài viết mẫu "${item.title}" khỏi Kho nội dung?`)) {
+      if (confirm(`Bạn có chắc chắn muốn xóa bài viết "${item.title}" khỏi Kho nội dung?\n\nBài viết sẽ được xóa trên máy và đồng bộ gỡ bỏ khỏi Cloud dùng chung.`)) {
         const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
         const updated = ntd_shared_content_library.filter(x => x.id !== id);
         await chrome.storage.local.set({ ntd_shared_content_library: updated });
-        appendLog(`Đã xóa bài viết "${item.title}" khỏi Kho nội dung.`, '🗑️');
-        renderSharedContentLibrary();
+        
+        try {
+          await pushSharedContentLibrary(updated, { mode: 'delete', deletedId: id });
+          appendLog(`Đã xóa bài viết "${item.title}" và đồng bộ gỡ khỏi Cloud.`, '🗑️');
+        } catch (delErr) {
+          console.warn('Lỗi đồng bộ xóa Cloud:', delErr);
+        }
+        await renderSharedContentLibrary();
       }
     });
   });
@@ -2119,25 +2129,26 @@ function initSharedContentLibrary() {
     openTemplateModal();
   });
 
-  // 5. Nút Đồng bộ lên Cloud (Đồng bộ cho TẤT CẢ KHÁCH HÀNG)
+  // 5. Nút Đồng bộ lên Cloud (Đồng bộ thông minh cho TẤT CẢ KHÁCH HÀNG)
   $('btnPushCloudContent')?.addEventListener('click', async () => {
     const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
     const library = Array.isArray(ntd_shared_content_library) ? ntd_shared_content_library : [];
 
-    if (!confirm(`Bạn có chắc chắn muốn đẩy ${library.length} bài viết (kèm hình ảnh) trong Kho nội dung này lên Cloud Supabase để chia sẻ cho TOÀN BỘ KHÁCH HÀNG sử dụng chung?`)) {
+    if (!confirm(`Bạn có chắc chắn muốn đồng bộ ${library.length} bài viết (kèm hình ảnh) trong Kho này lên Cloud Supabase?\n\nHệ thống sẽ gộp thông minh các bài viết mới từ bạn và các khách hàng khác để chia sẻ dùng chung cho toàn bộ thành viên.`)) {
       return;
     }
 
     const btn = $('btnPushCloudContent');
     const oldHtml = btn.innerHTML;
-    btn.innerHTML = '<span>⏳</span> <span>Đang đẩy lên Cloud...</span>';
+    btn.innerHTML = '<span>⏳</span> <span>Đang gộp & đồng bộ Cloud...</span>';
     btn.disabled = true;
 
     try {
-      const res = await pushSharedContentLibrary(library);
+      const res = await pushSharedContentLibrary(library, { mode: 'merge' });
+      await renderSharedContentLibrary();
       if (res.ok) {
-        appendLog(`Đã đồng bộ thành công ${library.length} bài viết lên Cloud Supabase.`, '☁️');
-        alert(`🎉 Thành công!\n\nĐã đồng bộ ${library.length} bài viết kèm hình ảnh lên Cloud Supabase. Tất cả khách hàng khác khi vào ứng dụng sẽ nhận được toàn bộ các bài viết và hình ảnh này!`);
+        appendLog(`Đã đồng bộ thông minh thành công ${res.count} bài viết lên Cloud Supabase.`, '☁️');
+        alert(`🎉 Thành công!\n\nĐã đồng bộ ${res.count} bài viết kèm hình ảnh lên Cloud Supabase.\nTất cả khách hàng khác khi vào ứng dụng đều có thể nhìn thấy và sử dụng toàn bộ bài viết này!`);
       } else {
         alert('Đã lưu nội bộ trên máy, cảnh báo đẩy Cloud: ' + (res.error || 'Lỗi không xác định'));
       }
@@ -2165,7 +2176,7 @@ function initSharedContentLibrary() {
 
     if (confirm('Bạn có muốn đồng bộ ngay trạng thái kho rỗng lên Cloud Supabase để xóa trên tài khoản của TẤT CẢ KHÁCH HÀNG không?')) {
       try {
-        await pushSharedContentLibrary([]);
+        await pushSharedContentLibrary([], { mode: 'overwrite' });
         alert('✅ Đã đồng bộ xóa sạch toàn bộ bài viết lên Cloud Supabase thành công!');
       } catch (e) {
         alert('Lỗi đồng bộ xóa Cloud: ' + e.message);
@@ -2231,7 +2242,7 @@ function initSharedContentLibrary() {
     $('textModalSpintaxPreview').textContent = `"${rolled}"`;
   });
 
-  // Lưu bài viết vào Kho
+  // Lưu bài viết vào Kho (Tự động đồng bộ lên Cloud để mọi khách hàng cùng dùng)
   $('btnSaveTemplateModal')?.addEventListener('click', async () => {
     const title = ($('inputModalTemplateTitle')?.value || '').trim();
     const category = $('selectModalTemplateCategory')?.value || 'doi_song';
@@ -2242,6 +2253,21 @@ function initSharedContentLibrary() {
       alert('Vui lòng nhập đầy đủ Tiêu đề và Nội dung bài viết.');
       return;
     }
+
+    // Lấy thông tin tài khoản đang đăng nhập để ghi nhận tác giả đóng góp
+    let currentAuthor = 'Thành viên';
+    try {
+      const { license } = await chrome.storage.local.get('license');
+      if (license?.username) {
+        currentAuthor = license.username;
+      } else {
+        const raw = localStorage.getItem('ntd_store_license');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.username) currentAuthor = parsed.username;
+        }
+      }
+    } catch (_) {}
 
     const categoryNames = {
       doi_song: '☕ Đời sống & Chào ngày mới',
@@ -2255,39 +2281,66 @@ function initSharedContentLibrary() {
     const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
     let lib = Array.isArray(ntd_shared_content_library) ? [...ntd_shared_content_library] : [];
 
-    if (currentEditingTemplateId) {
-      const idx = lib.findIndex(x => x.id === currentEditingTemplateId);
-      if (idx !== -1) {
-        lib[idx] = {
-          ...lib[idx],
-          title,
+    const btnSave = $('btnSaveTemplateModal');
+    const oldBtnText = btnSave.innerHTML;
+    btnSave.innerHTML = '<span>⏳ Đang lưu & Đồng bộ Cloud...</span>';
+    btnSave.disabled = true;
+
+    try {
+      if (currentEditingTemplateId) {
+        const idx = lib.findIndex(x => x.id === currentEditingTemplateId);
+        if (idx !== -1) {
+          lib[idx] = {
+            ...lib[idx],
+            title,
+            category,
+            categoryName: categoryNames[category] || 'Chủ đề',
+            badge,
+            content,
+            picture: currentEditingPicture || null,
+            author: lib[idx].author || currentAuthor,
+            updatedAt: Date.now()
+          };
+        }
+      } else {
+        const newTemplate = {
+          id: 'tmpl_custom_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
           category,
           categoryName: categoryNames[category] || 'Chủ đề',
-          badge,
+          title,
+          badge: badge || (currentEditingPicture ? 'Có ảnh' : 'Bài viết mới'),
           content,
           picture: currentEditingPicture || null,
+          author: currentAuthor,
+          tags: [categoryNames[category] || 'Chủ đề'],
           updatedAt: Date.now()
         };
+        lib.unshift(newTemplate);
       }
-    } else {
-      const newTemplate = {
-        id: 'tmpl_custom_' + Date.now(),
-        category,
-        categoryName: categoryNames[category] || 'Chủ đề',
-        title,
-        badge: badge || (currentEditingPicture ? 'Có ảnh' : 'Bài viết mới'),
-        content,
-        picture: currentEditingPicture || null,
-        tags: [categoryNames[category] || 'Chủ đề'],
-        updatedAt: Date.now()
-      };
-      lib.unshift(newTemplate);
-    }
 
-    await chrome.storage.local.set({ ntd_shared_content_library: lib });
-    closeTemplateModal();
-    await renderSharedContentLibrary();
-    appendLog(`Đã lưu bài viết "${title}" ${currentEditingPicture ? '(Kèm hình ảnh)' : ''} vào Kho nội dung dùng chung.`, '💾');
+      // 1. Lưu cục bộ trước vào máy
+      await chrome.storage.local.set({ ntd_shared_content_library: lib });
+
+      // 2. Tự động đồng bộ ngay lên Cloud Supabase (Smart Merge)
+      const syncResult = await pushSharedContentLibrary(lib, { mode: 'merge' });
+
+      closeTemplateModal();
+      await renderSharedContentLibrary();
+
+      if (syncResult && syncResult.ok) {
+        appendLog(`Đã lưu bài viết "${title}" ${currentEditingPicture ? '(Kèm hình ảnh)' : ''} và đồng bộ lên Cloud Supabase thành công.`, '☁️');
+        alert(`🎉 Thành công!\n\nBài viết "${title}" ${currentEditingPicture ? '(kèm hình ảnh)' : ''} đã được lưu và ĐỒNG BỘ LÊN CLOUD SUPABASE!\n\nTất cả khách hàng khác khi vào ứng dụng đều có thể nhìn thấy và sử dụng ngay bài viết này.`);
+      } else {
+        appendLog(`Đã lưu bài viết "${title}" vào máy (Lưu ý: Không kết nối được Cloud: ${syncResult?.error || 'Ngoại tuyến'}).`, '💾');
+        alert(`✅ Đã lưu bài viết vào máy của bạn!\n\n(Lưu ý: Hiện chưa kết nối được Cloud để chia sẻ bài viết này cho khách hàng khác. Bạn có thể bấm "Đồng bộ lên Cloud" sau).`);
+      }
+    } catch (saveErr) {
+      console.error('Lỗi khi lưu bài viết:', saveErr);
+      alert('Lỗi lưu bài viết: ' + saveErr.message);
+    } finally {
+      btnSave.innerHTML = oldBtnText;
+      btnSave.disabled = false;
+    }
   });
 
   // 7. Xử lý Modal Xem thử biến thể (Spin Preview)
@@ -2679,7 +2732,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Tự động kết nối Cloud Supabase để kiểm tra cập nhật mới nhất cho Kho nội dung dùng chung
   fetchSharedContentLibrary().then(lib => {
-    if (Array.isArray(lib) && lib.length > 0) {
+    if (Array.isArray(lib)) {
       renderSharedContentLibrary();
     }
   }).catch(() => { });

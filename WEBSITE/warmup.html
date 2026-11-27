@@ -1426,9 +1426,9 @@
     <div class="card">
       <div class="card-header" style="flex-wrap:wrap;gap:12px">
         <div>
-          <h2 class="card-title">🌐 Kho nội dung dùng chung (Cập nhật thường xuyên từ Cloud)</h2>
+          <h2 class="card-title">🌐 Kho nội dung dùng chung (Tự động đồng bộ qua Cloud)</h2>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
-            Kho bài viết nguyên bản có sẵn Spin-tax {A|B|C}, toàn bộ khách hàng dùng chung và cập nhật liên tục từ Admin.
+            Kho bài viết cộng đồng có sẵn Spin-tax {A|B|C} và hình ảnh đính kèm. Mọi khách hàng đều có thể thêm bài, tự động đồng bộ lên Cloud để toàn bộ thành viên cùng sử dụng.
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1718,9 +1718,14 @@
           <div id="textModalSpintaxPreview" style="font-size:12.5px;color:var(--text);white-space:pre-wrap;line-height:1.45"></div>
         </div>
       </div>
-      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:rgba(0,0,0,0.1)">
-        <button type="button" id="btnCancelTemplateModal" class="btn-sm-text" style="padding:6px 14px">Hủy</button>
-        <button type="button" id="btnSaveTemplateModal" class="btn-primary-big" style="padding:7px 18px;font-size:13px;border-radius:8px">💾 Lưu bài viết vào Kho</button>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;background:rgba(0,0,0,0.1)">
+        <div style="font-size:11.5px;color:#38bdf8;display:flex;align-items:center;gap:6px">
+          <span>☁️</span> <span>Tự động đồng bộ lên Cloud để mọi khách hàng cùng dùng</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button type="button" id="btnCancelTemplateModal" class="btn-sm-text" style="padding:6px 14px">Hủy</button>
+          <button type="button" id="btnSaveTemplateModal" class="btn-primary-big" style="padding:7px 18px;font-size:13px;border-radius:8px">💾 Lưu bài viết & Đồng bộ Cloud</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1753,7 +1758,7 @@
   </div>
 </main>
 
-<script type="module" src="warmup.js?v=20261127_0920"></script>
+<script type="module" src="warmup.js?v=20261127_0945"></script>
 <script type="module" src="sidebar.js?v=20261127_0825"></script>
 </body>
 </html>
