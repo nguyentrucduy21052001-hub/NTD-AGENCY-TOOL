@@ -1790,6 +1790,9 @@ async function prepareAccountSession(accountId, opts = {}) {
       if (!verifiedCUser || !verifiedXs) {
         throw new Error(`Không thể nạp Cookie đăng nhập (c_user/xs) cho tài khoản "${acc.name}".`);
       }
+      if (expectedCUser && verifiedCUser && String(verifiedCUser) !== String(expectedCUser)) {
+        throw new Error(`Cookie của "${acc.name}" không đúng (Trình duyệt nhận UID ${verifiedCUser} thay vì ${expectedCUser}). Vui lòng cập nhật đúng Cookie cho "${acc.name}" trong mục Quản lý tài khoản.`);
+      }
     }
 
     currentSessionAccountId = accountId;
@@ -2502,6 +2505,7 @@ async function dispatch(accountId, tabId) {
         accountName: acc?.name || '',
         accountType: acc?.type || 'personal',
         pageId: acc?.pageId || null,
+        accountFbId: acc?.fbId || null,
         accountEmail: acc?.email || acc?.fbId || parentAcc?.email || parentAcc?.fbId || '',
         accountPassword: acc?.password || parentAcc?.password || '',
         twoFactor: acc?.twoFactor || parentAcc?.twoFactor || null,

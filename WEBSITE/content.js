@@ -1070,20 +1070,20 @@
    }
   }
 
+  const editorEl = dialog.querySelector('[contenteditable="true"]');
+  const getDialogAuthorText = () => {
+    const topEls = [...dialog.querySelectorAll('div, span, [role="button"], h2')].filter(el => {
+      if (!visible(el)) return false;
+      if (editorEl && editorEl.contains(el)) return false;
+      if (editorEl && (el.compareDocumentPosition(editorEl) & Node.DOCUMENT_POSITION_PRECEDING)) return false;
+      return true;
+    });
+    return norm(topEls.map(e => label(e)).join(' '));
+  };
+
   // Nếu là Fanpage: kiểm tra dropdown người đăng trong modal tạo bài & thực hiện CHẶN AN TOÀN
   if (job.accountType === 'fanpage' && dialog) {
     let pageAuthorConfirmed = false;
-    const editorEl = dialog.querySelector('[contenteditable="true"]');
-
-    const getDialogAuthorText = () => {
-      const topEls = [...dialog.querySelectorAll('div, span, [role="button"], h2')].filter(el => {
-        if (!visible(el)) return false;
-        if (editorEl && editorEl.contains(el)) return false;
-        if (editorEl && (el.compareDocumentPosition(editorEl) & Node.DOCUMENT_POSITION_PRECEDING)) return false;
-        return true;
-      });
-      return norm(topEls.map(e => label(e)).join(' '));
-    };
 
     if (getDialogAuthorText().includes(targetNorm) || isHeaderPageProfile()) {
       pageAuthorConfirmed = true;
@@ -1139,6 +1139,37 @@
       return {
         status: 'skipped',
         note: `Bỏ qua: Không thể chuyển sang tư cách Fanpage "${job.accountName}" để đăng bài trong nhóm này (Nhóm chỉ cho phép tài khoản cá nhân hoặc Fanpage chưa tham gia nhóm). Đã tự động chặn để bảo vệ nick cá nhân quản trị.`
+      };
+    }
+  }
+
+  // ── KIỂM TRA KHỚP DANH TÍNH TÀI KHOẢN CÁ NHÂN (CHỐNG ĐĂNG NHẦM NICK KHI LỆCH PHIÊN) ──
+  if (job.accountType !== 'fanpage' && dialog && job.accountName) {
+    const authorText = getDialogAuthorText();
+    const cleanJobName = norm(job.accountName);
+    const authorMatches = Boolean(authorText && cleanJobName && authorText.includes(cleanJobName));
+
+    const cUserMatch = (document.cookie || '').match(/(?:^|;\s*)c_user=(\d+)/);
+    const currentCUser = cUserMatch ? cUserMatch[1] : '';
+    const fbIdMatches = Boolean(job.accountFbId && currentCUser && String(job.accountFbId).trim() === currentCUser);
+
+    // Nếu cả tên tác giả trên hộp thoại lẫn UID trong cookie đều không khớp với tài khoản được giao:
+    if (!authorMatches && !fbIdMatches && (authorText || currentCUser)) {
+      const closeBtn = dialog.querySelector('[aria-label="Đóng"], [aria-label="Close"]') ||
+                       [...dialog.querySelectorAll('[role="button"], button')].find(b => /^(Đóng|Close|✕|×)$/i.test(label(b)));
+      if (closeBtn) {
+        try { closeBtn.click(); } catch (_) {}
+        await delay(500);
+      }
+      const rawAuthor = [...dialog.querySelectorAll('span, strong, h2')].find(el => {
+        const t = (el.innerText || el.textContent || '').trim();
+        return t && t.length >= 3 && t.length <= 40 && !/^(Đăng|Tạo bài|Công khai|Bạn bè|Chỉ mình tôi|Ẩn danh|Thêm vào)/i.test(t);
+      });
+      const detectedName = rawAuthor ? (rawAuthor.innerText || rawAuthor.textContent || '').trim() : (currentCUser ? `UID ${currentCUser}` : 'nick khác');
+      return {
+        status: 'error',
+        authExpired: true,
+        note: `⚠️ Lệch tài khoản Facebook: Trình duyệt đang đăng nhập "${detectedName}", trong khi lượt đăng này là của "${job.accountName}". Đã tự động dừng nick này để bảo vệ tài khoản tránh đăng nhầm.`
       };
     }
   }
