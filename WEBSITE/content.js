@@ -542,12 +542,10 @@
   const currentUrl = normalize(location.origin + location.pathname);
   const targetUrl = normalize(job.url);
   if (currentUrl !== targetUrl && !currentUrl.includes(targetUrl) && !targetUrl.includes(currentUrl)) {
-    // Nếu tab bị Facebook tự động đẩy sang /groups/feed hoặc trang chủ, tự động điều hướng lại về nhóm
+    // Nếu tab bị Facebook tự động đẩy sang /groups/feed hoặc trang chủ, báo worker điều hướng lại và reset dispatched
     if (location.pathname.includes('/groups/feed') || location.pathname === '/' || location.pathname.includes('/home')) {
-      console.log('[Content] Bị chuyển hướng sang feed, điều hướng lại về nhóm:', job.url);
-      location.href = job.url;
-      await delay(2500);
-      return;
+      console.log('[Content] Bị chuyển hướng sang feed, yêu cầu worker điều hướng lại về nhóm:', job.url);
+      throw Error('NEED_NAV_GROUP_URL:' + job.url);
     }
     throw Error('Trang không còn đúng nhóm đã chọn.');
   }
@@ -1009,11 +1007,10 @@
   let opener = null;
   const openerTimeout = Date.now() + 35000;
   while (Date.now() < openerTimeout) {
-   // Nếu Facebook bị chuyển hướng sang feed/home ngoài ý muốn, tự động đưa tab quay lại URL nhóm
+   // Nếu Facebook bị chuyển hướng sang feed/home ngoài ý muốn, yêu cầu worker điều hướng lại về URL nhóm
    if (location.pathname.includes('/groups/feed') || location.pathname === '/' || location.pathname.includes('/home')) {
-     console.log('[Content] Bị đẩy sang feed/home trong lúc tìm ô đăng, điều hướng lại về nhóm:', job.url);
-     location.href = job.url;
-     await delay(3000);
+     console.log('[Content] Bị đẩy sang feed/home trong lúc tìm ô đăng, yêu cầu worker điều hướng lại về nhóm:', job.url);
+     return { status: 'queued', needsNavUrl: job.url };
    }
 
    opener = findOpener();
@@ -1147,29 +1144,51 @@
   if (job.accountType !== 'fanpage' && dialog && job.accountName) {
     const authorText = getDialogAuthorText();
     const cleanJobName = norm(job.accountName);
-    const authorMatches = Boolean(authorText && cleanJobName && authorText.includes(cleanJobName));
+    const isUiChrome = s => /^(tạo bài viết|create post|đăng ẩn danh|post anonymously|đăng với tư cách|posting as|nhóm công khai|public group|nhóm riêng tư|private group|công khai|public|bạn bè|friends|bạn của bạn bè|friends of friends|chỉ mình tôi|only me|đóng|close|✕|×|quản trị viên|người kiểm duyệt|người đóng góp|người đóng góp nổi bật|người đóng góp hàng đầu|top contributor|active member|thành viên hoạt động|admin|moderator|contributor|huy hiệu)$/i.test(String(s || '').trim());
+    const topAuthorNodes = [...dialog.querySelectorAll('a, strong, span[dir="auto"], span')].filter(el => {
+      if (!visible(el)) return false;
+      if (el.tagName === 'H2' || el.closest('h2')) return false;
+      if (editorEl && (editorEl.contains(el) || (el.compareDocumentPosition(editorEl) & Node.DOCUMENT_POSITION_PRECEDING))) return false;
+      if (el.children.length > 0 && ![...el.children].every(ch => ch.tagName === 'SPAN' || ch.tagName === 'IMG' || ch.tagName === 'SVG')) return false;
+      const t = (el.innerText || el.textContent || '').trim();
+      return t.length >= 3 && t.length <= 45 && !isUiChrome(t);
+    });
+    const detectedAuthorRaw = topAuthorNodes[0] ? (topAuthorNodes[0].innerText || topAuthorNodes[0].textContent || '').trim() : '';
+    const detectedAuthorNorm = norm(detectedAuthorRaw);
+
+    const authorMatches = Boolean(
+      cleanJobName && (
+        (authorText && authorText.includes(cleanJobName)) ||
+        (detectedAuthorNorm && detectedAuthorNorm.length >= 4 && cleanJobName.includes(detectedAuthorNorm))
+      )
+    );
+    const hasExplicitAuthorMismatch = Boolean(
+      detectedAuthorNorm && detectedAuthorNorm.length >= 4 &&
+      cleanJobName && !authorMatches && !detectedAuthorNorm.includes(cleanJobName)
+    );
 
     const cUserMatch = (document.cookie || '').match(/(?:^|;\s*)c_user=(\d+)/);
     const currentCUser = cUserMatch ? cUserMatch[1] : '';
     const fbIdMatches = Boolean(job.accountFbId && currentCUser && String(job.accountFbId).trim() === currentCUser);
 
-    // Nếu cả tên tác giả trên hộp thoại lẫn UID trong cookie đều không khớp với tài khoản được giao:
-    if (!authorMatches && !fbIdMatches && (authorText || currentCUser)) {
+    // Chặn ngay nếu tên tác giả hiển thị rõ ràng bị lệch HOẶC cả tên lẫn UID đều không khớp
+    if (!authorMatches && (hasExplicitAuthorMismatch || (!fbIdMatches && (authorText || currentCUser)))) {
       const closeBtn = dialog.querySelector('[aria-label="Đóng"], [aria-label="Close"]') ||
                        [...dialog.querySelectorAll('[role="button"], button')].find(b => /^(Đóng|Close|✕|×)$/i.test(label(b)));
       if (closeBtn) {
         try { closeBtn.click(); } catch (_) {}
         await delay(500);
       }
-      const rawAuthor = [...dialog.querySelectorAll('span, strong, h2')].find(el => {
+      const fallbackAuthor = [...dialog.querySelectorAll('span, strong, h2')].find(el => {
         const t = (el.innerText || el.textContent || '').trim();
-        return t && t.length >= 3 && t.length <= 40 && !/^(Đăng|Tạo bài|Công khai|Bạn bè|Chỉ mình tôi|Ẩn danh|Thêm vào)/i.test(t);
+        return t && t.length >= 3 && t.length <= 40 && !isUiChrome(t) && !/^(Đăng|Thêm vào)/i.test(t);
       });
-      const detectedName = rawAuthor ? (rawAuthor.innerText || rawAuthor.textContent || '').trim() : (currentCUser ? `UID ${currentCUser}` : 'nick khác');
+      const detectedName = detectedAuthorRaw || (fallbackAuthor ? (fallbackAuthor.innerText || fallbackAuthor.textContent || '').trim() : '') || (currentCUser ? `UID ${currentCUser}` : 'nick khác');
       return {
         status: 'error',
         authExpired: true,
-        note: `⚠️ Lệch tài khoản Facebook: Trình duyệt đang đăng nhập "${detectedName}", trong khi lượt đăng này là của "${job.accountName}". Đã tự động dừng nick này để bảo vệ tài khoản tránh đăng nhầm.`
+        accountMismatch: true,
+        note: `⚠️ Lệch tài khoản Facebook: Trình duyệt đang đăng nhập "${detectedName}", trong khi lượt đăng này là của "${job.accountName}". Đã tự động dừng nick này và chuyển lượt.`
       };
     }
   }
@@ -2104,6 +2123,13 @@
       note: '⚡ Đã tự động phân tích mã 2FA và đăng nhập thành công. Đang mở lại nhóm để đăng bài...'
     };
    }
+   if (msg.startsWith('NEED_NAV_GROUP_URL:')) {
+    return {
+      status: 'queued',
+      needsNavUrl: msg.slice('NEED_NAV_GROUP_URL:'.length),
+      note: '↪️ Facebook tự chuyển hướng về Bảng tin, đang điều hướng lại vào đúng nhóm...'
+    };
+   }
    if (/^Bỏ qua:|^Đã bỏ qua/i.test(msg)) {
     return {status: 'skipped', note: msg};
    }
@@ -2144,6 +2170,17 @@
           status: 'queued',
           twoFactorResolved: true,
           note: '⚡ Đã tự động phân tích mã 2FA và đăng nhập thành công. Đang mở lại nhóm để đăng bài...'
+        }).catch(() => {});
+        return;
+      }
+      if (msg.startsWith('NEED_NAV_GROUP_URL:')) {
+        await chrome.runtime.sendMessage({
+          type: 'RESULT',
+          token: m.job.token,
+          accountId: m.job.accountId,
+          status: 'queued',
+          needsNavUrl: msg.slice('NEED_NAV_GROUP_URL:'.length),
+          note: '↪️ Facebook tự chuyển hướng về Bảng tin, đang điều hướng lại vào đúng nhóm...'
         }).catch(() => {});
         return;
       }

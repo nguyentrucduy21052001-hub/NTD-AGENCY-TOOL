@@ -46,6 +46,10 @@ let cachedCampaigns = {};
 let cachedAccounts = [];
 let cachedScheduleJobs = [];
 let cachedCoordinator = null;
+let cachedDailyPostStats = {};
+let _renderQueued = false;
+let _renderInFlightPromise = null;
+const EXPECTED_WORKER_VERSION = '20261127_1400';
 let schedType = 'once';
 let schedDispatchMode = 'per_slot';
 let schedSlotPostChoiceMap = {};
@@ -3022,40 +3026,86 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator, existin
 }
 
 // ── Render multi-account status (Dashboard Edition) ───────────────────────────
+async function safeStorageSet(obj) {
+  _isSelfSyncingStorage = true;
+  try {
+    await chrome.storage.local.set(obj);
+  } catch (e) {
+    console.warn('[Panel storage sync]', e?.message || e);
+  } finally {
+    _isSelfSyncingStorage = false;
+  }
+}
+
 async function render() {
+  if (_renderInFlightPromise) {
+    _renderQueued = true;
+    return _renderInFlightPromise;
+  }
+  const exec = (async () => {
+    try {
+      await _renderImpl();
+    } finally {
+      _renderInFlightPromise = null;
+      if (_renderQueued) {
+        _renderQueued = false;
+        setTimeout(() => { render().then(scheduleNextRender).catch(() => {}); }, 20);
+      }
+    }
+  })();
+  _renderInFlightPromise = exec;
+  return exec;
+}
+
+async function _renderImpl() {
   const isWebPlatform = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
 
+  let hasExtState = false;
   let extCampaigns = null;
+  let extCoordinator = null;
+  let extDailyStats = null;
   // Nếu đang trên Web Platform và có extension bridge/runner:
   // Kéo trạng thái chiến dịch thời gian thực từ Extension về để hiển thị và điều khiển trực tiếp trên Web
   if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
     try {
       const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
       if (extState && extState.ok) {
+        hasExtState = true;
         window.__ntdExtensionActive = true;
+        extCampaigns = extState.campaigns || {};
+        extCoordinator = extState.coordinator || null;
+        extDailyStats = extState.dailyPostStats || {};
+
         if (Array.isArray(extState.scheduledPostJobs) && JSON.stringify(extState.scheduledPostJobs) !== JSON.stringify(cachedScheduleJobs)) {
           cachedScheduleJobs = extState.scheduledPostJobs;
-          await chrome.storage.local.set({ scheduledPostJobs: extState.scheduledPostJobs });
+          await safeStorageSet({ scheduledPostJobs: extState.scheduledPostJobs });
         }
-        if (extState.campaigns && Object.keys(extState.campaigns).length > 0) {
-          extCampaigns = extState.campaigns;
-          const prevCampaignsStr = JSON.stringify(cachedCampaigns || {});
-          const newCampaignsStr = JSON.stringify(extState.campaigns || {});
-          const prevCoordStr = JSON.stringify(cachedCoordinator || null);
-          const newCoordStr = JSON.stringify(extState.coordinator || null);
-          if (prevCampaignsStr !== newCampaignsStr || prevCoordStr !== newCoordStr) {
-            _isSelfSyncingStorage = true;
-            await chrome.storage.local.set({
-              campaigns: extState.campaigns,
-              coordinator: extState.coordinator || null,
-              dailyPostStats: extState.dailyPostStats || {}
+
+        const prevCampaignsStr = JSON.stringify(cachedCampaigns || {});
+        const newCampaignsStr = JSON.stringify(extCampaigns);
+        const prevCoordStr = JSON.stringify(cachedCoordinator || null);
+        const newCoordStr = JSON.stringify(extCoordinator);
+        const prevStatsStr = JSON.stringify(cachedDailyPostStats || {});
+        const newStatsStr = JSON.stringify(extDailyStats);
+
+        if (Object.keys(extCampaigns).length > 0) {
+          if (prevCampaignsStr !== newCampaignsStr || prevCoordStr !== newCoordStr || prevStatsStr !== newStatsStr) {
+            await safeStorageSet({
+              campaigns: extCampaigns,
+              coordinator: extCoordinator,
+              dailyPostStats: extDailyStats
             });
-            _isSelfSyncingStorage = false;
           }
         } else {
-          await chrome.storage.local.remove(['campaigns', 'coordinator']);
-          if (extState.dailyPostStats) {
-            await chrome.storage.local.set({ dailyPostStats: extState.dailyPostStats });
+          _isSelfSyncingStorage = true;
+          try {
+            await chrome.storage.local.remove(['campaigns', 'coordinator']);
+            if (extState.dailyPostStats && prevStatsStr !== newStatsStr) {
+              await chrome.storage.local.set({ dailyPostStats: extDailyStats });
+            }
+          } catch (_) {
+          } finally {
+            _isSelfSyncingStorage = false;
           }
           if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('ntd_web_running');
           window.__ntdWebRunning = false;
@@ -3067,10 +3117,11 @@ async function render() {
   const {accounts, campaigns, coordinator, dailyPostStats} = await chrome.storage.local.get(['accounts', 'campaigns', 'coordinator', 'dailyPostStats']);
   const accs = accounts || [];
   cachedAccounts = accs;
-  const cMap = extCampaigns || campaigns || {};
+  const cMap = hasExtState ? (extCampaigns || {}) : (campaigns || {});
   cachedCampaigns = cMap;
-  cachedCoordinator = coordinator || null;
-  const statsMap = dailyPostStats || {};
+  cachedCoordinator = hasExtState ? extCoordinator : (coordinator || null);
+  const statsMap = hasExtState ? (extDailyStats || {}) : (dailyPostStats || {});
+  cachedDailyPostStats = statsMap;
   const todayStr = getTodayDateStr();
   renderPerAccountDailyLimits(accs, statsMap);
 
@@ -3625,7 +3676,7 @@ $('retryErrorsBtn')?.addEventListener('click', async () => {
 });
 
 // ── Combined Section 4 View Switcher (Quản lý trực tiếp qua Thẻ KPI: Nick cá nhân vs Trang Fanpage vs Bảng chi tiết) ──
-function switchProgressView(view) {
+function switchProgressView(view, skipRender = false) {
   if (['personal', 'fanpage', 'all'].includes(view)) {
     progAccountType = view;
     localStorage.setItem('ntd_prog_acc_type', view);
@@ -3643,6 +3694,7 @@ function switchProgressView(view) {
   if ($('paneAccountStatusView')) $('paneAccountStatusView').style.display = isTable ? 'none' : 'block';
   if ($('paneLinksTableView')) $('paneLinksTableView').style.display = isTable ? 'block' : 'none';
 
+  if (skipRender) return;
   if (isTable) {
     renderReport(cachedCampaigns, cachedAccounts);
   } else {
@@ -3980,16 +4032,36 @@ function getModalFilteredItems() {
   });
 }
 
+async function loadFreshCampaignsAndAccounts() {
+  const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+  let gotExtCampaigns = false;
+  if (isWeb && window.chrome?.runtime?.sendToExtension) {
+    try {
+      const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
+      if (extState?.ok) {
+        if (extState.campaigns) {
+          cachedCampaigns = extState.campaigns;
+          gotExtCampaigns = true;
+        }
+        if (extState.coordinator !== undefined) cachedCoordinator = extState.coordinator || null;
+        if (extState.dailyPostStats) cachedDailyPostStats = extState.dailyPostStats;
+      }
+    } catch (_) {}
+  }
+  try {
+    const { campaigns, accounts } = await chrome.storage.local.get(['campaigns', 'accounts']);
+    if (!gotExtCampaigns && campaigns) cachedCampaigns = campaigns;
+    if (accounts) cachedAccounts = accounts;
+  } catch (_) {}
+  return { campaigns: cachedCampaigns || {}, accounts: cachedAccounts || [] };
+}
+
 async function openQueuedLinksModal(filterAccId = 'all', mode = 'queued') {
   const modal = $('queuedLinksModal');
   if (!modal) return;
 
   currentModalTab = mode;
-  try {
-    const { campaigns, accounts } = await chrome.storage.local.get(['campaigns', 'accounts']);
-    if (campaigns) cachedCampaigns = campaigns;
-    if (accounts) cachedAccounts = accounts;
-  } catch (_) {}
+  await loadFreshCampaignsAndAccounts();
 
   modalQueuedLinks = getAllConfiguredJobsOrCampaigns();
   const total = modalQueuedLinks.length;
@@ -4425,7 +4497,7 @@ function initReportEvents() {
 
   // Copy success links (Ưu tiên link bài viết đã đăng, fallback sang link your_posts trong nhóm)
   $('copySuccessLinksBtn')?.addEventListener('click', async () => {
-    const { campaigns } = await chrome.storage.local.get('campaigns');
+    const { campaigns } = await loadFreshCampaignsAndAccounts();
     const successUrls = [];
     const seen = new Set();
     for (const c of Object.values(campaigns || {})) {
@@ -4453,7 +4525,7 @@ function initReportEvents() {
 
   // Xuất file TXT danh sách link bài viết đã đăng từ thanh công cụ Section 4
   $('exportPostedTxtBtn')?.addEventListener('click', async () => {
-    const { campaigns } = await chrome.storage.local.get('campaigns');
+    const { campaigns } = await loadFreshCampaignsAndAccounts();
     const successUrls = [];
     const seen = new Set();
     for (const c of Object.values(campaigns || {})) {
@@ -4481,9 +4553,7 @@ function initReportEvents() {
 
   // Export CSV (UTF-8 BOM for Windows Excel compatibility)
   $('exportReportCsvBtn')?.addEventListener('click', async () => {
-    const { campaigns, accounts } = await chrome.storage.local.get(['campaigns', 'accounts']);
-    if (campaigns) cachedCampaigns = campaigns;
-    if (accounts) cachedAccounts = accounts;
+    await loadFreshCampaignsAndAccounts();
 
     const rows = [
       ['STT', 'Tài khoản', 'Link nhóm Facebook', 'Link bài viết đã đăng', 'Trạng thái', 'Ghi chú phản hồi', 'Thời gian hoàn tất']
@@ -4570,6 +4640,11 @@ function scheduleNextRender() {
   const anyRunning = Object.values(cachedCampaigns || {}).some(
     c => c?.state === 'running' || c?.state === 'waiting'
   );
+  const isWebRunning = Boolean(
+    window.__ntdWebRunning ||
+    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('ntd_web_running') === 'true')
+  );
+  const shouldPoll = anyRunning || isWebRunning;
   const anyPaused = Object.values(cachedCampaigns || {}).some(
     c => c?.state === 'paused' || (c?.state === 'stopped' && c.index > 0 && c.index < (c.jobs?.length || 0))
   );
@@ -4577,48 +4652,55 @@ function scheduleNextRender() {
   // Chuyển trạng thái: nếu vừa có nick chạy xong → render ngay 1 lần nữa để chốt báo cáo
   if (_lastAnyRunning && !anyRunning) {
     _lastAnyRunning = false;
-    render();
+    render().then(() => {
+      if (isWebRunning) scheduleNextRender();
+    }).catch(() => {});
     return;
   }
   _lastAnyRunning = anyRunning;
 
   // Cập nhật số giây đếm ngược và đồng bộ tiến độ từ Extension Runner mỗi 1.2s khi đang có nick chạy
-  if (anyRunning) {
+  if (shouldPoll) {
     _renderPollTimer = setTimeout(async () => {
-      const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
-      if (isWeb && window.__ntdExtensionActive) {
-        let hasStateChange = false;
-        try {
-          if (window.chrome?.runtime?.sendToExtension) {
-            const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
-            if (extState?.ok && extState.campaigns) {
-              const curFp = JSON.stringify({
-                c: extState.campaigns || {},
-                coord: extState.coordinator || null,
-                stats: extState.dailyPostStats || {}
-              });
-              const lastFp = JSON.stringify({
-                c: cachedCampaigns || {},
-                coord: cachedCoordinator || null,
-                stats: (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {}
-              });
-              if (curFp !== lastFp) {
-                hasStateChange = true;
+      try {
+        const isWeb = typeof window !== 'undefined' && (!window.chrome?.runtime?.id || window.chrome.runtime.id === 'ntd-agency-webapp');
+        if (isWeb && (window.__ntdExtensionActive || document.documentElement.dataset.ntdExtensionConnected === 'true')) {
+          let hasStateChange = false;
+          try {
+            if (window.chrome?.runtime?.sendToExtension) {
+              const extState = await window.chrome.runtime.sendToExtension({ type: 'GET_STATE' });
+              if (extState?.ok && extState.campaigns) {
+                const curFp = JSON.stringify({
+                  c: extState.campaigns || {},
+                  coord: extState.coordinator || null,
+                  stats: extState.dailyPostStats || {}
+                });
+                const lastFp = JSON.stringify({
+                  c: cachedCampaigns || {},
+                  coord: cachedCoordinator || null,
+                  stats: cachedDailyPostStats || {}
+                });
+                if (curFp !== lastFp) {
+                  hasStateChange = true;
+                }
               }
             }
-          }
-        } catch (_) {}
+          } catch (_) {}
 
-        if (hasStateChange) {
-          await render();
+          if (hasStateChange) {
+            await render();
+          } else {
+            // Chỉ tick giây đếm ngược in-place, không re-render để bảo toàn trải nghiệm lăn chuột 60fps
+            updateCountdownTicks();
+          }
         } else {
-          // Chỉ tick giây đếm ngược in-place, không re-render để bảo toàn trải nghiệm lăn chuột 60fps
           updateCountdownTicks();
         }
-      } else {
-        updateCountdownTicks();
+      } catch (pollErr) {
+        console.warn('[ScheduleRender poll error]', pollErr?.message || pollErr);
+      } finally {
+        scheduleNextRender();
       }
-      scheduleNextRender();
     }, 1200);
   } else if (anyPaused) {
     // Khi đang tạm dừng: chỉ tick đếm ngược (nếu có), không re-render toàn bộ để giữ nguyên vị trí cuộn
@@ -4628,8 +4710,14 @@ function scheduleNextRender() {
 
 // ── Debounced render để tránh render liên tục khi storage thay đổi nhiều lần ──
 let _isSelfSyncingStorage = false;
-const debouncedRender = debounce(() => render().then(scheduleNextRender), 150);
+const debouncedRender = debounce(() => render().then(scheduleNextRender).catch(() => {}), 120);
 const debouncedRenderCategories = debounce(renderAccountCategoryAssignments, 200);
+
+chrome.runtime?.onMessage?.addListener((msg) => {
+  if (msg?.type === 'CAMPAIGN_UPDATED' || msg?.type === 'COOKIE_AUTO_SYNCED') {
+    debouncedRender();
+  }
+});
 
 chrome.storage.onChanged.addListener(async (changes) => {
   if (_isSelfSyncingStorage) return;
@@ -4662,7 +4750,7 @@ chrome.storage.onChanged.addListener(async (changes) => {
 });
 
 initReportEvents();
-switchProgressView(progAccountType);
+switchProgressView(progAccountType, true);
 await render();
 scheduleNextRender();
 
@@ -4710,19 +4798,43 @@ if (continuePasteManualBtn) {
   }
 
   noticeEl.style.display = 'block';
-  const updateConnUI = (isConnected) => {
+  const updateConnUI = (isConnected, workerVersion = null) => {
     window.__ntdExtensionActive = Boolean(isConnected);
     const icon = $('webPlatformNoticeIcon');
     const title = $('webPlatformNoticeTitle');
     const desc = $('webPlatformNoticeDesc');
 
     if (isConnected) {
-      noticeEl.style.background = 'rgba(16,185,129,0.12)';
-      noticeEl.style.borderColor = 'rgba(16,185,129,0.4)';
-      noticeEl.style.color = '#6ee7b7';
-      if (icon) icon.textContent = '✅';
-      if (title) title.textContent = 'Đã kết nối Tiện ích Chrome Runner (Tự động điền & Đăng bài 100%)';
-      if (desc) desc.innerHTML = 'Hệ thống đã kết nối thành công với Tiện ích Chrome. Khi bạn bấm <b>"▶ Bắt đầu tất cả tài khoản"</b>, tiện ích sẽ tự động điền bài và bấm Đăng vào Facebook 100%! Bạn có thể thao tác trực tiếp tại đây.';
+      const isUpToDate = workerVersion && workerVersion === EXPECTED_WORKER_VERSION;
+      if (isUpToDate) {
+        noticeEl.style.background = 'rgba(16,185,129,0.12)';
+        noticeEl.style.borderColor = 'rgba(16,185,129,0.4)';
+        noticeEl.style.color = '#6ee7b7';
+        if (icon) icon.textContent = '✅';
+        if (title) title.textContent = `Đã kết nối Tiện ích Chrome Runner (Tự động điền & Đăng bài 100% · v${workerVersion})`;
+        if (desc) desc.innerHTML = 'Hệ thống đã kết nối thành công với Tiện ích Chrome phiên bản mới nhất. Khi bạn bấm <b>"▶ Bắt đầu tất cả tài khoản"</b>, tiện ích sẽ tự động điền bài, bấm Đăng và cập nhật tiến độ thời gian thực 100%!';
+      } else {
+        noticeEl.style.background = 'rgba(245,158,11,0.14)';
+        noticeEl.style.borderColor = 'rgba(245,158,11,0.5)';
+        noticeEl.style.color = '#fcd34d';
+        if (icon) icon.textContent = '🔄';
+        if (title) title.textContent = 'Tiện ích Chrome Extension đang chạy bản cũ — Hãy tải lại Extension để đồng bộ báo cáo mới nhất';
+        if (desc) {
+          desc.innerHTML = `Extension trên Chrome đang ở bản <code>${workerVersion || 'cũ'}</code> (Web cần bản <code>${EXPECTED_WORKER_VERSION}</code>). Hãy bấm nút dưới đây để làm mới Extension ngay hoặc vào <code>chrome://extensions</code> bấm ↻ Load lại:<br>` +
+            '<button type="button" id="reloadExtBannerBtn" style="margin-top:8px;background:#f59e0b;color:#0f172a;border:none;border-radius:8px;padding:6px 14px;font-weight:800;font-size:12px;cursor:pointer">↻ Tự động tải lại Extension ngay</button>';
+          const reloadBtn = $('reloadExtBannerBtn');
+          if (reloadBtn) {
+            reloadBtn.onclick = async () => {
+              reloadBtn.disabled = true;
+              reloadBtn.textContent = '⏳ Đang tải lại Extension...';
+              try {
+                await window.chrome.runtime.sendToExtension({ type: 'RELOAD_EXTENSION' });
+              } catch (_) {}
+              setTimeout(() => { location.reload(); }, 1500);
+            };
+          }
+        }
+      }
     } else {
       noticeEl.style.background = 'rgba(245,158,11,0.12)';
       noticeEl.style.borderColor = 'rgba(245,158,11,0.4)';
@@ -4740,17 +4852,23 @@ if (continuePasteManualBtn) {
     }
   };
 
-  // Kiểm tra ngay bằng ping tới extension runner
-  if (window.chrome?.runtime?.sendToExtension) {
-    window.chrome.runtime.sendToExtension({ type: 'PING' }).then(resp => {
-      if (resp && resp.ok) updateConnUI(true);
-      else updateConnUI(false);
-    }).catch(() => updateConnUI(false));
-  } else {
-    updateConnUI(false);
-  }
+  const pingAndUpdate = () => {
+    if (window.chrome?.runtime?.sendToExtension) {
+      window.chrome.runtime.sendToExtension({ type: 'PING' }).then(resp => {
+        if (resp && resp.ok) updateConnUI(true, resp.workerVersion || null);
+        else updateConnUI(false, null);
+      }).catch(() => updateConnUI(false, null));
+    } else {
+      updateConnUI(false, null);
+    }
+  };
 
-  window.addEventListener('NTD_EXTENSION_READY', () => updateConnUI(true));
+  pingAndUpdate();
+
+  window.addEventListener('NTD_EXTENSION_READY', () => {
+    pingAndUpdate();
+    render().then(scheduleNextRender).catch(() => {});
+  });
 })();
 
 // ── Multi-Milestone Auto Post Scheduler UI & Controller ───────────────────────

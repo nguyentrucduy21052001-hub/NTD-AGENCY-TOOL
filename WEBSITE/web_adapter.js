@@ -24,6 +24,8 @@
   // ── 1. STORAGE EMULATION (localStorage + memory cache) ──────────────────────
   const STORAGE_PREFIX = 'ntd_store_';
   const storageListeners = new Set();
+  // Fallback lưu trong RAM khi localStorage bị đầy (QuotaExceededError do ảnh bài viết base64 lớn)
+  const memoryStoreFallback = new Map();
 
   function parseStoredValue(raw) {
     if (raw === null || raw === undefined) return undefined;
@@ -42,6 +44,13 @@
     }
   }
 
+  function readStoreKey(k) {
+    if (memoryStoreFallback.has(k)) {
+      return memoryStoreFallback.get(k);
+    }
+    return parseStoredValue(localStorage.getItem(STORAGE_PREFIX + k));
+  }
+
   const localStore = {
     async get(keys) {
       const result = {};
@@ -55,18 +64,21 @@
               result[k] = parseStoredValue(localStorage.getItem(fullKey));
             }
           }
+          for (const [k, v] of memoryStoreFallback.entries()) {
+            result[k] = v;
+          }
           return result;
         }
 
         if (typeof keys === 'string') {
-          const val = parseStoredValue(localStorage.getItem(STORAGE_PREFIX + keys));
+          const val = readStoreKey(keys);
           if (val !== undefined) result[keys] = val;
           return result;
         }
 
         if (Array.isArray(keys)) {
           for (const k of keys) {
-            const val = parseStoredValue(localStorage.getItem(STORAGE_PREFIX + k));
+            const val = readStoreKey(k);
             if (val !== undefined) result[k] = val;
           }
           return result;
@@ -74,7 +86,7 @@
 
         if (typeof keys === 'object') {
           for (const [k, defVal] of Object.entries(keys)) {
-            const val = parseStoredValue(localStorage.getItem(STORAGE_PREFIX + k));
+            const val = readStoreKey(k);
             result[k] = val !== undefined ? val : defVal;
           }
           return result;
@@ -91,8 +103,24 @@
 
       for (const [k, newVal] of Object.entries(items)) {
         const fullKey = STORAGE_PREFIX + k;
-        const oldVal = parseStoredValue(localStorage.getItem(fullKey));
-        localStorage.setItem(fullKey, serializeValue(newVal));
+        let oldVal;
+        try { oldVal = readStoreKey(k); } catch (_) {}
+
+        if (newVal === undefined) {
+          memoryStoreFallback.delete(k);
+          try { localStorage.removeItem(fullKey); } catch (_) {}
+        } else {
+          const serialized = serializeValue(newVal);
+          try {
+            localStorage.setItem(fullKey, serialized);
+            memoryStoreFallback.delete(k);
+          } catch (quotaErr) {
+            // Tránh văng QuotaExceededError làm chết render()/scheduleNextRender() trên Web Platform
+            memoryStoreFallback.set(k, newVal);
+            try { localStorage.removeItem(fullKey); } catch (_) {}
+            console.warn(`[WebAdapter Storage fallback RAM] Key "${k}" vượt quota localStorage:`, quotaErr?.message || quotaErr);
+          }
+        }
         changes[k] = { oldValue: oldVal, newValue: newVal };
       }
 
@@ -119,8 +147,10 @@
 
       for (const k of keyList) {
         const fullKey = STORAGE_PREFIX + k;
-        const oldVal = parseStoredValue(localStorage.getItem(fullKey));
-        localStorage.removeItem(fullKey);
+        let oldVal;
+        try { oldVal = readStoreKey(k); } catch (_) {}
+        memoryStoreFallback.delete(k);
+        try { localStorage.removeItem(fullKey); } catch (_) {}
         changes[k] = { oldValue: oldVal, newValue: undefined };
       }
 
@@ -140,6 +170,7 @@
     },
 
     async clear() {
+      memoryStoreFallback.clear();
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
@@ -299,7 +330,7 @@
   // Nạp ngầm Background Worker vào Web Platform để xử lý toàn bộ tác vụ đăng bài, chiến dịch và quét số
   let _workerLoadPromise = null;
   try {
-    _workerLoadPromise = import('./worker.js?v=20261125_1700')
+    _workerLoadPromise = import('./worker.js?v=20261127_1400')
       .then(() => {
         console.log('✅ [NTD Agency] Background Worker đã nạp thành công vào Web Platform!');
         return true;
