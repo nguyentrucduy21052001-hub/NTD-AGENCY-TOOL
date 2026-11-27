@@ -475,14 +475,20 @@ async function startWarmup() {
     : DEFAULT_SHARED_CONTENT_LIBRARY;
 
   // Gửi lệnh kích hoạt tự động hóa nền
+  const targetAccountIds = targetAccounts.map(a => a.id);
+  const warmupMsg = {
+    type: 'WARMUP_START',
+    accountIds: targetAccountIds,
+    accounts: targetAccounts,
+    config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: contentLibForStart }
+  };
+
   try {
-    const res = await chrome.runtime.sendMessage({
-      type: 'WARMUP_START',
-      accountIds: selectedIds,
-      accounts: targetAccounts,
-      config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: contentLibForStart }
-    });
-    if (res && res.ok) {
+    if (window.chrome?.runtime?.sendToExtension) {
+      await window.chrome.runtime.sendToExtension(warmupMsg).catch(() => { });
+    }
+    const res = await chrome.runtime.sendMessage(warmupMsg);
+    if (res && (res.ok || res.running)) {
       appendLog('✅ Đã kết nối tự động hóa Facebook tới Tiện ích mở rộng.', '✅');
     }
   } catch (err) {
@@ -714,13 +720,20 @@ async function togglePauseWarmup() {
     const uncompletedAccs = warmupState.targetAccounts.slice(warmupState.currentIndex);
     const targetIds = uncompletedAccs.map(a => a.id);
     const { warmupConfig: cfg = {} } = await chrome.storage.local.get('warmupConfig');
+    const { ntd_shared_content_library: _libResume = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+    const contentLibResume = Array.isArray(_libResume) && _libResume.length > 0 ? _libResume : DEFAULT_SHARED_CONTENT_LIBRARY;
 
     try {
-      await chrome.runtime.sendMessage({
+      const resumeMsg = {
         type: 'WARMUP_START',
         accountIds: targetIds,
-        config: { ...cfg, backgroundMode: false }
-      });
+        accounts: uncompletedAccs,
+        config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: contentLibResume }
+      };
+      if (window.chrome?.runtime?.sendToExtension) {
+        await window.chrome.runtime.sendToExtension(resumeMsg).catch(() => { });
+      }
+      await chrome.runtime.sendMessage(resumeMsg);
       appendLog(`▶️ Đã tiếp tục nuôi cho ${targetIds.length} tài khoản còn lại.`, '🚀');
     } catch (err) {
       appendLog('Lỗi gửi lệnh tiếp tục: ' + err.message, '⚠️');
@@ -819,6 +832,30 @@ function resumeWarmupFromSaved(saved, elapsedSec) {
 
   startAccountWarmupUI(currentIdx);
   appendLog(`🔄 Đã khôi phục tiến trình nuôi tài khoản: "${selectedAccs[currentIdx]?.name}".`, 'ℹ️');
+
+  // Kiểm tra xem background worker đã có tab nuôi chưa, nếu chưa thì tự động kích hoạt
+  chrome.runtime.sendMessage({ type: 'WARMUP_GET_STATUS' }).then(st => {
+    if (!st || !st.running) {
+      const remainingAccs = selectedAccs.slice(currentIdx);
+      const remainingIds = remainingAccs.map(a => a.id);
+      chrome.storage.local.get(['warmupConfig', 'ntd_shared_content_library']).then(res => {
+        const cfg = res.warmupConfig || {};
+        const lib = Array.isArray(res.ntd_shared_content_library) && res.ntd_shared_content_library.length > 0
+          ? res.ntd_shared_content_library
+          : DEFAULT_SHARED_CONTENT_LIBRARY;
+        const msg = {
+          type: 'WARMUP_START',
+          accountIds: remainingIds,
+          accounts: remainingAccs,
+          config: { ...cfg, backgroundMode: false, autoCloseTab: false, ntd_shared_content_library: lib }
+        };
+        if (window.chrome?.runtime?.sendToExtension) {
+          window.chrome.runtime.sendToExtension(msg).catch(() => {});
+        }
+        chrome.runtime.sendMessage(msg).catch(() => {});
+      }).catch(() => {});
+    }
+  }).catch(() => {});
 }
 
 // ── 7. Helpers Badge & Storage ──────────────────────────────────────────────
@@ -996,6 +1033,9 @@ $('btnCancelWarmup')?.addEventListener('click', cancelWarmup);
 
 $('btnFocusFbTab')?.addEventListener('click', async () => {
   try {
+    if (window.chrome?.runtime?.sendToExtension) {
+      await window.chrome.runtime.sendToExtension({ type: 'WARMUP_SHOW_TAB' }).catch(() => {});
+    }
     await chrome.runtime.sendMessage({ type: 'WARMUP_SHOW_TAB' });
   } catch (_) {
     alert('Không thể mở tab Facebook.');

@@ -3791,7 +3791,28 @@ function resolveWarmupSpintax(text) {
 }
 
 async function runWarmupLoop(accountIds, config, directAccounts = []) {
-  if (warmupRunning) return { ok: true, alreadyRunning: true };
+  if (warmupRunning) {
+    let tabAlive = false;
+    if (warmupCurrentTabId) {
+      try {
+        const t = await chrome.tabs.get(warmupCurrentTabId);
+        if (t && !t.discarded) tabAlive = true;
+      } catch (_) {}
+    }
+    if (!tabAlive) {
+      warmupRunning = false;
+      warmupStop = false;
+      warmupCurrentTabId = null;
+    } else {
+      warmupStop = true;
+      if (warmupCurrentTabId) {
+        chrome.tabs.sendMessage(warmupCurrentTabId, { type: 'STOP_WARMUP_SESSION' }).catch(() => {});
+      }
+      await sleepMs(600);
+      warmupRunning = false;
+      warmupStop = false;
+    }
+  }
   warmupRunning = true;
   warmupStop = false;
 
@@ -6655,6 +6676,7 @@ function handleRuntimeMessage(m, sender, reply) {
   }
   if (m.type === 'WARMUP_STOP') {
     warmupStop = true;
+    warmupRunning = false;
     if (warmupCurrentTabId) {
       chrome.tabs.sendMessage(warmupCurrentTabId, { type: 'STOP_WARMUP_SESSION' }).catch(() => {});
     }
