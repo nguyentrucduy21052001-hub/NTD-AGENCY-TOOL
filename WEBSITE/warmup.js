@@ -1761,14 +1761,53 @@ async function renderContentManagementDashboard() {
 }
 
 // ── 9.6.1. Quản lý & Hiển thị Kho nội dung dùng chung (Cloud Shared Content) ──
+let currentEditingPicture = null;
+
+/**
+ * Hàm nén ảnh về kích thước tối đa 1080px và định dạng JPEG tối ưu dung lượng (~80-120KB)
+ * Giúp lưu trữ và đồng bộ qua Cloud Supabase siêu nhanh cho toàn bộ khách hàng
+ */
+function compressImageFile(file, maxDimension = 1080, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Không thể tải file hình ảnh'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Không thể đọc file hình ảnh'));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function renderSharedContentLibrary() {
   const grid = $('sharedContentGrid');
   if (!grid) return;
 
   const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
-  let library = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
+  let library = Array.isArray(ntd_shared_content_library)
     ? ntd_shared_content_library
-    : DEFAULT_SHARED_CONTENT_LIBRARY;
+    : [];
 
   // Cập nhật tổng số bài trong Kho
   if ($('countAllTemplates')) {
@@ -1795,11 +1834,27 @@ async function renderSharedContentLibrary() {
   }
 
   if (filtered.length === 0) {
-    grid.innerHTML = `
-      <div style="grid-column:1/-1;text-align:center;padding:36px;color:var(--text-muted)">
-        Không tìm thấy bài viết nào phù hợp với bộ lọc hiện tại.
-      </div>
-    `;
+    if (library.length === 0) {
+      grid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:48px 20px;background:var(--surface);border:1.5px dashed var(--border);border-radius:14px;color:var(--text-muted)">
+          <div style="font-size:42px;margin-bottom:12px">📭</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">Kho nội dung hiện đang trống</div>
+          <div style="font-size:13px;max-width:500px;margin:0 auto 18px;line-height:1.5">
+            Bạn đã xóa sạch các bài viết mẫu. Hãy bấm <b>"Thêm bài vào Kho"</b> bên dưới để tự thêm bài viết và hình ảnh của riêng bạn!
+          </div>
+          <button type="button" id="btnEmptyAddTemplate" class="btn-primary-big" style="padding:9px 22px;font-size:13.5px;border-radius:8px">
+            ➕ Thêm bài viết mới vào Kho
+          </button>
+        </div>
+      `;
+      $('btnEmptyAddTemplate')?.addEventListener('click', () => openTemplateModal());
+    } else {
+      grid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:36px;color:var(--text-muted)">
+          Không tìm thấy bài viết nào phù hợp với bộ lọc hiện tại.
+        </div>
+      `;
+    }
     return;
   }
 
@@ -1816,6 +1871,7 @@ async function renderSharedContentLibrary() {
   filtered.forEach(item => {
     const icon = categoryIcons[item.category] || '📝';
     const samplePreview = resolveSpintax(item.content);
+    const hasPicture = Boolean(item.picture && item.picture.data);
 
     html += `
       <div class="template-card" id="card_${item.id}">
@@ -1825,6 +1881,7 @@ async function renderSharedContentLibrary() {
               ${icon} ${escapeHtml(item.categoryName || 'Chủ đề')}
             </span>
             ${item.badge ? `<span class="badge badge-running" style="font-size:10.5px">${escapeHtml(item.badge)}</span>` : ''}
+            ${hasPicture ? `<span class="badge" style="font-size:10.5px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)">📷 Kèm ảnh</span>` : ''}
             <span class="template-spintax-tag">{Spin-tax}</span>
           </div>
           <div style="display:flex;gap:4px">
@@ -1833,7 +1890,14 @@ async function renderSharedContentLibrary() {
           </div>
         </div>
 
-        <div class="template-title">${escapeHtml(item.title || 'Bài viết mẫu')}</div>
+        <div class="template-title">${escapeHtml(item.title || 'Bài viết')}</div>
+
+        ${hasPicture ? `
+          <div style="margin:10px 0 8px;border-radius:8px;overflow:hidden;border:1px solid var(--border);max-height:170px;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;position:relative">
+            <img src="${item.picture.data}" alt="${escapeHtml(item.title || '')}" style="width:100%;max-height:170px;object-fit:cover;display:block" loading="lazy">
+            <span style="position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,0.7);color:#fff;font-size:10px;padding:2px 7px;border-radius:4px;backdrop-filter:blur(4px)">📷 Có ảnh đính kèm</span>
+          </div>
+        ` : ''}
 
         <div class="template-body">${escapeHtml(item.content || '')}</div>
 
@@ -1899,6 +1963,12 @@ async function renderSharedContentLibrary() {
       if ($('selectPostContentSource')) $('selectPostContentSource').value = 'custom';
       if ($('txtCustomPostContent')) $('txtCustomPostContent').value = item.content;
 
+      if (item.picture && item.picture.data) {
+        await chrome.storage.local.set({ warmupCustomPicture: item.picture });
+      } else {
+        await chrome.storage.local.remove('warmupCustomPicture');
+      }
+
       updatePersonalPostVisibility();
       await saveCurrentConfig();
 
@@ -1906,8 +1976,8 @@ async function renderSharedContentLibrary() {
       const tab1Btn = document.querySelector('.wn-tab[data-tab="tab-warmup"]');
       if (tab1Btn) tab1Btn.click();
 
-      appendLog(`Đã chọn mẫu bài viết "${item.title}" làm kịch bản đăng cá nhân cho phiên nuôi.`, '✨');
-      alert(`✅ Đã thiết lập mẫu bài viết:\n"${item.title}"\n\nvào kịch bản Nuôi tài khoản tự động (Tab 1)!`);
+      appendLog(`Đã chọn bài viết "${item.title}" ${item.picture ? '(Kèm hình ảnh)' : ''} làm kịch bản đăng cá nhân cho phiên nuôi.`, '✨');
+      alert(`✅ Đã thiết lập bài viết:\n"${item.title}" ${item.picture ? '\n(Có kèm hình ảnh)' : ''}\n\nvào kịch bản Nuôi tài khoản tự động (Tab 1)!`);
     });
   });
 
@@ -1964,11 +2034,37 @@ function openTemplateModal(template = null) {
   $('textareaModalTemplateContent').value = template ? template.content || '' : '';
   $('boxModalSpintaxPreview').style.display = 'none';
 
+  // Khởi tạo trạng thái hình ảnh đính kèm
+  if (template && template.picture && template.picture.data) {
+    currentEditingPicture = template.picture;
+    if ($('imgTemplatePreview')) $('imgTemplatePreview').src = template.picture.data;
+    if ($('boxTemplateImagePreview')) $('boxTemplateImagePreview').style.display = 'block';
+    if ($('btnRemoveTemplateImage')) $('btnRemoveTemplateImage').style.display = 'inline-flex';
+    if ($('labelTemplateImageInfo')) $('labelTemplateImageInfo').textContent = `${template.picture.name || 'Ảnh đính kèm'} (~${Math.round((template.picture.data.length * 0.75) / 1024)} KB)`;
+  } else {
+    currentEditingPicture = null;
+    if ($('boxTemplateImagePreview')) $('boxTemplateImagePreview').style.display = 'none';
+    if ($('btnRemoveTemplateImage')) $('btnRemoveTemplateImage').style.display = 'none';
+    if ($('inputModalTemplateImage')) $('inputModalTemplateImage').value = '';
+  }
+
   const modal = $('modalContentTemplateOverlay');
   if (modal) modal.style.display = 'flex';
 }
 
 function initSharedContentLibrary() {
+  // Tự động dọn dẹp các bài viết mẫu cũ (nếu chỉ chứa các bài mẫu tmpl_ mặc định của hệ thống)
+  chrome.storage.local.get('ntd_shared_content_library').then(async res => {
+    const lib = res.ntd_shared_content_library;
+    if (Array.isArray(lib) && lib.length > 0) {
+      const isAllOldSampleTemplates = lib.every(item => /^tmpl_(ds|kn|tt|ut|dl|bh)_/i.test(item.id));
+      if (isAllOldSampleTemplates) {
+        await chrome.storage.local.set({ ntd_shared_content_library: [] });
+        await renderSharedContentLibrary();
+      }
+    }
+  }).catch(() => {});
+
   // 1. Phân loại theo danh mục qua Pills
   const pills = document.querySelectorAll('#pillsContentCategory .content-pill');
   pills.forEach(pill => {
@@ -2007,8 +2103,8 @@ function initSharedContentLibrary() {
     try {
       const lib = await fetchSharedContentLibrary();
       await renderSharedContentLibrary();
-      appendLog(`Đã tải và đồng bộ thành công ${lib.length} bài viết mẫu từ Cloud Supabase.`, '🔄');
-      alert(`✅ Cập nhật hoàn tất!\nĐã đồng bộ ${lib.length} bài viết mới nhất từ Cloud Supabase cho toàn bộ khách hàng.`);
+      appendLog(`Đã tải và đồng bộ thành công ${lib.length} bài viết từ Cloud Supabase.`, '🔄');
+      alert(`✅ Cập nhật hoàn tất!\nĐã đồng bộ ${lib.length} bài viết (kèm hình ảnh) mới nhất từ Cloud Supabase cho toàn bộ khách hàng.`);
     } catch (err) {
       appendLog(`Lỗi cập nhật từ Cloud: ${err.message}`, '⚠️');
       alert('Không thể kết nối Cloud: ' + err.message);
@@ -2023,14 +2119,12 @@ function initSharedContentLibrary() {
     openTemplateModal();
   });
 
-  // 5. Nút Đồng bộ lên Cloud
+  // 5. Nút Đồng bộ lên Cloud (Đồng bộ cho TẤT CẢ KHÁCH HÀNG)
   $('btnPushCloudContent')?.addEventListener('click', async () => {
     const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
-    const library = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
-      ? ntd_shared_content_library
-      : DEFAULT_SHARED_CONTENT_LIBRARY;
+    const library = Array.isArray(ntd_shared_content_library) ? ntd_shared_content_library : [];
 
-    if (!confirm(`Bạn có chắc chắn muốn đẩy ${library.length} bài viết trong Kho nội dung này lên Cloud Supabase để chia sẻ cho TOÀN BỘ KHÁCH HÀNG sử dụng chung?`)) {
+    if (!confirm(`Bạn có chắc chắn muốn đẩy ${library.length} bài viết (kèm hình ảnh) trong Kho nội dung này lên Cloud Supabase để chia sẻ cho TOÀN BỘ KHÁCH HÀNG sử dụng chung?`)) {
       return;
     }
 
@@ -2043,7 +2137,7 @@ function initSharedContentLibrary() {
       const res = await pushSharedContentLibrary(library);
       if (res.ok) {
         appendLog(`Đã đồng bộ thành công ${library.length} bài viết lên Cloud Supabase.`, '☁️');
-        alert(`🎉 Thành công!\n\nĐã đồng bộ ${library.length} bài viết mẫu lên Cloud Supabase. Tất cả khách hàng khác khi bấm "Cập nhật từ Cloud" sẽ nhận được toàn bộ các bài viết này!`);
+        alert(`🎉 Thành công!\n\nĐã đồng bộ ${library.length} bài viết kèm hình ảnh lên Cloud Supabase. Tất cả khách hàng khác khi vào ứng dụng sẽ nhận được toàn bộ các bài viết và hình ảnh này!`);
       } else {
         alert('Đã lưu nội bộ trên máy, cảnh báo đẩy Cloud: ' + (res.error || 'Lỗi không xác định'));
       }
@@ -2055,15 +2149,75 @@ function initSharedContentLibrary() {
     }
   });
 
+  // 5.1. Nút Xóa tất cả bài viết trong Kho
+  $('btnClearAllContentTemplates')?.addEventListener('click', async () => {
+    const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+    if (ntd_shared_content_library.length === 0) {
+      alert('Kho nội dung hiện đang trống, không có bài viết nào để xóa.');
+      return;
+    }
+    if (!confirm(`⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA TẤT CẢ ${ntd_shared_content_library.length} BÀI VIẾT TRONG KHO?\n\nToàn bộ bài viết và hình ảnh hiện tại trong Kho sẽ bị xóa sạch để bạn tự tạo các bài viết mới.`)) {
+      return;
+    }
+    await chrome.storage.local.set({ ntd_shared_content_library: [] });
+    await renderSharedContentLibrary();
+    appendLog('Đã xóa sạch toàn bộ bài viết trong Kho nội dung.', '🗑️');
+
+    if (confirm('Bạn có muốn đồng bộ ngay trạng thái kho rỗng lên Cloud Supabase để xóa trên tài khoản của TẤT CẢ KHÁCH HÀNG không?')) {
+      try {
+        await pushSharedContentLibrary([]);
+        alert('✅ Đã đồng bộ xóa sạch toàn bộ bài viết lên Cloud Supabase thành công!');
+      } catch (e) {
+        alert('Lỗi đồng bộ xóa Cloud: ' + e.message);
+      }
+    }
+  });
+
   // 6. Xử lý Modal Thêm / Chỉnh sửa bài viết
   const modalTemplate = $('modalContentTemplateOverlay');
   const closeTemplateModal = () => {
     if (modalTemplate) modalTemplate.style.display = 'none';
     currentEditingTemplateId = null;
+    currentEditingPicture = null;
   };
 
   $('btnCloseTemplateModal')?.addEventListener('click', closeTemplateModal);
   $('btnCancelTemplateModal')?.addEventListener('click', closeTemplateModal);
+
+  // Xử lý chọn ảnh đính kèm bài viết
+  $('btnChooseTemplateImage')?.addEventListener('click', () => {
+    $('inputModalTemplateImage')?.click();
+  });
+
+  $('inputModalTemplateImage')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Vui lòng chọn file hình ảnh định dạng JPG, PNG hoặc WebP.');
+      return;
+    }
+    try {
+      const compressedData = await compressImageFile(file, 1080, 0.82);
+      currentEditingPicture = {
+        name: file.name,
+        type: 'image/jpeg',
+        data: compressedData
+      };
+      if ($('imgTemplatePreview')) $('imgTemplatePreview').src = compressedData;
+      if ($('boxTemplateImagePreview')) $('boxTemplateImagePreview').style.display = 'block';
+      if ($('btnRemoveTemplateImage')) $('btnRemoveTemplateImage').style.display = 'inline-flex';
+      if ($('labelTemplateImageInfo')) $('labelTemplateImageInfo').textContent = `${file.name} (~${Math.round((compressedData.length * 0.75) / 1024)} KB - Đã nén tối ưu)`;
+    } catch (err) {
+      alert('Lỗi xử lý ảnh: ' + err.message);
+    }
+  });
+
+  $('btnRemoveTemplateImage')?.addEventListener('click', () => {
+    currentEditingPicture = null;
+    if ($('boxTemplateImagePreview')) $('boxTemplateImagePreview').style.display = 'none';
+    if ($('btnRemoveTemplateImage')) $('btnRemoveTemplateImage').style.display = 'none';
+    if ($('inputModalTemplateImage')) $('inputModalTemplateImage').value = '';
+  });
 
   // Thử nghiệm Spin-tax trong Modal
   $('btnTestModalSpintax')?.addEventListener('click', () => {
@@ -2099,9 +2253,7 @@ function initSharedContentLibrary() {
     };
 
     const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
-    let lib = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
-      ? [...ntd_shared_content_library]
-      : [...DEFAULT_SHARED_CONTENT_LIBRARY];
+    let lib = Array.isArray(ntd_shared_content_library) ? [...ntd_shared_content_library] : [];
 
     if (currentEditingTemplateId) {
       const idx = lib.findIndex(x => x.id === currentEditingTemplateId);
@@ -2113,6 +2265,7 @@ function initSharedContentLibrary() {
           categoryName: categoryNames[category] || 'Chủ đề',
           badge,
           content,
+          picture: currentEditingPicture || null,
           updatedAt: Date.now()
         };
       }
@@ -2122,8 +2275,9 @@ function initSharedContentLibrary() {
         category,
         categoryName: categoryNames[category] || 'Chủ đề',
         title,
-        badge: badge || 'Bài viết mới',
+        badge: badge || (currentEditingPicture ? 'Có ảnh' : 'Bài viết mới'),
         content,
+        picture: currentEditingPicture || null,
         tags: [categoryNames[category] || 'Chủ đề'],
         updatedAt: Date.now()
       };
@@ -2133,7 +2287,7 @@ function initSharedContentLibrary() {
     await chrome.storage.local.set({ ntd_shared_content_library: lib });
     closeTemplateModal();
     await renderSharedContentLibrary();
-    appendLog(`Đã lưu bài viết "${title}" vào Kho nội dung dùng chung.`, '💾');
+    appendLog(`Đã lưu bài viết "${title}" ${currentEditingPicture ? '(Kèm hình ảnh)' : ''} vào Kho nội dung dùng chung.`, '💾');
   });
 
   // 7. Xử lý Modal Xem thử biến thể (Spin Preview)

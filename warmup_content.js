@@ -679,10 +679,10 @@
   }
 
   // ── 7.1. Tự động đăng bài viết lên Trang cá nhân (Timeline) ─────────────────
-  async function runPersonalTimelinePost(postText, stats) {
+  async function runPersonalTimelinePost(postText, stats, postPicture = null) {
     if (isCancelled || !postText || !postText.trim()) return;
     isPostingTimeline = true;
-    sendLog('📝 Bắt đầu chuẩn bị đăng bài viết lên Trang cá nhân (Timeline)...', '📝');
+    sendLog(`📝 Bắt đầu chuẩn bị đăng bài viết lên Trang cá nhân (Timeline)... ${postPicture ? '(kèm hình ảnh)' : ''}`, '📝');
 
     try {
       // 1. Cuộn trang lên đầu để thấy ô soạn bài nếu đang ở giữa trang
@@ -781,24 +781,26 @@
       sendLog('Đã mở hộp thoại tạo bài viết thành công! Đang chuẩn bị điền nội dung...', '✅');
       await delay(600);
 
-      // 4. Ưu tiên điền & bấm Đăng trực tiếp trong MAIN world (cùng context JS với React/Lexical của Facebook)
+      // 4. Ưu tiên điền & bấm Đăng trực tiếp trong MAIN world (chỉ khi không có ảnh đính kèm)
       let mainHandled = false;
-      try {
-        const mainRes = await chrome.runtime.sendMessage({
-          type: 'WARMUP_MAIN_FILL_AND_POST',
-          text: postText
-        });
-        if (mainRes && mainRes.ok && mainRes.step === 'clicked_post') {
-          mainHandled = true;
-          sendLog(`Đã điền nội dung ("${(mainRes.filledText || postText).slice(0, 40)}...") và bấm nút Đăng!`, '🚀');
-        } else if (mainRes && mainRes.error) {
-          sendLog(`Thử chế độ dự phòng (MAIN world báo: ${mainRes.error})`, 'ℹ️');
+      if (!postPicture || !postPicture.data) {
+        try {
+          const mainRes = await chrome.runtime.sendMessage({
+            type: 'WARMUP_MAIN_FILL_AND_POST',
+            text: postText
+          });
+          if (mainRes && mainRes.ok && mainRes.step === 'clicked_post') {
+            mainHandled = true;
+            sendLog(`Đã điền nội dung ("${(mainRes.filledText || postText).slice(0, 40)}...") và bấm nút Đăng!`, '🚀');
+          } else if (mainRes && mainRes.error) {
+            sendLog(`Thử chế độ dự phòng (MAIN world báo: ${mainRes.error})`, 'ℹ️');
+          }
+        } catch (mErr) {
+          sendLog(`Chuyển sang chế độ điền nội dung trực tiếp: ${mErr.message}`, 'ℹ️');
         }
-      } catch (mErr) {
-        sendLog(`Chuyển sang chế độ điền nội dung trực tiếp: ${mErr.message}`, 'ℹ️');
       }
 
-      // 5. Fallback trong ISOLATED world nếu MAIN world chưa hoàn tất
+      // 5. Fallback trong ISOLATED world (hoặc chế độ đăng kèm ảnh)
       if (!mainHandled && !isCancelled) {
         sendLog('Đang tìm ô soạn bài bên trong hộp thoại...', '🔍');
         let editor = null;
@@ -820,6 +822,43 @@
         sendLog('Đang điền nội dung bài viết vào ô soạn thảo...', '⌨️');
         await fillFacebookEditor(editor, postText);
         await delay(1000);
+
+        // Đính kèm hình ảnh nếu bài viết có hình ảnh
+        if (postPicture && postPicture.data && !isCancelled) {
+          try {
+            sendLog('Đang tải ảnh đính kèm lên bài viết Facebook...', '📷');
+            const beforeImages = new Set([...dialog.querySelectorAll('img')].map(e => e.src));
+            const acceptsImage = e => /image|\.jpe?g|\.png|\.webp/i.test(e.accept || '');
+            let inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
+            if (!inputs.length) {
+              const oldInputs = new Set(document.querySelectorAll('input[type="file"]'));
+              const photoBtns = [...dialog.querySelectorAll('[role="button"], button')].filter(e => /Ảnh|Photo|video/i.test(label(e)));
+              if (photoBtns.length > 0) {
+                photoBtns[0].click();
+                await delay(1200);
+                inputs = [...dialog.querySelectorAll('input[type="file"]')].filter(acceptsImage);
+                if (!inputs.length) inputs = [...document.querySelectorAll('input[type="file"]')].filter(e => !oldInputs.has(e) && acceptsImage(e));
+              }
+            }
+            if (inputs.length > 0) {
+              const input = inputs[0];
+              const [head, raw] = postPicture.data.split(',');
+              if (/^data:image\/(jpeg|png|webp);base64$/.test(head)) {
+                const bytes = Uint8Array.from(atob(raw), x => x.charCodeAt(0));
+                const dt = new DataTransfer();
+                dt.items.add(new File([bytes], postPicture.name || 'image.jpg', { type: postPicture.type || 'image/jpeg' }));
+                input.files = dt.files;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                await delay(2500);
+                sendLog('✅ Đã đính kèm ảnh vào bài viết Facebook thành công!', '📷');
+              }
+            } else {
+              sendLog('⚠️ Không tìm thấy ô chọn file ảnh trong hộp thoại Facebook.', '⚠️');
+            }
+          } catch (imgErr) {
+            sendLog(`⚠️ Lỗi đính kèm ảnh: ${imgErr.message}`, '⚠️');
+          }
+        }
 
         sendLog('Đang tìm nút Đăng bài viết...', '🔍');
         const POST_RE = /^(Đăng|Post|Đăng bài|Đăng bài viết|Publish)$/i;
@@ -959,7 +998,7 @@
                   await delay(2500);
                 }
               }
-              await runPersonalTimelinePost(cfg.personalPostText, stats);
+              await runPersonalTimelinePost(cfg.personalPostText, stats, cfg.personalPostPicture);
             } catch (pErr) {
               sendLog(`⚠️ Lỗi khi đăng bài cá nhân: ${pErr.message}`, '⚠️');
             }

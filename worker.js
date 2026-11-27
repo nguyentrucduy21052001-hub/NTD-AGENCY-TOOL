@@ -3985,6 +3985,7 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
 
         // Chuẩn bị nội dung bài viết cá nhân nếu được kích hoạt
         let accountPostText = null;
+        let accountPostPicture = null;
         if (enablePersonalPost) {
           try {
             const { warmupContentSchedules = {} } = await chrome.storage.local.get('warmupContentSchedules');
@@ -4002,14 +4003,16 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
             if (shouldPost) {
               if (postContentSource === 'custom' && customPostContent) {
                 accountPostText = resolveWarmupSpintax(customPostContent);
+                const { warmupCustomPicture = null } = await chrome.storage.local.get('warmupCustomPicture');
+                if (warmupCustomPicture?.data) accountPostPicture = warmupCustomPicture;
               } else {
-                // Đọc từ Extension storage, fallback sang kho mặc định nếu rỗng
+                // Đọc từ Extension storage, fallback sang kho config nếu có
                 const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
                 let pool = Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0
                   ? ntd_shared_content_library
                   : (Array.isArray(config?.ntd_shared_content_library) && config.ntd_shared_content_library.length > 0
                     ? config.ntd_shared_content_library
-                    : DEFAULT_SHARED_CONTENT_LIBRARY);
+                    : []);
                 if (postContentSource.startsWith('cat_')) {
                   const catKey = postContentSource.replace('cat_', '');
                   const filtered = pool.filter(t => t.category === catKey);
@@ -4018,12 +4021,15 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
                 if (pool.length > 0) {
                   const picked = pool[Math.floor(Math.random() * pool.length)];
                   accountPostText = resolveWarmupSpintax(picked.content);
+                  if (picked.picture && picked.picture.data) {
+                    accountPostPicture = picked.picture;
+                  }
                 } else {
                   broadcastWarmupLog(`⚠️ Kho nội dung trống, bỏ qua đăng bài cá nhân cho nick "${acc.name}".`, '⚠️');
                 }
               }
               if (accountPostText) {
-                broadcastWarmupLog(`📝 Chuẩn bị đăng bài cá nhân cho nick "${acc.name}": "${accountPostText.slice(0, 50)}..."`, '📝');
+                broadcastWarmupLog(`📝 Chuẩn bị đăng bài cá nhân cho nick "${acc.name}": "${accountPostText.slice(0, 50)}..." ${accountPostPicture ? '(kèm hình ảnh)' : ''}`, '📝');
               }
             } else {
               broadcastWarmupLog(`ℹ️ Nick "${acc.name}" đã đăng bài gần đây (${daysSince === 0 ? 'hôm nay' : daysSince + ' ngày trước'}). Theo điều kiện "${postCondition}", sẽ bỏ qua đăng cá nhân trong phiên này.`, 'ℹ️');
@@ -4041,7 +4047,8 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
           enableReels,
           enableNotif,
           enablePersonalPost: Boolean(accountPostText),
-          personalPostText: accountPostText
+          personalPostText: accountPostText,
+          personalPostPicture: accountPostPicture
         };
 
         // Gửi lệnh khởi động chu trình tương tác và nhận phản hồi đồng bộ tức thì
