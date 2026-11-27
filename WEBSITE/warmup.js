@@ -6,8 +6,10 @@ import {
   resolveSpintax,
   fetchSharedContentLibrary,
   pushSharedContentLibrary,
+  supabaseUpsertWorkspaceKeys,
+  supabaseFetchWorkspace,
   DEFAULT_SHARED_CONTENT_LIBRARY
-} from './supabase.js?v=20261125_1700';
+} from './supabase.js?v=20261127_0950';
 
 const $ = id => document.getElementById(id);
 const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -2062,6 +2064,187 @@ function openTemplateModal(template = null) {
   if (modal) modal.style.display = 'flex';
 }
 
+// ── 9.4. Cấu hình Thông tin cố định của khách hàng (Hotline, Link, Hashtags) ──
+function updateFixedFooterStatusLabel(enabled) {
+  const lbl = $('labelFixedFooterStatus');
+  if (!lbl) return;
+  if (enabled) {
+    lbl.textContent = 'Đang bật (Tự động gắn vào cuối bài)';
+    lbl.style.color = '#10b981';
+  } else {
+    lbl.textContent = 'Đang tắt (Chỉ đăng nội dung bài viết gốc)';
+    lbl.style.color = 'var(--text-muted)';
+  }
+}
+
+async function loadFixedFooterConfig() {
+  let cfg = null;
+  try {
+    const res = await chrome.storage.local.get('warmupFixedFooterConfig');
+    if (res.warmupFixedFooterConfig) {
+      cfg = res.warmupFixedFooterConfig;
+    }
+  } catch (_) {}
+
+  // Lấy username tài khoản khách hàng đang đăng nhập
+  let currentUsername = '';
+  try {
+    const { license } = await chrome.storage.local.get('license');
+    if (license?.username) currentUsername = license.username;
+    else {
+      const raw = localStorage.getItem('ntd_store_license');
+      if (raw) currentUsername = JSON.parse(raw)?.username || '';
+    }
+  } catch (_) {}
+
+  // Nếu bộ nhớ máy chưa có, thử lấy từ Cloud Supabase workspace của riêng khách hàng đó
+  if ((!cfg || !cfg.content) && currentUsername) {
+    try {
+      const ws = await supabaseFetchWorkspace(currentUsername);
+      if (ws && ws.fixed_footer) {
+        cfg = ws.fixed_footer;
+        await chrome.storage.local.set({ warmupFixedFooterConfig: cfg });
+      }
+    } catch (_) {}
+  }
+
+  // Mẫu gợi ý mặc định nếu khách hàng chưa từng cấu hình
+  if (!cfg) {
+    cfg = {
+      enabled: true,
+      content: `---\n☎️ Hotline / Zalo: 09xx.xxx.xxx\n🌐 Link mua hàng: https://...\n#uudai #freeship #hangchinhhang`
+    };
+    await chrome.storage.local.set({ warmupFixedFooterConfig: cfg });
+  }
+
+  if ($('chkEnableFixedFooter')) {
+    $('chkEnableFixedFooter').checked = cfg.enabled !== false;
+  }
+  if ($('txtFixedFooterContent')) {
+    $('txtFixedFooterContent').value = cfg.content || '';
+  }
+
+  updateFixedFooterStatusLabel(cfg.enabled !== false);
+}
+
+async function saveFixedFooterConfig(showAlert = true) {
+  const enabled = $('chkEnableFixedFooter') ? $('chkEnableFixedFooter').checked : true;
+  const content = ($('txtFixedFooterContent')?.value || '').trim();
+
+  const cfg = {
+    enabled,
+    content,
+    updatedAt: Date.now()
+  };
+
+  await chrome.storage.local.set({ warmupFixedFooterConfig: cfg });
+
+  // Lưu riêng theo tài khoản khách hàng trên Cloud Supabase để không ảnh hưởng khách khác
+  try {
+    let currentUsername = '';
+    const { license } = await chrome.storage.local.get('license');
+    if (license?.username) currentUsername = license.username;
+    else {
+      const raw = localStorage.getItem('ntd_store_license');
+      if (raw) currentUsername = JSON.parse(raw)?.username || '';
+    }
+    if (currentUsername) {
+      await supabaseUpsertWorkspaceKeys(currentUsername, { fixed_footer: cfg });
+    }
+  } catch (err) {
+    console.warn('Lỗi đồng bộ fixed_footer lên cloud:', err);
+  }
+
+  updateFixedFooterStatusLabel(enabled);
+
+  if (showAlert) {
+    appendLog('Đã lưu thông tin cố định (Hotline, Link bán hàng, Hashtag) của bạn.', '💾');
+    alert('✅ Đã lưu thông tin cố định thành công!\n\nTừ bây giờ, mỗi khi tài khoản Facebook đăng bài (từ Kho nội dung dùng chung hoặc kịch bản nuôi), hệ thống sẽ tự động ghép thông tin liên hệ và hashtag này vào cuối bài viết.');
+  }
+}
+
+function initFixedFooterSettings() {
+  loadFixedFooterConfig();
+
+  // Bật/tắt checkbox tự động đính kèm
+  $('chkEnableFixedFooter')?.addEventListener('change', (e) => {
+    updateFixedFooterStatusLabel(e.target.checked);
+    saveFixedFooterConfig(false);
+  });
+
+  // Bấm nút Lưu thông tin cố định
+  $('btnSaveFixedFooter')?.addEventListener('click', () => {
+    saveFixedFooterConfig(true);
+  });
+
+  // Các nút chèn nhanh mẫu
+  document.querySelectorAll('.btn-quick-insert-footer').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const textToInsert = btn.getAttribute('data-insert') || '';
+      const textarea = $('txtFixedFooterContent');
+      if (!textarea) return;
+
+      const start = textarea.selectionStart || textarea.value.length;
+      const end = textarea.selectionEnd || textarea.value.length;
+      const val = textarea.value;
+      const needNewline = start > 0 && val[start - 1] !== '\n' ? '\n' : '';
+
+      textarea.value = val.substring(0, start) + needNewline + textToInsert + val.substring(end);
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + needNewline.length + textToInsert.length;
+    });
+  });
+
+  // Nút nhảy nhanh đến cài đặt thông tin cố định từ Tab 1
+  $('btnJumpToFixedFooterSettings')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const tabBtn = document.querySelector('.wn-tab[data-tab="tab-content"]');
+    if (tabBtn) tabBtn.click();
+    setTimeout(() => {
+      const targetCard = $('cardFixedCustomerFooter');
+      if (targetCard) {
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        targetCard.style.boxShadow = '0 0 20px rgba(59,130,246,0.6)';
+        setTimeout(() => { targetCard.style.boxShadow = ''; }, 2000);
+      }
+    }, 150);
+  });
+
+  // Nút Xem thử bài viết khi ghép thông tin cố định
+  $('btnPreviewMergedPost')?.addEventListener('click', async () => {
+    const { ntd_shared_content_library = [] } = await chrome.storage.local.get('ntd_shared_content_library');
+    let samplePost = null;
+
+    if (Array.isArray(ntd_shared_content_library) && ntd_shared_content_library.length > 0) {
+      samplePost = ntd_shared_content_library[0];
+    } else {
+      samplePost = {
+        title: 'Ngày hội mua sắm & Ưu đãi đặc biệt',
+        categoryName: 'Bán hàng & Khéo léo',
+        content: '{Hôm nay shop có chương trình siêu ưu đãi|Tin vui cho cả nhà đây ạ}! {Nhanh tay đặt hàng để nhận ngay quà tặng hấp dẫn|Ưu đãi áp dụng duy nhất trong tuần này}. {Đừng bỏ lỡ nhé mọi người|Số lượng có hạn, inbox shop ngay thôi nào}!'
+      };
+    }
+
+    const postBody = resolveSpintax(samplePost.content || '');
+    const footerContent = ($('txtFixedFooterContent')?.value || '').trim();
+    const isFooterEnabled = $('chkEnableFixedFooter') ? $('chkEnableFixedFooter').checked : true;
+
+    let fullPreview = postBody;
+    if (isFooterEnabled && footerContent) {
+      const resolvedFooter = resolveSpintax(footerContent);
+      if (resolvedFooter) {
+        fullPreview = postBody + '\n\n' + resolvedFooter;
+      }
+    }
+
+    openSpinPreviewModal({
+      title: `${samplePost.title || 'Bài viết'} (Đã ghép thông tin cố định)`,
+      categoryName: samplePost.categoryName || 'Bán hàng',
+      content: fullPreview
+    });
+  });
+}
+
 function initSharedContentLibrary() {
   // Tự động dọn dẹp các bài viết mẫu cũ (nếu chỉ chứa các bài mẫu tmpl_ mặc định của hệ thống)
   chrome.storage.local.get('ntd_shared_content_library').then(async res => {
@@ -2720,6 +2903,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSubNavTabs();
   initIdeaCopyButtons();
   initSharedContentLibrary();
+  initFixedFooterSettings();
   init2FAModal();
   initAuditLogFilters();
   renderHealthDashboard();

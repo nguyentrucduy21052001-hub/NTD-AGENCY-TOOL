@@ -4029,7 +4029,24 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
                 }
               }
               if (accountPostText) {
-                broadcastWarmupLog(`📝 Chuẩn bị đăng bài cá nhân cho nick "${acc.name}": "${accountPostText.slice(0, 50)}..." ${accountPostPicture ? '(kèm hình ảnh)' : ''}`, '📝');
+                // 📌 TỰ ĐỘNG ĐÍNH KÈM THÔNG TIN CỐ ĐỊNH CỦA KHÁCH HÀNG (HOTLINE / LINK / HASHTAG / CHỮ KÝ)
+                try {
+                  const { warmupFixedFooterConfig = {} } = await chrome.storage.local.get('warmupFixedFooterConfig');
+                  const footerEnabled = warmupFixedFooterConfig.enabled !== false;
+                  const footerContent = (warmupFixedFooterConfig.content || '').trim();
+
+                  if (footerEnabled && footerContent) {
+                    const resolvedFooter = resolveWarmupSpintax(footerContent);
+                    if (resolvedFooter) {
+                      accountPostText = accountPostText + '\n\n' + resolvedFooter;
+                      broadcastWarmupLog(`📌 Đã đính kèm thông tin cố định (Hotline/Link/Hashtag) của khách hàng vào bài viết của nick "${acc.name}".`, '📌');
+                    }
+                  }
+                } catch (fErr) {
+                  console.warn('[Warmup] Lỗi khi đính kèm thông tin cố định:', fErr);
+                }
+
+                broadcastWarmupLog(`📝 Chuẩn bị đăng bài cá nhân cho nick "${acc.name}": "${accountPostText.slice(0, 60)}..." ${accountPostPicture ? '(kèm hình ảnh)' : ''}`, '📝');
               }
             } else {
               broadcastWarmupLog(`ℹ️ Nick "${acc.name}" đã đăng bài gần đây (${daysSince === 0 ? 'hôm nay' : daysSince + ' ngày trước'}). Theo điều kiện "${postCondition}", sẽ bỏ qua đăng cá nhân trong phiên này.`, 'ℹ️');
