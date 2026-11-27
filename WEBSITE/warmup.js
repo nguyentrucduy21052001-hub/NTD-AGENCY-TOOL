@@ -1922,30 +1922,30 @@ async function renderSharedContentLibrary() {
         <div class="template-title">${escapeHtml(item.title || 'Bài viết')}</div>
 
         ${hasPicture ? `
-          <div style="margin:10px 0 8px;border-radius:8px;overflow:hidden;border:1px solid var(--border);max-height:170px;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;position:relative">
-            <img src="${item.picture.data}" alt="${escapeHtml(item.title || '')}" style="width:100%;max-height:170px;object-fit:cover;display:block" loading="lazy">
-            <span style="position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,0.7);color:#fff;font-size:10px;padding:2px 7px;border-radius:4px;backdrop-filter:blur(4px)">📷 Có ảnh đính kèm</span>
+          <div style="margin:4px 0 2px;border-radius:8px;overflow:hidden;border:1px solid var(--border);height:105px;max-height:105px;background:rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0">
+            <img src="${item.picture.data}" alt="${escapeHtml(item.title || '')}" style="width:100%;height:105px;max-height:105px;object-fit:cover;display:block" loading="lazy">
+            <span style="position:absolute;bottom:4px;right:6px;background:rgba(0,0,0,0.7);color:#fff;font-size:9.5px;padding:1px 6px;border-radius:4px;backdrop-filter:blur(4px)">📷 Có ảnh đính kèm</span>
           </div>
         ` : ''}
 
-        <div class="template-body">${escapeHtml(item.content || '')}</div>
+        <div class="template-body ${hasPicture ? 'with-pic' : ''}">${escapeHtml(item.content || '')}</div>
 
         <!-- Biến thể ví dụ ngẫu nhiên từ Spin-tax -->
-        <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border:1px dashed var(--border);border-radius:6px;font-size:12px;color:var(--text);line-height:1.4">
-          <div style="font-size:10.5px;font-weight:700;color:var(--accent);margin-bottom:3px">🎲 Ví dụ biến thể khi đăng:</div>
-          <div style="font-style:italic">"${escapeHtml(samplePreview)}"</div>
+        <div class="template-sample-box">
+          <div style="font-size:10px;font-weight:700;color:var(--accent);margin-bottom:2px">🎲 Ví dụ biến thể khi đăng:</div>
+          <div class="template-sample-text">"${escapeHtml(samplePreview)}"</div>
         </div>
 
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px;flex-wrap:wrap">
-          <div style="display:flex;gap:6px">
-            <button type="button" class="btn-sm-text btn-preview-spin" data-id="${item.id}" style="border:1px solid var(--border);border-radius:6px;padding:4px 9px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:4px;gap:6px;flex-wrap:wrap">
+          <div style="display:flex;gap:5px">
+            <button type="button" class="btn-sm-text btn-preview-spin" data-id="${item.id}" style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11.5px">
               🎲 Xem thử Spin
             </button>
-            <button type="button" class="btn-sm-text btn-copy-template" data-id="${item.id}" style="border:1px solid var(--border);border-radius:6px;padding:4px 9px">
+            <button type="button" class="btn-sm-text btn-copy-template" data-id="${item.id}" style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11.5px">
               📋 Sao chép
             </button>
           </div>
-          <button type="button" class="btn-sm-text btn-choose-template" data-id="${item.id}" style="background:var(--accent);color:#ffffff;border-radius:6px;padding:4px 12px;text-decoration:none">
+          <button type="button" class="btn-sm-text btn-choose-template" data-id="${item.id}" style="background:var(--accent);color:#ffffff;border-radius:6px;padding:3px 10px;font-size:11.5px;text-decoration:none">
             ✨ Dùng cho nick nuôi
           </button>
         </div>

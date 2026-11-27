@@ -732,11 +732,48 @@
   .content-idea-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 14px;
+    gap: 12px;
     margin-top: 14px;
+    max-height: 618px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 6px;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
   }
   @media (max-width: 768px) {
-    .content-idea-grid { grid-template-columns: 1fr; }
+    .content-idea-grid {
+      grid-template-columns: 1fr;
+      max-height: 618px;
+    }
+  }
+  .content-idea-grid::-webkit-scrollbar {
+    width: 6px;
+  }
+  .content-idea-grid::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+  .content-idea-grid::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .content-idea-grid::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+  .ntd-dark-theme .content-idea-grid {
+    scrollbar-color: #334155 #1a2635;
+  }
+  .ntd-dark-theme .content-idea-grid::-webkit-scrollbar-track {
+    background: #1a2635;
+  }
+  .ntd-dark-theme .content-idea-grid::-webkit-scrollbar-thumb {
+    background: #334155;
+  }
+  .ntd-dark-theme .content-idea-grid::-webkit-scrollbar-thumb:hover {
+    background: #475569;
   }
   .idea-card {
     background: var(--surface);
@@ -846,11 +883,15 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 16px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
     transition: all 0.2s ease;
+    height: 300px;
+    max-height: 300px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
   .template-card:hover {
     border-color: var(--accent);
@@ -858,20 +899,54 @@
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
   }
   .template-title {
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 700;
     color: var(--text);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .template-body {
-    font-size: 12.5px;
+    font-size: 11.5px;
     color: var(--text-muted);
-    line-height: 1.55;
+    line-height: 1.45;
     background: rgba(0, 0, 0, 0.15);
-    padding: 10px 12px;
+    padding: 6px 10px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 130px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .template-body.with-pic {
+    max-height: 52px;
+  }
+  .template-body::-webkit-scrollbar {
+    width: 4px;
+  }
+  .template-body::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 2px;
+  }
+  .template-sample-box {
+    padding: 5px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    line-height: 1.35;
+  }
+  .template-sample-text {
+    font-style: italic;
+    font-size: 11px;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .template-spintax-tag {
     font-family: monospace;
@@ -1848,7 +1923,7 @@
   </div>
 </main>
 
-<script type="module" src="warmup.js?v=20261127_1615"></script>
+<script type="module" src="warmup.js?v=20261127_1640"></script>
 <script type="module" src="sidebar.js?v=20261127_0825"></script>
 </body>
 </html>
