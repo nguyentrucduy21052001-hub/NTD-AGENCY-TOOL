@@ -20,7 +20,7 @@ import {
   TELEMETRY_LEDGER_KEY,
   DEFAULT_SHARED_CONTENT_LIBRARY
 } from './supabase.js';
-import { initRemoteWorker } from './remote_worker.js';
+import { initRemoteWorker, logRemoteStep } from './remote_worker.js';
 
 const isWebEmbeddedWorker = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
 const WORKER_VERSION = '20261127_1400';
@@ -2383,6 +2383,10 @@ async function dispatch(accountId, tabId) {
   try {
     const accounts = await readAccounts();
     const acc = accounts.find(a => a.id === accountId);
+    const targetUrl = c.jobs?.[c.index]?.url || '';
+    if (typeof logRemoteStep === 'function') {
+      logRemoteStep(`[${acc?.name || 'Tài khoản'}] Mở nhóm Facebook và bắt đầu điền bài: ${targetUrl}`, 'info').catch(() => {});
+    }
 
     // 1. Tiêm script cấu hình MAIN WORLD để Facebook không bị đóng băng/hạn chế khi Chrome minimize hoặc chạy nền
     try {
@@ -8479,6 +8483,17 @@ function handleRuntimeMessage(m, sender, reply) {
         let status = allowed.includes(m.status) ? m.status : 'unknown';
         if (m.rateLimited || ((status === 'error' || status === 'unknown') && /limit how often|protect the community from spam|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác|tạm thời bị chặn|tạm thời bị hạn chế|spam rate limit|rate limit|thao tác quá nhanh|going too fast|bị hạn chế|hạn chế tính năng/i.test(m.note || ''))) {
           status = 'blocked';
+        }
+
+        if (typeof logRemoteStep === 'function') {
+          const currentUrl = c.jobs?.[c.index]?.url || '';
+          if (['submitted', 'sent_unverified', 'pending', 'preview'].includes(status)) {
+            logRemoteStep(`✅ [${c.accountName || accountId}] Đã đăng thành công vào nhóm: ${currentUrl}`, 'success').catch(() => {});
+          } else if (status === 'blocked') {
+            logRemoteStep(`⛔ [${c.accountName || accountId}] Bị chặn/Spam Rate Limit tại nhóm: ${currentUrl}`, 'error').catch(() => {});
+          } else if (status === 'error') {
+            logRemoteStep(`⚠️ [${c.accountName || accountId}] Lỗi: ${m.note || 'Không thể đăng'}`, 'warning').catch(() => {});
+          }
         }
         const isAuthExpired = Boolean(
           m.authExpired ||

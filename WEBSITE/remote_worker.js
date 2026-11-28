@@ -321,17 +321,47 @@ async function startExecutingRemoteTask(task, identity) {
 }
 
 /**
+ * Gửi nhật ký thực thi chi tiết từ Chrome Extension lên Supabase theo thời gian thực
+ */
+export async function logRemoteStep(message, logLevel = 'info', details = {}) {
+  if (!_activeTaskId) return;
+  try {
+    const identity = await getCurrentWorkerIdentity();
+    if (!identity.deviceId || !identity.ownerUsername) return;
+    await supabaseAppendTaskLog({
+      taskId: _activeTaskId,
+      ownerUsername: identity.ownerUsername,
+      deviceId: identity.deviceId,
+      message,
+      logLevel,
+      details
+    });
+  } catch (_) {}
+}
+
+/**
  * Xử lý tác vụ Đăng bài chiến dịch (post_campaign)
  */
 async function executePostCampaignTask(task, payload, identity) {
   const data = payload.data || payload;
   const options = payload.options || {};
 
+  // Đồng bộ draft & nhóm nếu được gửi kèm từ điện thoại
+  if (options.draft) {
+    try { await chrome.storage.local.set({ draft: options.draft }); } catch (_) {}
+  }
+  if (Array.isArray(options.groupCategories) && options.groupCategories.length > 0) {
+    try { await chrome.storage.local.set({ groupCategories: options.groupCategories }); } catch (_) {}
+  }
+
+  const accCount = (data.targetAccountIds || data.sharedSelectedAccounts || options.accounts || []).length;
+  const totalUrls = Array.isArray(data.urls) ? data.urls.length : (data.groups || []).length;
+
   await supabaseAppendTaskLog({
     taskId: task.id,
     ownerUsername: identity.ownerUsername,
     deviceId: identity.deviceId,
-    message: `Đang khởi chạy chiến dịch đăng bài cho ${(data.accounts || []).length} tài khoản...`,
+    message: `Đang khởi chạy chiến dịch đăng bài cho ${accCount} tài khoản (${totalUrls} nhóm)...`,
     logLevel: 'info'
   });
 
@@ -355,13 +385,14 @@ async function executePostCampaignTask(task, payload, identity) {
   }
 
   // Khởi tạo tiến độ ban đầu
+  const totalItems = totalUrls * (accCount || 1) || 1;
   await supabaseUpdateTaskProgress(task.id, {
     status: 'running',
     progress: {
       current: 0,
-      total: (data.groups || []).length * (data.accounts || []).length || 1,
+      total: totalItems,
       percent: 0,
-      status_text: 'Chiến dịch đang chạy trên máy tính...'
+      status_text: `Đang chạy đăng bài cho ${accCount} tài khoản trên máy tính...`
     }
   });
 }

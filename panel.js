@@ -640,8 +640,12 @@ function initRemoteControlUI() {
       btnModeLocal.style.boxShadow = 'none';
       if ($('remoteDeviceConfigPanel')) $('remoteDeviceConfigPanel').style.display = 'flex';
       const notice = $('webPlatformNotice');
-      if (notice && remoteController.isMobileDevice()) {
+      if (notice && (remoteController.isMobileDevice() || remoteController.mode === 'remote')) {
         notice.style.display = 'block';
+        notice.style.background = 'rgba(59,130,246,0.12)';
+        notice.style.borderColor = 'rgba(59,130,246,0.4)';
+        notice.style.color = '#93c5fd';
+        if ($('webPlatformNoticeIcon')) $('webPlatformNoticeIcon').textContent = '📡';
         if ($('webPlatformNoticeTitle')) $('webPlatformNoticeTitle').textContent = '📱 Chế độ Điều khiển từ xa (Remote Mode)';
         if ($('webPlatformNoticeDesc')) $('webPlatformNoticeDesc').innerHTML = 'Bạn đang sử dụng trên điện thoại/di động. Khi bấm <b>Bắt đầu tất cả tài khoản</b>, tác vụ sẽ được gửi tới máy tính của bạn để tự động chạy hoàn toàn mà không cần giữ màn hình điện thoại!';
       }
@@ -5388,6 +5392,19 @@ if (continuePasteManualBtn) {
         }
       }
     } else {
+      // Nếu đang ở Remote Mode hoặc trên thiết bị di động (iPhone/Android/iPad):
+      if (typeof remoteController !== 'undefined' && (remoteController.mode === 'remote' || remoteController.isMobileDevice())) {
+        const activeDev = remoteController.getActiveDevice();
+        const devName = activeDev?.device_name || 'Máy tính NTD';
+        noticeEl.style.background = 'rgba(59,130,246,0.12)';
+        noticeEl.style.borderColor = 'rgba(59,130,246,0.4)';
+        noticeEl.style.color = '#93c5fd';
+        if (icon) icon.textContent = '📡';
+        if (title) title.textContent = `Chế độ Điều khiển từ xa (Remote Mode) · Máy tính: ${devName}`;
+        if (desc) desc.innerHTML = `Bạn đang sử dụng trên thiết bị điều khiển từ xa. Khi bấm <b>"▶ Bắt đầu tất cả tài khoản"</b>, tác vụ sẽ được gửi thẳng tới <b>${devName}</b> để tự động gõ bài và đăng 100% trên máy tính mà không cần mở website liên tục trên điện thoại!`;
+        if (typeof syncScheduleUiConnBadge === 'function') syncScheduleUiConnBadge(isConnected);
+        return;
+      }
       noticeEl.style.background = 'rgba(245,158,11,0.12)';
       noticeEl.style.borderColor = 'rgba(245,158,11,0.4)';
       noticeEl.style.color = '#fbbf24';
