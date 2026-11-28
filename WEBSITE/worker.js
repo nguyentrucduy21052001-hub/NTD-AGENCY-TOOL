@@ -23,7 +23,7 @@ import {
 import { initRemoteWorker, logRemoteStep } from './remote_worker.js';
 
 const isWebEmbeddedWorker = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
-const WORKER_VERSION = '20261127_1400';
+const WORKER_VERSION = '20261128_2300';
 
 // Khởi chạy Remote Worker Engine (Tiếp nhận tác vụ từ xa qua Supabase cho iPhone/Web)
 if (!isWebEmbeddedWorker) {
@@ -8496,6 +8496,8 @@ function handleRuntimeMessage(m, sender, reply) {
             logRemoteStep(`⛔ [${c.accountName || accountId}] Bị chặn/Spam Rate Limit tại nhóm: ${currentUrl}`, 'error').catch(() => {});
           } else if (status === 'error') {
             logRemoteStep(`⚠️ [${c.accountName || accountId}] Lỗi: ${m.note || 'Không thể đăng'}`, 'warning').catch(() => {});
+          } else if (status === 'skipped') {
+            logRemoteStep(`⏭️ [${c.accountName || accountId}] Bỏ qua nhóm (${m.note || 'Chưa tham gia nhóm'}): ${currentUrl}`, 'warning').catch(() => {});
           }
         }
         const isAuthExpired = Boolean(

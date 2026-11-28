@@ -852,8 +852,8 @@
   }
 
   const joinBtn = [...document.querySelectorAll('[role="button"], button, a')].filter(visible).find(e => {
-   const t = label(e);
-   return /^(Tham gia nhóm|Tham gia|Join group|Join)$/i.test(t);
+   const t = (label(e) || '').trim();
+   return /^[+\s]*(Tham gia nhóm|Tham gia|Join group|Join)(\s|$)/i.test(t) || /Tham gia nhóm|Join group/i.test(t);
   });
   if (joinBtn || /Tham gia nhóm này để đăng bài|Tham gia nhóm để xem hoặc đăng|Join this group to post/i.test(pageText)) {
    return 'Chưa tham gia nhóm (cần tham gia nhóm trước khi đăng).';
@@ -1003,6 +1003,51 @@
     return false;
   };
 
+  // ── KIỂM TRA TÌNH TRẠNG THÀNH VIÊN VÀ TỰ ĐỘNG THAM GIA NHÓM CÔNG KHAI ──────────
+  const findJoinGroupBtn = () => {
+    return [...document.querySelectorAll('[role="button"], button, a')].filter(visible).find(e => {
+      const t = (label(e) || '').trim();
+      return /^[+\s]*(Tham gia nhóm|Tham gia|Join group|Join)(\s|$)/i.test(t) || /Tham gia nhóm|Join group/i.test(t);
+    });
+  };
+
+  const initialJoinBtn = findJoinGroupBtn();
+  if (initialJoinBtn) {
+    console.log('[Content] Tài khoản chưa tham gia nhóm. Thử bấm Tham gia nhóm tự động:', label(initialJoinBtn));
+    try {
+      initialJoinBtn.click();
+      await delay(2000);
+    } catch (_) {}
+
+    // 1. Kiểm tra nếu có popup câu hỏi xét duyệt thành viên
+    const questionDialog = [...document.querySelectorAll('[role="dialog"]')].filter(visible).find(d => {
+      return !d.querySelector('[contenteditable="true"]') && /câu hỏi|quy tắc|rules|questions|yêu cầu tham gia|thành viên/i.test(d.innerText || '');
+    });
+    if (questionDialog) {
+      const closeBtn = [...questionDialog.querySelectorAll('[role="button"], button')].filter(visible).find(e => /Đóng|Close|Hủy|Cancel|✕|×/i.test(label(e)));
+      if (closeBtn) { try { closeBtn.click(); } catch (_) {} }
+      return { status: 'skipped', note: 'Bỏ qua: Nhóm yêu cầu trả lời câu hỏi xét duyệt thành viên trước khi tham gia.' };
+    }
+
+    // 2. Kiểm tra nếu nút chuyển sang "Đã gửi yêu cầu"
+    const pendingState = [...document.querySelectorAll('[role="button"], button')].filter(visible).find(e => {
+      const t = (label(e) || '').trim();
+      return /Đã gửi yêu cầu|Hủy yêu cầu tham gia|Requested|Cancel request/i.test(t);
+    });
+    if (pendingState) {
+      return { status: 'skipped', note: 'Bỏ qua: Đã gửi yêu cầu tham gia nhóm (đang chờ Quản trị viên duyệt thành viên).' };
+    }
+
+    // 3. Nếu vẫn còn nút Tham gia nhóm sau khi bấm
+    const stillJoinBtn = findJoinGroupBtn();
+    if (stillJoinBtn) {
+      return { status: 'skipped', note: 'Bỏ qua: Chưa tham gia nhóm (cần tham gia nhóm trước khi đăng bài).' };
+    }
+
+    // Nếu đã tham gia thành công vào nhóm công khai, đợi 1.5s để Facebook cập nhật quyền đăng bài
+    await delay(1500);
+  }
+
   // Chờ tìm ô tạo bài và tự động kiểm tra tính hợp lệ của nhóm
   let opener = null;
   const openerTimeout = Date.now() + 35000;
@@ -1063,7 +1108,8 @@
     }
    }
    if (!dialog) {
-    return { status: 'skipped', note: 'Đã bỏ qua: Không mở được hộp thoại tạo bài.' };
+    const reason = checkGroupEligibility(job);
+    return { status: 'skipped', note: reason ? ('Bỏ qua: ' + reason) : 'Đã bỏ qua: Không mở được hộp thoại tạo bài.' };
    }
   }
 
