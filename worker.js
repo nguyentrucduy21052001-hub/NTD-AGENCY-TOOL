@@ -5263,6 +5263,10 @@ async function isolateAccountForSpamRateLimit(accountId, reason = '') {
   try {
     chrome.runtime.sendMessage(eventPayload).catch(() => {});
   } catch (_) {}
+
+  try {
+    sendWorkerTelemetry(true).catch(() => {});
+  } catch (_) {}
 }
 
 // ── Global alarm: tick all running campaigns ──────────────────────────────────

@@ -2203,10 +2203,16 @@ async function syncAccountsToCloudImmediately(remainingAccs) {
     const all = Array.isArray(remainingAccs) ? remainingAccs : [];
     const fbCount = all.filter(a => a.type !== 'fanpage').length;
     const fanpageCount = all.filter(a => a.type === 'fanpage').length;
+    const accNuoiCount = all.filter(a => {
+      if (a?.type === 'fanpage') return false;
+      const isRestricted = Boolean(a?.rateLimitRestrictedUntil && Date.now() < Number(a.rateLimitRestrictedUntil));
+      return a?.accountGroup === 'Acc nuôi' || isRestricted || a?.rateLimitRestricted === true;
+    }).length;
 
     if (typeof sb.supabaseUpdateUserStats === 'function') {
       await sb.supabaseUpdateUserStats(username, {
         fb_count: fbCount,
+        acc_nuoi_count: accNuoiCount,
         fanpage_count: fanpageCount
       });
     }

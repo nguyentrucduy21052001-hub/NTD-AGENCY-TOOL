@@ -681,7 +681,7 @@
 
     <!-- Admin Content Container -->
     <div id="adminMainContent">
-      <!-- 6 KPI Summary Cards (Luôn hiển thị ở đầu trang để theo dõi hiệu suất) -->
+      <!-- 7 KPI Summary Cards (Luôn hiển thị ở đầu trang để theo dõi hiệu suất) -->
       <div class="kpi-grid">
         <!-- KPI 1: Khách hàng -->
         <div class="kpi-card">
@@ -696,10 +696,18 @@
           <div class="kpi-icon-wrap" style="background:rgba(59,130,246,0.15);color:#60a5fa">📘</div>
           <div class="kpi-label">Nick FB cá nhân</div>
           <div class="kpi-value" id="kpiTotalFb">0</div>
-          <div class="kpi-sub">tài khoản FB đang nuôi</div>
+          <div class="kpi-sub">tài khoản FB kết nối</div>
         </div>
 
-        <!-- KPI 3: Fanpage vệ tinh -->
+        <!-- KPI 3: Nhóm Acc nuôi -->
+        <div class="kpi-card">
+          <div class="kpi-icon-wrap" style="background:rgba(245,158,11,0.15);color:#f59e0b">🌱</div>
+          <div class="kpi-label">Nhóm Acc nuôi</div>
+          <div class="kpi-value" id="kpiTotalAccNuoi">0</div>
+          <div class="kpi-sub">nick đang nuôi / cách ly</div>
+        </div>
+
+        <!-- KPI 4: Fanpage vệ tinh -->
         <div class="kpi-card">
           <div class="kpi-icon-wrap" style="background:rgba(168,85,247,0.15);color:#c084fc">📄</div>
           <div class="kpi-label">Fanpage vệ tinh</div>
@@ -707,7 +715,7 @@
           <div class="kpi-sub">trang vệ tinh kết nối</div>
         </div>
 
-        <!-- KPI 4: Bài đăng hôm nay -->
+        <!-- KPI 5: Bài đăng hôm nay -->
         <div class="kpi-card">
           <div class="kpi-icon-wrap" style="background:rgba(16,185,129,0.15);color:#34d399">🚀</div>
           <div class="kpi-label">Bài đăng hôm nay</div>
@@ -715,7 +723,7 @@
           <div class="kpi-sub">lượt đăng nhóm thành công</div>
         </div>
 
-        <!-- KPI 5: Quét số nhóm hôm nay -->
+        <!-- KPI 6: Quét số nhóm hôm nay -->
         <div class="kpi-card">
           <div class="kpi-icon-wrap" style="background:rgba(249,115,22,0.15);color:#fb923c">🔍</div>
           <div class="kpi-label">Quét số nhóm hôm nay</div>
@@ -723,7 +731,7 @@
           <div class="kpi-sub">SĐT / bài viết thu thập</div>
         </div>
 
-        <!-- KPI 6: Quét Google Maps hôm nay -->
+        <!-- KPI 7: Quét Google Maps hôm nay -->
         <div class="kpi-card">
           <div class="kpi-icon-wrap" style="background:rgba(234,88,12,0.15);color:#f97316">🗺️</div>
           <div class="kpi-label">Quét Maps hôm nay</div>
@@ -781,6 +789,7 @@
               <button type="button" class="dash-pill-btn active" data-dashfilter="all">Tất cả</button>
               <button type="button" class="dash-pill-btn" data-dashfilter="active-today">Đăng nhập hôm nay</button>
               <button type="button" class="dash-pill-btn" data-dashfilter="has-fb">Có nick FB (&gt;0)</button>
+              <button type="button" class="dash-pill-btn" data-dashfilter="has-acc-nuoi">Có acc nuôi (&gt;0)</button>
               <button type="button" class="dash-pill-btn" data-dashfilter="has-posts">Có đăng bài hôm nay</button>
               <button type="button" class="dash-pill-btn" data-dashfilter="has-scans">Có cào dữ liệu</button>
               <button type="button" class="dash-pill-btn" data-dashfilter="admin">Admin</button>
@@ -796,6 +805,7 @@
                   <th style="width:36px;text-align:center">#</th>
                   <th>Khách hàng &amp; Ghi chú</th>
                   <th style="text-align:center">Nick FB</th>
+                  <th style="text-align:center">Acc nuôi</th>
                   <th style="text-align:center">Fanpage</th>
                   <th style="text-align:center">Bài hôm nay</th>
                   <th style="text-align:center">Quét nhóm</th>
@@ -807,7 +817,7 @@
               </thead>
               <tbody id="dashActivityTbody">
                 <tr>
-                  <td colspan="10" style="text-align:center;padding:24px;color:var(--text-sub)">
+                  <td colspan="11" style="text-align:center;padding:24px;color:var(--text-sub)">
                     Đang nạp dữ liệu hoạt động...
                   </td>
                 </tr>

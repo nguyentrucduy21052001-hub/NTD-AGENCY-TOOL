@@ -616,7 +616,7 @@ function openRenameUserModal(oldUsername) {
 }
 
 // ── Hộp thoại Đặt lại / Sửa số nick FB & Fanpage ─────────────────────────────
-function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPosts = 0, todayGroupScans = 0, todayMapsScans = 0 }) {
+function openEditStatsModal({ username, fbCount = 0, accNuoiCount = 0, fanpageCount = 0, todayPosts = 0, todayGroupScans = 0, todayMapsScans = 0 }) {
   let overlay = document.getElementById('editStatsModalOverlay');
   if (overlay) overlay.remove();
 
@@ -635,7 +635,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
       <div style="padding:20px">
         <div style="font-size:12.5px;color:var(--text-sub,#94a3b8);margin-bottom:16px;background:rgba(255,255,255,0.03);padding:12px 14px;border-radius:10px;border:1px solid var(--card-border,#334155);line-height:1.6">
           <div><b>Tài khoản:</b> <span style="color:#60a5fa;font-weight:700;font-size:13.5px">${escapeHtml(username)}</span></div>
-          <div style="margin-top:4px"><b>Hiện tại trong hệ thống:</b> <span style="color:#38bdf8">${fbCount} nick Facebook</span> · <span style="color:#c084fc">${fanpageCount} Fanpage</span></div>
+          <div style="margin-top:4px"><b>Hiện tại trong hệ thống:</b> <span style="color:#38bdf8">${fbCount} nick Facebook</span> · <span style="color:#f59e0b;font-weight:700">🌱 ${accNuoiCount} acc nuôi</span> · <span style="color:#c084fc">${fanpageCount} Fanpage</span></div>
           <div style="margin-top:2px;font-size:12px;color:var(--text-sub)"><b>Số liệu hôm nay:</b> <span style="color:#34d399">${todayPosts} bài</span> · <span style="color:#fbbf24">${todayGroupScans} nhóm</span> · <span style="color:#f97316">${todayMapsScans} maps</span></div>
         </div>
 
@@ -645,15 +645,21 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
           </button>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
           <div>
-            <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
+            <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-main,#f8fafc)">
               Nick FB cá nhân:
             </label>
             <input type="number" id="editFbCountInput" min="0" value="${fbCount}" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
           </div>
           <div>
-            <label style="display:block;margin-bottom:6px;font-size:12.5px;font-weight:700;color:var(--text-main,#f8fafc)">
+            <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:#f59e0b">
+              🌱 Nhóm Acc nuôi:
+            </label>
+            <input type="number" id="editAccNuoiCountInput" min="0" value="${accNuoiCount}" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:#f59e0b;font-weight:700">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-main,#f8fafc)">
               Fanpage vệ tinh:
             </label>
             <input type="number" id="editPageCountInput" min="0" value="${fanpageCount}" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid var(--card-border,#475569);border-radius:8px;outline:none;background:var(--input-bg, #0f172a);color:var(--text-main,#f8fafc);font-weight:700">
@@ -696,6 +702,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
   document.body.appendChild(overlay);
 
   const fbInput = overlay.querySelector('#editFbCountInput');
+  const accNuoiInput = overlay.querySelector('#editAccNuoiCountInput');
   const pageInput = overlay.querySelector('#editPageCountInput');
   const postInput = overlay.querySelector('#editPostCountInput');
   const groupInput = overlay.querySelector('#editGroupCountInput');
@@ -708,6 +715,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
 
   quickZeroBtn.onclick = () => {
     fbInput.value = '0';
+    if (accNuoiInput) accNuoiInput.value = '0';
     pageInput.value = '0';
     clearWsCb.checked = true;
   };
@@ -731,6 +739,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
 
   const doSave = async () => {
     const newFb = Math.max(0, parseInt(fbInput.value, 10) || 0);
+    const newAccNuoi = Math.max(0, parseInt(accNuoiInput?.value, 10) || 0);
     const newPage = Math.max(0, parseInt(pageInput.value, 10) || 0);
     const newPosts = Math.max(0, parseInt(postInput.value, 10) || 0);
     const newGroups = Math.max(0, parseInt(groupInput.value, 10) || 0);
@@ -743,6 +752,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
 
       if (await isSupabaseConfigured()) {
         await supabaseResetUserAccountCounts(username, newFb, newPage, clearWs, {
+          acc_nuoi_count: newAccNuoi,
           today_posts: newPosts,
           today_group_scans: newGroups,
           today_maps_scans: newMaps
@@ -753,7 +763,7 @@ function openEditStatsModal({ username, fbCount = 0, fanpageCount = 0, todayPost
       }
 
       close();
-      alert(`✅ Đã cập nhật số liệu cho "${username}": ${newFb} nick FB, ${newPage} Fanpage, ${newPosts} bài đăng.`);
+      alert(`✅ Đã cập nhật số liệu cho "${username}": ${newFb} nick FB (${newAccNuoi} acc nuôi), ${newPage} Fanpage, ${newPosts} bài đăng.`);
       loadUserList();
     } catch (err) {
       alert('Lỗi cập nhật số liệu: ' + err.message);
@@ -1038,6 +1048,7 @@ function renderUserTable() {
           <th>Mật khẩu</th>
           <th>Vai trò</th>
           <th style="text-align:center">Nick FB</th>
+          <th style="text-align:center">Acc nuôi</th>
           <th style="text-align:center">Fanpage</th>
           <th style="text-align:center">Bài hôm nay</th>
           <th style="text-align:center">Quét nhóm</th>
@@ -1090,6 +1101,11 @@ function renderUserTable() {
       ? `<span class="metric-badge badge-blue" title="${fbCount} nick Facebook">${fbCount}</span>`
       : `<span class="metric-badge badge-zero">0</span>`;
 
+    const accNuoiCount = Number(u.accNuoiCount) || 0;
+    const accNuoiBadge = accNuoiCount > 0
+      ? `<span class="metric-badge badge-amber" style="background:rgba(245,158,11,0.18);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);font-weight:700" title="${accNuoiCount} nick trong nhóm Acc nuôi / cách ly 3 ngày Spam Rate Limit">🌱 ${accNuoiCount}</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
     const fpCount = Number(u.fanpageCount) || 0;
     const fpBadge = fpCount > 0
       ? `<span class="metric-badge badge-purple" title="${fpCount} Fanpage">${fpCount}</span>`
@@ -1131,6 +1147,7 @@ function renderUserTable() {
         <td style="font-family:monospace;color:var(--text-sub)">${escapeHtml(u.password)}</td>
         <td>${roleBadge}</td>
         <td style="text-align:center">${fbBadge}</td>
+        <td style="text-align:center">${accNuoiBadge}</td>
         <td style="text-align:center">${fpBadge}</td>
         <td style="text-align:center">${postBadge}</td>
         <td style="text-align:center">${groupBadge}</td>
@@ -1147,7 +1164,7 @@ function renderUserTable() {
           <div style="display:flex;gap:4px;flex-wrap:wrap">
             <button type="button" class="action-btn-sm btn-rename-user" data-user="${escapeHtml(u.username)}" style="background:#059669;color:#fff" title="Đổi tên tài khoản đăng nhập (Username) theo yêu cầu khách hàng">✏️ Đổi tên</button>
             <button type="button" class="action-btn-sm btn-manage-mid" data-user="${escapeHtml(u.username)}" style="background:#0284c7;color:#fff" title="Quản lý mã máy: Thêm mã máy thủ công, xem danh sách máy hoặc đổi máy">💻 Mã máy</button>
-            <button type="button" class="action-btn-sm btn-edit-stats" data-user="${escapeHtml(u.username)}" data-fb="${Number(u.fbCount)||0}" data-page="${Number(u.fanpageCount)||0}" data-posts="${Number(u.todayPosts)||0}" data-groups="${Number(u.todayGroupScans)||0}" data-maps="${Number(u.todayMapsScans)||0}" style="background:#475569;color:#e2e8f0" title="Đặt lại hoặc sửa số lượng Nick FB / Fanpage / Số liệu hôm nay">🔄 Số liệu</button>
+            <button type="button" class="action-btn-sm btn-edit-stats" data-user="${escapeHtml(u.username)}" data-fb="${Number(u.fbCount)||0}" data-accnuoi="${Number(u.accNuoiCount)||0}" data-page="${Number(u.fanpageCount)||0}" data-posts="${Number(u.todayPosts)||0}" data-groups="${Number(u.todayGroupScans)||0}" data-maps="${Number(u.todayMapsScans)||0}" style="background:#475569;color:#e2e8f0" title="Đặt lại hoặc sửa số lượng Nick FB / Acc nuôi / Fanpage / Số liệu hôm nay">🔄 Số liệu</button>
             ${roleToggleBtn}
             ${lockBtn}
             <button type="button" class="action-btn-sm btn-renew-user" data-user="${escapeHtml(u.username)}" style="background:#2563eb;color:#fff" title="Gia hạn thêm 30 ngày">+30N</button>
@@ -1192,11 +1209,12 @@ function attachTableEventListeners(container) {
       e.stopPropagation();
       const u = btn.getAttribute('data-user');
       const fb = Number(btn.getAttribute('data-fb')) || 0;
+      const accnuoi = Number(btn.getAttribute('data-accnuoi')) || 0;
       const page = Number(btn.getAttribute('data-page')) || 0;
       const posts = Number(btn.getAttribute('data-posts')) || 0;
       const groups = Number(btn.getAttribute('data-groups')) || 0;
       const maps = Number(btn.getAttribute('data-maps')) || 0;
-      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page, todayPosts: posts, todayGroupScans: groups, todayMapsScans: maps });
+      openEditStatsModal({ username: u, fbCount: fb, accNuoiCount: accnuoi, fanpageCount: page, todayPosts: posts, todayGroupScans: groups, todayMapsScans: maps });
     });
   });
 
@@ -1360,6 +1378,7 @@ function renderKpiCards(users) {
   const activeUsers = users.filter(u => u.status === 'active' && !u.isExpired).length;
 
   let totalFb = 0;
+  let totalAccNuoi = 0;
   let totalFanpages = 0;
   let todayPosts = 0;
   let groupScans = 0;
@@ -1367,6 +1386,7 @@ function renderKpiCards(users) {
 
   users.forEach(u => {
     totalFb += Number(u.fbCount) || 0;
+    totalAccNuoi += Number(u.accNuoiCount) || 0;
     totalFanpages += Number(u.fanpageCount) || 0;
     todayPosts += Number(u.todayPosts) || 0;
     groupScans += Number(u.todayGroupScans) || 0;
@@ -1376,6 +1396,7 @@ function renderKpiCards(users) {
   if ($('kpiActiveUsers')) $('kpiActiveUsers').textContent = activeUsers;
   if ($('kpiTotalUsers')) $('kpiTotalUsers').textContent = totalUsers;
   if ($('kpiTotalFb')) $('kpiTotalFb').textContent = totalFb.toLocaleString('vi-VN');
+  if ($('kpiTotalAccNuoi')) $('kpiTotalAccNuoi').textContent = totalAccNuoi.toLocaleString('vi-VN');
   if ($('kpiTotalFanpages')) $('kpiTotalFanpages').textContent = totalFanpages.toLocaleString('vi-VN');
   if ($('kpiTodayPosts')) $('kpiTodayPosts').textContent = todayPosts.toLocaleString('vi-VN');
   if ($('kpiGroupScans')) $('kpiGroupScans').textContent = groupScans.toLocaleString('vi-VN');
@@ -1397,6 +1418,9 @@ function filterDashUsers(users) {
     }
     if (dashFilter === 'has-fb') {
       return (Number(u.fbCount) || 0) > 0;
+    }
+    if (dashFilter === 'has-acc-nuoi') {
+      return (Number(u.accNuoiCount) || 0) > 0;
     }
     if (dashFilter === 'has-posts') {
       return (Number(u.todayPosts) || 0) > 0;
@@ -1426,7 +1450,7 @@ function renderDashboardTable() {
     if (wrap) wrap.style.maxHeight = '';
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" style="text-align:center;padding:32px;color:var(--text-sub)">
+        <td colspan="11" style="text-align:center;padding:32px;color:var(--text-sub)">
           Không tìm thấy tài khoản nào phù hợp với bộ lọc hiện tại.
         </td>
       </tr>
@@ -1451,6 +1475,11 @@ function renderDashboardTable() {
     const fbCount = Number(u.fbCount) || 0;
     const fbBadge = fbCount > 0 
       ? `<span class="metric-badge badge-blue" title="${fbCount} nick Facebook cá nhân">${fbCount} nick</span>`
+      : `<span class="metric-badge badge-zero">0</span>`;
+
+    const accNuoiCount = Number(u.accNuoiCount) || 0;
+    const accNuoiBadge = accNuoiCount > 0
+      ? `<span class="metric-badge badge-amber" style="background:rgba(245,158,11,0.18);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);font-weight:700" title="${accNuoiCount} nick trong nhóm Acc nuôi / cách ly 3 ngày Spam Rate Limit">🌱 ${accNuoiCount}</span>`
       : `<span class="metric-badge badge-zero">0</span>`;
 
     const fpCount = Number(u.fanpageCount) || 0;
@@ -1493,31 +1522,37 @@ function renderDashboardTable() {
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${fbBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-accnuoi="${accNuoiCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+          </div>
+        </td>
+        <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
+            ${accNuoiBadge}
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-accnuoi="${accNuoiCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Acc nuôi cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${fpBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-accnuoi="${accNuoiCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa hoặc đặt lại số nick FB / Fanpage cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${postBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số bài hôm nay hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-accnuoi="${accNuoiCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số bài hôm nay hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${groupBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số quét nhóm hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-accnuoi="${accNuoiCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số quét nhóm hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
         <td style="text-align:center">
           <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px">
             ${mapsBadge}
-            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số quét maps hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
+            <button type="button" class="btn-edit-stats-quick" data-user="${escapeHtml(u.username)}" data-fb="${fbCount}" data-accnuoi="${accNuoiCount}" data-page="${fpCount}" data-posts="${postCount}" data-groups="${groupCount}" data-maps="${mapsCount}" title="Sửa số quét maps hoặc số liệu cho ${escapeHtml(u.username)}" style="background:none;border:none;cursor:pointer;font-size:11px;opacity:0.65;padding:1px 2px;color:var(--text-sub)">✏️</button>
           </div>
         </td>
         <td>
@@ -1561,11 +1596,12 @@ function renderDashboardTable() {
       e.stopPropagation();
       const u = btn.getAttribute('data-user');
       const fb = Number(btn.getAttribute('data-fb')) || 0;
+      const accnuoi = Number(btn.getAttribute('data-accnuoi')) || 0;
       const page = Number(btn.getAttribute('data-page')) || 0;
       const posts = Number(btn.getAttribute('data-posts')) || 0;
       const groups = Number(btn.getAttribute('data-groups')) || 0;
       const maps = Number(btn.getAttribute('data-maps')) || 0;
-      openEditStatsModal({ username: u, fbCount: fb, fanpageCount: page, todayPosts: posts, todayGroupScans: groups, todayMapsScans: maps });
+      openEditStatsModal({ username: u, fbCount: fb, accNuoiCount: accnuoi, fanpageCount: page, todayPosts: posts, todayGroupScans: groups, todayMapsScans: maps });
     });
   });
 
@@ -1595,6 +1631,7 @@ function exportDashCsv() {
     'Vai trò',
     'Ghi chú',
     'Nick FB cá nhân',
+    'Nhóm Acc nuôi',
     'Fanpage',
     'Bài đăng hôm nay',
     'Quét số nhóm hôm nay',
@@ -1610,6 +1647,7 @@ function exportDashCsv() {
     u.role || 'member',
     `"${(u.note || '').replace(/"/g, '""')}"`,
     Number(u.fbCount) || 0,
+    Number(u.accNuoiCount) || 0,
     Number(u.fanpageCount) || 0,
     Number(u.todayPosts) || 0,
     Number(u.todayGroupScans) || 0,

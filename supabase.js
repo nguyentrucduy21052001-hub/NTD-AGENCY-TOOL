@@ -492,17 +492,47 @@ export async function supabaseListUsers() {
       if (!o) return;
       let fb = 0;
       let page = 0;
+      let accNuoi = 0;
       if (Array.isArray(ws.payload) && ws.payload.length > 0) {
         fb = ws.payload.filter(a => a?.type !== 'fanpage').length;
         page = ws.payload.filter(a => a?.type === 'fanpage').length;
+        accNuoi = ws.payload.filter(a => {
+          if (a?.type === 'fanpage') return false;
+          const isRestricted = Boolean(a?.rateLimitRestrictedUntil && Date.now() < Number(a.rateLimitRestrictedUntil));
+          return a?.accountGroup === 'Acc nuôi' || isRestricted || a?.rateLimitRestricted === true;
+        }).length;
       } else if (ws.item_count > 0) {
         fb = Number(ws.item_count) || 0;
       }
-      wsAccountsMap.set(o, { fb, page });
-      if (o.startsWith('dng_')) wsAccountsMap.set(o.slice(4), { fb, page });
-      else wsAccountsMap.set('dng_' + o, { fb, page });
+      wsAccountsMap.set(o, { fb, page, accNuoi });
+      if (o.startsWith('dng_')) wsAccountsMap.set(o.slice(4), { fb, page, accNuoi });
+      else wsAccountsMap.set('dng_' + o, { fb, page, accNuoi });
     });
   }
+
+  // Bổ sung đối chiếu local accounts nếu client đang chạy trên cùng trình duyệt
+  try {
+    const localStore = await readTelemetryStorage(['accounts', 'ntd_license']);
+    const localAccs = Array.isArray(localStore?.accounts) ? localStore.accounts : [];
+    if (localAccs.length > 0) {
+      const curU = (localStore?.ntd_license?.username || '').trim().toLowerCase();
+      if (curU) {
+        const lFb = localAccs.filter(a => a?.type !== 'fanpage').length;
+        const lPage = localAccs.filter(a => a?.type === 'fanpage').length;
+        const lAccNuoi = localAccs.filter(a => {
+          if (a?.type === 'fanpage') return false;
+          const isRestricted = Boolean(a?.rateLimitRestrictedUntil && Date.now() < Number(a.rateLimitRestrictedUntil));
+          return a?.accountGroup === 'Acc nuôi' || isRestricted || a?.rateLimitRestricted === true;
+        }).length;
+        const existing = wsAccountsMap.get(curU) || { fb: 0, page: 0, accNuoi: 0 };
+        wsAccountsMap.set(curU, {
+          fb: Math.max(existing.fb, lFb),
+          page: Math.max(existing.page, lPage),
+          accNuoi: Math.max(existing.accNuoi || 0, lAccNuoi)
+        });
+      }
+    }
+  } catch (_) {}
 
   const result = (users || []).map(u => {
     const exp = new Date(u.expiry_date || u.expiry);
@@ -528,6 +558,7 @@ export async function supabaseListUsers() {
     const wsData = wsAccountsMap.get(uKey);
     let fbCount = Number(u.fb_count) || 0;
     let fanpageCount = Number(u.fanpage_count) || 0;
+    let accNuoiCount = Number(u.acc_nuoi_count) || 0;
 
     if (wsData) {
       if (wsData.fb > fbCount) {
@@ -536,6 +567,9 @@ export async function supabaseListUsers() {
       }
       if (wsData.page > fanpageCount) {
         fanpageCount = wsData.page;
+      }
+      if (wsData.accNuoi !== undefined) {
+        accNuoiCount = Math.max(accNuoiCount, wsData.accNuoi);
       }
     }
 
@@ -550,6 +584,7 @@ export async function supabaseListUsers() {
       machineId: u.machine_id || '',
       note: u.note || '',
       fbCount,
+      accNuoiCount,
       fanpageCount,
       todayPosts,
       todayGroupScans,
@@ -716,6 +751,7 @@ export async function supabaseAddUserDailyTelemetry(username, {
   floorGroupScans = 0,
   floorMapsScans = 0,
   fb_count,
+  acc_nuoi_count,
   fanpage_count,
   forceZeroAccountCounts = false,
   skipLastLogin = false
@@ -755,6 +791,12 @@ export async function supabaseAddUserDailyTelemetry(username, {
           payload.fb_count = parsedFb;
         }
       }
+      if (acc_nuoi_count !== undefined) {
+        const parsedNuoi = Math.max(0, Number(acc_nuoi_count) || 0);
+        if (parsedNuoi > 0 || forceZeroAccountCounts) {
+          payload.acc_nuoi_count = parsedNuoi;
+        }
+      }
       if (fanpage_count !== undefined) {
         const parsedFp = Math.max(0, Number(fanpage_count) || 0);
         if (parsedFp > 0 || forceZeroAccountCounts) {
@@ -776,6 +818,14 @@ export async function supabaseAddUserDailyTelemetry(username, {
           await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
             method: 'PATCH',
             body: JSON.stringify(payload)
+          }).catch(async err => {
+            if (String(err?.message || err).includes('acc_nuoi_count')) {
+              delete payload.acc_nuoi_count;
+              await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload)
+              }).catch(() => {});
+            }
           });
         }
         return { ok: true, row, applied: { posts: 0, groupScans: 0, mapsScans: 0 } };
@@ -793,10 +843,21 @@ export async function supabaseAddUserDailyTelemetry(username, {
       if (payload.today_group_scans !== undefined) addEqOrNullFilter('today_group_scans', row.today_group_scans);
       if (payload.today_maps_scans !== undefined) addEqOrNullFilter('today_maps_scans', row.today_maps_scans);
 
-      const updated = await supabaseRequest(`ntd_users?${filters.join('&')}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload)
-      });
+      let updated = null;
+      try {
+        updated = await supabaseRequest(`ntd_users?${filters.join('&')}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        if (String(err?.message || err).includes('acc_nuoi_count')) {
+          delete payload.acc_nuoi_count;
+          updated = await supabaseRequest(`ntd_users?${filters.join('&')}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+          }).catch(() => null);
+        }
+      }
 
       if (Array.isArray(updated) && updated.length > 0) {
         return {
@@ -824,6 +885,12 @@ export async function supabaseAddUserDailyTelemetry(username, {
         fallbackPayload.fb_count = parsedFb;
       }
     }
+    if (acc_nuoi_count !== undefined) {
+      const parsedNuoi = Math.max(0, Number(acc_nuoi_count) || 0);
+      if (parsedNuoi > 0 || forceZeroAccountCounts) {
+        fallbackPayload.acc_nuoi_count = parsedNuoi;
+      }
+    }
     if (fanpage_count !== undefined) {
       const parsedFp = Math.max(0, Number(fanpage_count) || 0);
       if (parsedFp > 0 || forceZeroAccountCounts) {
@@ -835,6 +902,14 @@ export async function supabaseAddUserDailyTelemetry(username, {
     await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
       method: 'PATCH',
       body: JSON.stringify(fallbackPayload)
+    }).catch(async err => {
+      if (String(err?.message || err).includes('acc_nuoi_count')) {
+        delete fallbackPayload.acc_nuoi_count;
+        await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(fallbackPayload)
+        }).catch(() => {});
+      }
     });
     return { ok: true, applied: { posts: dPosts, groupScans: dGroups, mapsScans: dMaps } };
   } catch (err) {
@@ -864,6 +939,11 @@ export async function syncLocalTelemetryToSupabase(username, { isWebExtensionBri
     const accounts = Array.isArray(store?.accounts) ? store.accounts : [];
     const fbCount = accounts.filter(a => a?.type !== 'fanpage').length;
     const fanpageCount = accounts.filter(a => a?.type === 'fanpage').length;
+    const accNuoiCount = accounts.filter(a => {
+      if (a?.type === 'fanpage') return false;
+      const isRestricted = Boolean(a?.rateLimitRestrictedUntil && Date.now() < Number(a.rateLimitRestrictedUntil));
+      return a?.accountGroup === 'Acc nuôi' || isRestricted || a?.rateLimitRestricted === true;
+    }).length;
     const shouldSendAccountCounts = !(skipAccountCountsIfEmpty && accounts.length === 0);
 
     let ledger = store?.[TELEMETRY_LEDGER_KEY];
@@ -929,6 +1009,7 @@ export async function syncLocalTelemetryToSupabase(username, { isWebExtensionBri
     };
     if (shouldSendAccountCounts) {
       statsArgs.fb_count = fbCount;
+      statsArgs.acc_nuoi_count = accNuoiCount;
       statsArgs.fanpage_count = fanpageCount;
     }
 
@@ -955,6 +1036,7 @@ export async function supabaseUpdateUserStats(username, stats = {}) {
     try {
       const payload = {};
       if (stats.fb_count !== undefined) payload.fb_count = Math.max(0, Number(stats.fb_count) || 0);
+      if (stats.acc_nuoi_count !== undefined) payload.acc_nuoi_count = Math.max(0, Number(stats.acc_nuoi_count) || 0);
       if (stats.fanpage_count !== undefined) payload.fanpage_count = Math.max(0, Number(stats.fanpage_count) || 0);
       if (stats.today_posts !== undefined) payload.today_posts = Math.max(0, Number(stats.today_posts) || 0);
       if (stats.today_group_scans !== undefined) payload.today_group_scans = Math.max(0, Number(stats.today_group_scans) || 0);
@@ -964,6 +1046,14 @@ export async function supabaseUpdateUserStats(username, stats = {}) {
       await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
         method: 'PATCH',
         body: JSON.stringify(payload)
+      }).catch(async err => {
+        if (String(err?.message || err).includes('acc_nuoi_count')) {
+          delete payload.acc_nuoi_count;
+          await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+          }).catch(() => {});
+        }
       });
       return { ok: true };
     } catch (err) {
@@ -980,6 +1070,7 @@ export async function supabaseUpdateUserStats(username, stats = {}) {
     floorGroupScans: stats.today_group_scans !== undefined ? Math.max(0, Number(stats.today_group_scans) || 0) : 0,
     floorMapsScans: stats.today_maps_scans !== undefined ? Math.max(0, Number(stats.today_maps_scans) || 0) : 0,
     fb_count: stats.fb_count,
+    acc_nuoi_count: stats.acc_nuoi_count,
     fanpage_count: stats.fanpage_count,
     skipLastLogin: Boolean(stats.skipLastLogin)
   });
@@ -998,6 +1089,9 @@ export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanp
     fanpage_count: Math.max(0, Number(fanpageCount) || 0)
   };
 
+  if (extraStats.acc_nuoi_count !== undefined) {
+    payload.acc_nuoi_count = Math.max(0, Number(extraStats.acc_nuoi_count) || 0);
+  }
   if (extraStats.today_posts !== undefined) {
     payload.today_posts = Math.max(0, Number(extraStats.today_posts) || 0);
   }
@@ -1014,6 +1108,14 @@ export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanp
   await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload)
+  }).catch(async err => {
+    if (String(err?.message || err).includes('acc_nuoi_count')) {
+      delete payload.acc_nuoi_count;
+      await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    }
   });
 
   if (clearWorkspace && payload.fb_count === 0 && payload.fanpage_count === 0) {
@@ -1028,7 +1130,7 @@ export async function supabaseResetUserAccountCounts(username, fbCount = 0, fanp
     }).catch(() => {});
   }
 
-  return { ok: true, fb_count: payload.fb_count, fanpage_count: payload.fanpage_count };
+  return { ok: true, fb_count: payload.fb_count, fanpage_count: payload.fanpage_count, acc_nuoi_count: payload.acc_nuoi_count || 0 };
 }
 
 /**
@@ -1860,19 +1962,34 @@ export async function pushLocalChangesToSupabase(username, changedKeys = null, o
       if (r.needTables) needTables = true;
       totalRecords += r.count || 0;
 
-      // Đồng bộ ngay lập tức fb_count và fanpage_count sang bảng ntd_users
+      // Đồng bộ ngay lập tức fb_count, fanpage_count và acc_nuoi_count sang bảng ntd_users
       if (wsMap.accounts !== undefined && Array.isArray(wsMap.accounts)) {
         const fbCount = wsMap.accounts.filter(a => a?.type !== 'fanpage').length;
         const fanpageCount = wsMap.accounts.filter(a => a?.type === 'fanpage').length;
-        if (fbCount > 0 || fanpageCount > 0 || options.allowReduce) {
+        const accNuoiCount = wsMap.accounts.filter(a => {
+          if (a?.type === 'fanpage') return false;
+          const isRestricted = Boolean(a?.rateLimitRestrictedUntil && Date.now() < Number(a.rateLimitRestrictedUntil));
+          return a?.accountGroup === 'Acc nuôi' || isRestricted || a?.rateLimitRestricted === true;
+        }).length;
+        if (fbCount > 0 || fanpageCount > 0 || accNuoiCount > 0 || options.allowReduce) {
+          const patchBody = {
+            fb_count: fbCount,
+            acc_nuoi_count: accNuoiCount,
+            fanpage_count: fanpageCount,
+            last_login: new Date().toISOString()
+          };
           await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
             method: 'PATCH',
-            body: JSON.stringify({
-              fb_count: fbCount,
-              fanpage_count: fanpageCount,
-              last_login: new Date().toISOString()
-            })
-          }).catch(() => {});
+            body: JSON.stringify(patchBody)
+          }).catch(async err => {
+            if (String(err?.message || err).includes('acc_nuoi_count')) {
+              delete patchBody.acc_nuoi_count;
+              await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(u)}`, {
+                method: 'PATCH',
+                body: JSON.stringify(patchBody)
+              }).catch(() => {});
+            }
+          });
         }
       }
     }
@@ -2422,6 +2539,7 @@ create table if not exists public.ntd_users (
     note text default '',
     last_login timestamptz,
     fb_count integer default 0,
+    acc_nuoi_count integer default 0,
     fanpage_count integer default 0,
     today_posts integer default 0,
     today_group_scans integer default 0,
@@ -2432,6 +2550,7 @@ create table if not exists public.ntd_users (
 
 alter table public.ntd_users
 add column if not exists fb_count integer default 0,
+add column if not exists acc_nuoi_count integer default 0,
 add column if not exists fanpage_count integer default 0,
 add column if not exists today_posts integer default 0,
 add column if not exists today_group_scans integer default 0,
