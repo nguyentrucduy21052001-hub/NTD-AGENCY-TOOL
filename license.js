@@ -234,7 +234,7 @@ export async function resetMachineIdForAccount(username, adminPass = 'DuyAdmin@2
  * @param {string} password
  * @returns {Promise<{ok: boolean, data?: object, error?: string, expired?: boolean, lockedToOtherMachine?: boolean, sheetMid?: string, notConfigured?: boolean}>}
  */
-export async function loginWithAccount(username, password) {
+export async function loginWithAccount(username, password, options = {}) {
   const u = (username || '').trim();
   const p = (password || '').trim();
 
@@ -242,11 +242,13 @@ export async function loginWithAccount(username, password) {
   if (!p) return { ok: false, error: 'Vui lòng nhập Mật khẩu.' };
 
   const machineId = await getMachineId();
+  const isMobile = typeof navigator !== 'undefined' && (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '') || (typeof window !== 'undefined' && window.innerWidth < 800));
+  const isRemote = Boolean(options.isRemoteController || options.skipMachineLock || isMobile);
 
   // 1. Thử đăng nhập qua cơ sở dữ liệu Supabase trước (nếu đã cấu hình)
   if (await isSupabaseConfigured()) {
     try {
-      const sbRes = await supabaseLogin(u, p, machineId);
+      const sbRes = await supabaseLogin(u, p, machineId, { isRemoteController: isRemote });
       if (sbRes.ok) {
         const licenseData = {
           username: sbRes.data.username,

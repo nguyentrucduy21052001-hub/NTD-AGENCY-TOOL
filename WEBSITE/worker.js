@@ -20,9 +20,15 @@ import {
   TELEMETRY_LEDGER_KEY,
   DEFAULT_SHARED_CONTENT_LIBRARY
 } from './supabase.js';
+import { initRemoteWorker } from './remote_worker.js';
 
 const isWebEmbeddedWorker = (typeof window !== 'undefined' && window.chrome?.runtime?.id === 'ntd-agency-webapp');
 const WORKER_VERSION = '20261127_1400';
+
+// Khởi chạy Remote Worker Engine (Tiếp nhận tác vụ từ xa qua Supabase cho iPhone/Web)
+if (!isWebEmbeddedWorker) {
+  initRemoteWorker().catch(err => console.warn('[Worker] Init remote worker error:', err));
+}
 
 // Tập tabId đang được chủ động đóng bởi Worker để chrome.tabs.onRemoved không báo lỗi giả
 const closingTabIds = new Set();
@@ -8737,7 +8743,7 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
       version: '0.4.4',
       workerVersion: WORKER_VERSION,
       syncVersion: 2,
-      capabilities: ['GROUP_SEARCH', 'MAPS_SYNC_V2', 'FB_GROUP_SYNC_V2'],
+      capabilities: ['GROUP_SEARCH', 'MAPS_SYNC_V2', 'FB_GROUP_SYNC_V2', 'REMOTE_CONTROL_V1'],
       extensionId: chrome.runtime?.id || 'affaocloanjmkpcinmkcbmekgipnddnm'
     });
     return false;

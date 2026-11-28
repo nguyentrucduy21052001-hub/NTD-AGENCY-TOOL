@@ -16,6 +16,7 @@ import {
   pruneUnreferencedScheduledPictures
 } from './post_schedule_helper.js?v=20261112_1000';
 import { pushLocalChangesToSupabase, supabaseClearReportScope } from './supabase.js?v=20261125_1700';
+import { remoteController } from './remote_controller.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -612,6 +613,239 @@ function updateLicenseDisplay() {
   }
 }
 updateLicenseDisplay();
+
+// ── MODULE REMOTE CONTROL UI INTEGRATION ──────────────────────────────────────
+function initRemoteControlUI() {
+  const btnModeLocal = $('btnModeLocal');
+  const btnModeRemote = $('btnModeRemote');
+  const deviceSelect = $('remoteDeviceSelect');
+  const btnRefresh = $('btnRefreshDevices');
+  const btnRename = $('btnRenameDevice');
+  const taskMonitor = $('remoteTaskMonitor');
+  const onlineBadge = $('remoteOnlineBadge');
+  const onlineText = $('remoteOnlineCountText');
+  const btnRemotePause = $('btnRemotePause');
+  const btnRemoteResume = $('btnRemoteResume');
+  const btnRemoteStop = $('btnRemoteStop');
+
+  if (!btnModeLocal || !btnModeRemote) return;
+
+  const updateModeButtons = (mode) => {
+    if (mode === 'remote') {
+      btnModeRemote.style.background = '#2563eb';
+      btnModeRemote.style.color = '#ffffff';
+      btnModeRemote.style.boxShadow = '0 2px 6px rgba(37,99,235,0.4)';
+      btnModeLocal.style.background = 'transparent';
+      btnModeLocal.style.color = '#94a3b8';
+      btnModeLocal.style.boxShadow = 'none';
+      if ($('remoteDeviceConfigPanel')) $('remoteDeviceConfigPanel').style.display = 'flex';
+      const notice = $('webPlatformNotice');
+      if (notice && remoteController.isMobileDevice()) {
+        notice.style.display = 'block';
+        if ($('webPlatformNoticeTitle')) $('webPlatformNoticeTitle').textContent = '📱 Chế độ Điều khiển từ xa (Remote Mode)';
+        if ($('webPlatformNoticeDesc')) $('webPlatformNoticeDesc').innerHTML = 'Bạn đang sử dụng trên điện thoại/di động. Khi bấm <b>Bắt đầu tất cả tài khoản</b>, tác vụ sẽ được gửi tới máy tính của bạn để tự động chạy hoàn toàn mà không cần giữ màn hình điện thoại!';
+      }
+    } else {
+      btnModeLocal.style.background = '#2563eb';
+      btnModeLocal.style.color = '#ffffff';
+      btnModeLocal.style.boxShadow = '0 2px 6px rgba(37,99,235,0.4)';
+      btnModeRemote.style.background = 'transparent';
+      btnModeRemote.style.color = '#94a3b8';
+      btnModeRemote.style.boxShadow = 'none';
+      if ($('remoteDeviceConfigPanel')) $('remoteDeviceConfigPanel').style.display = 'none';
+    }
+  };
+
+  btnModeLocal.onclick = () => {
+    if (remoteController.isMobileDevice() || !remoteController.hasLocalExtension()) {
+      alert('⚠️ Thiết bị hiện tại không có Tiện ích Extension (hoặc đang mở trên điện thoại).\nVui lòng sử dụng Remote Mode để điều khiển máy tính từ xa.');
+      return;
+    }
+    remoteController.setMode('local');
+  };
+
+  btnModeRemote.onclick = () => {
+    remoteController.setMode('remote');
+  };
+
+  if (deviceSelect) {
+    deviceSelect.onchange = () => {
+      remoteController.setSelectedDevice(deviceSelect.value);
+    };
+  }
+
+  if (btnRefresh) {
+    btnRefresh.onclick = async () => {
+      btnRefresh.textContent = '⏳ Đang quét...';
+      await remoteController.refreshDevices();
+      btnRefresh.textContent = '🔄 Làm mới';
+    };
+  }
+
+  if (btnRename) {
+    btnRename.onclick = async () => {
+      const selectedDevId = remoteController.selectedDeviceId;
+      if (!selectedDevId || selectedDevId === 'auto') {
+        alert('Vui lòng chọn một máy tính cụ thể trong danh sách để đổi tên.');
+        return;
+      }
+      const currentDev = remoteController.devices.find(d => d.id === selectedDevId);
+      const curName = currentDev?.device_name || 'Máy tính NTD';
+      const newName = prompt(`Nhập tên mới cho máy tính này:`, curName);
+      if (newName && newName.trim() && newName.trim() !== curName) {
+        await remoteController.renameDevice(selectedDevId, newName.trim());
+        alert(`✅ Đã đổi tên máy tính thành: ${newName.trim()}`);
+      }
+    };
+  }
+
+  if (btnRemotePause) {
+    btnRemotePause.onclick = async () => {
+      btnRemotePause.disabled = true;
+      await remoteController.pauseActiveTask();
+      btnRemotePause.disabled = false;
+      btnRemotePause.style.display = 'none';
+      if (btnRemoteResume) btnRemoteResume.style.display = 'inline-flex';
+    };
+  }
+
+  if (btnRemoteResume) {
+    btnRemoteResume.onclick = async () => {
+      btnRemoteResume.disabled = true;
+      await remoteController.resumeActiveTask();
+      btnRemoteResume.disabled = false;
+      btnRemoteResume.style.display = 'none';
+      if (btnRemotePause) btnRemotePause.style.display = 'inline-flex';
+    };
+  }
+
+  if (btnRemoteStop) {
+    btnRemoteStop.onclick = async () => {
+      if (!confirm('Bạn có chắc chắn muốn DỪNG HẲN tác vụ đang chạy trên máy tính từ xa không?')) return;
+      btnRemoteStop.disabled = true;
+      await remoteController.stopActiveTask();
+      btnRemoteStop.disabled = false;
+    };
+  }
+
+  remoteController.on('modeChanged', (mode) => {
+    updateModeButtons(mode);
+  });
+
+  remoteController.on('devicesChanged', (devices, selectedId) => {
+    const onlineDevs = devices.filter(d => d.isOnline);
+    if (onlineText) {
+      onlineText.textContent = onlineDevs.length > 0
+        ? `${onlineDevs.length} máy tính Online`
+        : 'Chưa có máy Online';
+    }
+    if (onlineBadge) {
+      if (onlineDevs.length > 0) {
+        onlineBadge.style.background = 'rgba(16,185,129,0.15)';
+        onlineBadge.style.color = '#34d399';
+        onlineBadge.style.borderColor = 'rgba(16,185,129,0.3)';
+      } else {
+        onlineBadge.style.background = 'rgba(239,68,68,0.15)';
+        onlineBadge.style.color = '#f87171';
+        onlineBadge.style.borderColor = 'rgba(239,68,68,0.3)';
+      }
+    }
+
+    if (deviceSelect) {
+      const curVal = selectedId || deviceSelect.value || 'auto';
+      deviceSelect.innerHTML = '<option value="auto">⚡ Tự động chọn máy tính rảnh (Khuyên dùng)</option>';
+      for (const dev of devices) {
+        const opt = document.createElement('option');
+        opt.value = dev.id;
+        const statusLabel = dev.isOnline
+          ? (dev.status === 'running' ? '🟡 Đang chạy' : '🟢 Rảnh')
+          : '⚪ Offline';
+        const diffText = dev.secondsSinceHeartbeat < 60
+          ? `${dev.secondsSinceHeartbeat}s trước`
+          : `${Math.round(dev.secondsSinceHeartbeat / 60)}p trước`;
+        opt.textContent = `${statusLabel} | ${dev.device_name} (${dev.id.slice(0, 6)}) - HB: ${diffText}`;
+        deviceSelect.appendChild(opt);
+      }
+      deviceSelect.value = curVal;
+    }
+  });
+
+  remoteController.on('taskProgress', (task, logs) => {
+    if (!task) return;
+    if (taskMonitor) taskMonitor.style.display = 'block';
+
+    const statusBadge = $('remoteTaskStatusBadge');
+    const titleEl = $('remoteTaskTitle');
+    const statusTextEl = $('remoteProgressStatusText');
+    const percentEl = $('remoteProgressPercentText');
+    const barFillEl = $('remoteProgressBarFill');
+    const consoleEl = $('remoteLogConsole');
+    const logCountEl = $('remoteLogCountText');
+
+    if (statusBadge) {
+      statusBadge.textContent = (task.status || 'RUNNING').toUpperCase();
+      if (task.status === 'running') {
+        statusBadge.style.background = 'rgba(59,130,246,0.2)';
+        statusBadge.style.color = '#60a5fa';
+        statusBadge.style.borderColor = 'rgba(59,130,246,0.4)';
+        if (btnRemotePause) btnRemotePause.style.display = 'inline-flex';
+        if (btnRemoteResume) btnRemoteResume.style.display = 'none';
+      } else if (task.status === 'paused') {
+        statusBadge.style.background = 'rgba(245,158,11,0.2)';
+        statusBadge.style.color = '#fbbf24';
+        statusBadge.style.borderColor = 'rgba(245,158,11,0.4)';
+        if (btnRemotePause) btnRemotePause.style.display = 'none';
+        if (btnRemoteResume) btnRemoteResume.style.display = 'inline-flex';
+      } else if (task.status === 'completed') {
+        statusBadge.style.background = 'rgba(16,185,129,0.2)';
+        statusBadge.style.color = '#34d399';
+        statusBadge.style.borderColor = 'rgba(16,185,129,0.4)';
+        if (btnRemotePause) btnRemotePause.style.display = 'none';
+        if (btnRemoteResume) btnRemoteResume.style.display = 'none';
+      }
+    }
+
+    const prog = task.progress || {};
+    const percent = Math.min(100, Math.max(0, Number(prog.percent) || 0));
+    if (barFillEl) barFillEl.style.width = `${percent}%`;
+    if (percentEl) percentEl.textContent = `${percent}%`;
+    if (statusTextEl) statusTextEl.textContent = prog.status_text || 'Đang thực thi tác vụ...';
+
+    if (titleEl) {
+      const typeName = task.task_type === 'post_campaign' ? 'Đăng bài chiến dịch' : (task.task_type === 'warmup' ? 'Nuôi tài khoản' : task.task_type);
+      titleEl.textContent = `Tác vụ: ${typeName} (ID: ${task.id.slice(0, 8)})`;
+    }
+
+    if (consoleEl && Array.isArray(logs)) {
+      if (logCountEl) logCountEl.textContent = `${logs.length} bản ghi`;
+      if (logs.length > 0) {
+        consoleEl.innerHTML = logs.map(l => {
+          const time = new Date(l.created_at).toLocaleTimeString('vi-VN');
+          const color = l.log_level === 'error' ? '#f87171' : (l.log_level === 'warning' ? '#fbbf24' : (l.log_level === 'success' ? '#34d399' : '#94a3b8'));
+          return `<div style="margin-bottom:3px;color:${color}"><span style="color:#64748b">[${time}]</span> ${l.message}</div>`;
+        }).join('');
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      }
+    }
+  });
+
+  remoteController.on('taskFinished', (task) => {
+    const statusTextEl = $('remoteProgressStatusText');
+    if (statusTextEl) {
+      statusTextEl.textContent = task.status === 'completed'
+        ? '🎉 Tác vụ từ xa đã hoàn tất thành công!'
+        : `⏹ Tác vụ kết thúc (${task.status})`;
+    }
+  });
+
+  updateModeButtons(remoteController.mode);
+}
+
+// Khởi chạy Remote Controller khi có tài khoản
+initRemoteControlUI();
+if (licenseInfo?.username) {
+  remoteController.init(licenseInfo.username).catch(e => console.warn('Lỗi init remoteController:', e));
+}
 
 // ── Logout ─────────────────────────────────────────────────────────────────────
 document.getElementById('logoutBtn')?.addEventListener('click', async () => {
@@ -2679,12 +2913,41 @@ if (startAllEl) {
       });
       if (pausedAccs.length > 0) {
         if (confirm(`Bạn đang có ${pausedAccs.length} tài khoản đã chọn đang tạm dừng ở giữa chừng.\n\n• Bấm [OK] để TIẾP TỤC đăng từ điểm tạm dừng.\n• Bấm [Cancel] nếu muốn BẮT ĐẦU LẠI từ đầu nhóm 1.`)) {
+          if (remoteController.mode === 'remote') {
+            await remoteController.resumeActiveTask();
+            msg('▶ Đã tiếp tục các tài khoản từ xa trên máy tính.');
+            return;
+          }
           await sendDirect('RESUME_ALL', {accountIds: activePostingAccs.map(a => a.id)});
           msg('▶ Đã tiếp tục các tài khoản đã chọn từ điểm tạm dừng.');
           await render();
           scheduleNextRender();
           return;
         }
+      }
+
+      // 0. CHẾ ĐỘ ĐIỀU KHIỂN TỪ XA (REMOTE MODE) CHO IPHONE HOẶC KHI NGƯỜI DÙNG CHỌN REMOTE
+      if (remoteController.mode === 'remote') {
+        const payload = {
+          data: { ...d, at, targetAccountIds: activePostingAccs.map(a => a.id) },
+          options: {
+            accounts: (await chrome.storage.local.get('accounts')).accounts || [],
+            groupCategories: (await chrome.storage.local.get('groupCategories')).groupCategories || [],
+            draft: curDraft
+          }
+        };
+
+        const dispatchRes = await remoteController.dispatchTask('post_campaign', payload);
+        if (dispatchRes.ok) {
+          msg(dispatchRes.message);
+          window.__ntdWebRunning = true;
+          if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('ntd_web_running', 'true');
+          if ($('stopAllBtn')) $('stopAllBtn').style.display = 'inline-flex';
+          if ($('pauseAllBtn')) $('pauseAllBtn').style.display = 'inline-flex';
+        } else if (!dispatchRes.cancelled) {
+          msg('❌ Không thể gửi tác vụ: ' + (dispatchRes.error || 'Lỗi không xác định'));
+        }
+        return;
       }
 
       // Mở ngay tab Facebook trong cử chỉ click của người dùng để không bị Chrome chặn Popup
@@ -2771,6 +3034,11 @@ const pauseAllEl = $('pauseAllBtn');
 if (pauseAllEl) {
   pauseAllEl.onclick = async () => {
     try {
+      if (remoteController.mode === 'remote') {
+        await remoteController.pauseActiveTask();
+        msg('⏸ Đã gửi lệnh tạm dừng từ xa tới máy tính.');
+        return;
+      }
       await sendDirect('PAUSE_ALL');
       msg('⏸ Đã tạm dừng tất cả tài khoản.');
       await render();
@@ -2792,6 +3060,11 @@ if (resumeAllEl) {
         msg(`⛔ Không thể tiếp tục! Nội dung chứa từ cấm vi phạm chính sách: ${unique.join(', ')}. Hãy xóa từ cấm trước!`, 'err');
         $('text')?.focus();
         $('bannedWordsBox')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (remoteController.mode === 'remote') {
+        await remoteController.resumeActiveTask();
+        msg('▶ Đã gửi lệnh tiếp tục từ xa tới máy tính.');
         return;
       }
       let targetIds = null;
@@ -2818,6 +3091,11 @@ $('bannerResumeBtn')?.addEventListener('click', async () => {
       $('bannedWordsBox')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
+    if (remoteController.mode === 'remote') {
+      await remoteController.resumeActiveTask();
+      msg('▶ Đã gửi lệnh tiếp tục từ xa tới máy tính.');
+      return;
+    }
     let targetIds = null;
     if (curDraft.groupSourceMode === 'categories') {
       targetIds = Object.keys(curDraft.accountGroups || {}).filter(id => !!curDraft.accountGroups[id]?.trim());
@@ -2841,6 +3119,13 @@ if (stopAllEl) {
       if ($('pauseAllBtn')) $('pauseAllBtn').style.display = 'none';
       const inlineBtn = document.getElementById('inlineQuickStopBtn');
       if (inlineBtn) inlineBtn.remove();
+
+      if (remoteController.mode === 'remote') {
+        msg('🛑 Đang gửi lệnh dừng từ xa tới máy tính...');
+        await remoteController.stopActiveTask();
+        msg('✅ Đã gửi lệnh dừng từ xa tới máy tính.');
+        return;
+      }
 
       msg('🛑 Đang dừng tất cả tài khoản...');
       await sendDirect('STOP_ALL');
@@ -3703,6 +3988,24 @@ async function _renderImpl() {
           if (Number.isFinite(parsedWhen) && parsedWhen > Date.now()) {
             at = parsedWhen;
           }
+        }
+
+        // 0. Chế độ Điều khiển từ xa (Remote Mode)
+        if (remoteController.mode === 'remote') {
+          const payload = {
+            data: { ...d, at, targetAccountIds: [accountId] },
+            options: {
+              accounts: (await chrome.storage.local.get('accounts')).accounts || [],
+              groupCategories: (await chrome.storage.local.get('groupCategories')).groupCategories || [],
+              draft: curDraft
+            }
+          };
+          const dispatchRes = await remoteController.dispatchTask('post_campaign', payload);
+          if (dispatchRes.ok) {
+            msg(dispatchRes.message);
+            window.__ntdWebRunning = true;
+          }
+          return;
         }
 
         // Mở ngay tab Facebook trong cử chỉ click của người dùng

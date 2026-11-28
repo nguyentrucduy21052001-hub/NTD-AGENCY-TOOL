@@ -226,7 +226,7 @@ export function isMachineIdAllowed(rawStored, inputMid) {
 /**
  * Đăng nhập người dùng qua Supabase
  */
-export async function supabaseLogin(username, password, machineId) {
+export async function supabaseLogin(username, password, machineId, options = {}) {
   const u = (username || '').trim().toLowerCase();
   const p = (password || '').trim();
 
@@ -269,30 +269,39 @@ export async function supabaseLogin(username, password, machineId) {
   // Kiểm tra và Ghim mã máy (Hỗ trợ nhiều máy tính cho 1 tài khoản)
   const currentMid = (machineId || '').trim().toLowerCase();
   const allowedMids = parseMachineIds(user.machine_id);
+  const isRemoteController = Boolean(options && (options.isRemoteController || options.skipMachineLock));
 
   let updatedMachine = user.machine_id;
 
-  if (allowedMids.length === 0 && currentMid) {
-    // Lần đầu đăng nhập trên thiết bị -> Tự động ghim mã máy này
-    try {
-      await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
+  if (!isRemoteController) {
+    if (allowedMids.length === 0 && currentMid) {
+      // Lần đầu đăng nhập trên thiết bị -> Tự động ghim mã máy này
+      try {
+        await supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ machine_id: currentMid, last_login: new Date().toISOString() })
+        });
+        updatedMachine = currentMid;
+      } catch (_) {}
+    } else if (allowedMids.length > 0 && currentMid && !allowedMids.includes(currentMid)) {
+      // Máy tính hiện tại KHÔNG nằm trong danh sách mã máy được cấp phép
+      return {
+        ok: false,
+        lockedToOtherMachine: true,
+        sheetMid: allowedMids[0],
+        allowedMids: allowedMids,
+        currentMid: currentMid,
+        error: `⚠️ Tài khoản này chưa được cấp quyền trên máy tính này!\n• Mã máy hiện tại của bạn: ${currentMid}\n• Tài khoản đang ghim ${allowedMids.length} máy tính khác.\n\n👉 Vui lòng sao chép Mã máy này gửi cho Quản trị viên để được thêm vào danh sách máy được phép sử dụng!`
+      };
+    } else {
+      // Cập nhật last_login
+      supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ machine_id: currentMid, last_login: new Date().toISOString() })
-      });
-      updatedMachine = currentMid;
-    } catch (_) {}
-  } else if (allowedMids.length > 0 && currentMid && !allowedMids.includes(currentMid)) {
-    // Máy tính hiện tại KHÔNG nằm trong danh sách mã máy được cấp phép
-    return {
-      ok: false,
-      lockedToOtherMachine: true,
-      sheetMid: allowedMids[0],
-      allowedMids: allowedMids,
-      currentMid: currentMid,
-      error: `⚠️ Tài khoản này chưa được cấp quyền trên máy tính này!\n• Mã máy hiện tại của bạn: ${currentMid}\n• Tài khoản đang ghim ${allowedMids.length} máy tính khác.\n\n👉 Vui lòng sao chép Mã máy này gửi cho Quản trị viên để được thêm vào danh sách máy được phép sử dụng!`
-    };
+        body: JSON.stringify({ last_login: new Date().toISOString() })
+      }).catch(() => {});
+    }
   } else {
-    // Cập nhật last_login
+    // Phiên điều khiển từ xa (iPhone / Mobile Web / Remote Controller): ghi nhận last_login, không ép mã máy
     supabaseRequest(`ntd_users?username=eq.${encodeURIComponent(canonicalUsername)}`, {
       method: 'PATCH',
       body: JSON.stringify({ last_login: new Date().toISOString() })
@@ -2519,11 +2528,399 @@ export async function pushSharedContentLibrary(library, options = {}) {
   }
 }
 
+// ─── MODULE REMOTE CONTROL: DEVICES, REMOTE TASKS & TASK LOGS ─────────────────
+
+/**
+ * Đăng ký hoặc cập nhật thiết bị (máy tính chạy Chrome Extension) vào bảng ntd_devices
+ */
+export async function supabaseRegisterDevice({
+  deviceId,
+  ownerUsername,
+  deviceName = 'Máy tính NTD',
+  extVersion = '1.0.0',
+  capabilities = ['post_campaign', 'warmup', 'scan_groups', 'scan_maps'],
+  systemInfo = {}
+}) {
+  if (!deviceId || !ownerUsername) {
+    throw new Error('deviceId và ownerUsername là bắt buộc để đăng ký thiết bị.');
+  }
+
+  const cleanDid = String(deviceId).trim().toLowerCase();
+  const cleanOwner = String(ownerUsername).trim().toLowerCase();
+  const now = new Date().toISOString();
+
+  const deviceData = {
+    id: cleanDid,
+    owner_username: cleanOwner,
+    device_name: String(deviceName || 'Máy tính NTD').trim(),
+    ext_version: String(extVersion || '1.0.0').trim(),
+    status: 'idle',
+    last_heartbeat: now,
+    capabilities: Array.isArray(capabilities) ? capabilities : ['post_campaign', 'warmup', 'scan_groups', 'scan_maps'],
+    system_info: typeof systemInfo === 'object' && systemInfo !== null ? systemInfo : {},
+    updated_at: now
+  };
+
+  try {
+    const res = await supabaseRequest(`ntd_devices`, {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(deviceData)
+    });
+    return Array.isArray(res) ? res[0] : (res || deviceData);
+  } catch (err) {
+    console.warn('[Supabase] Thử fallback PATCH thiết bị:', err.message);
+    try {
+      await supabaseRequest(`ntd_devices?id=eq.${encodeURIComponent(cleanDid)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(deviceData)
+      });
+      return deviceData;
+    } catch (patchErr) {
+      console.error('[Supabase] Không thể đăng ký thiết bị:', patchErr);
+      throw patchErr;
+    }
+  }
+}
+
+/**
+ * Gửi nhịp tim (Heartbeat) định kỳ từ Chrome Extension
+ */
+export async function supabaseSendHeartbeat(deviceId, status = 'idle', currentTaskId = null) {
+  if (!deviceId) return;
+  const cleanDid = String(deviceId).trim().toLowerCase();
+  const payload = {
+    status: status || 'idle',
+    last_heartbeat: new Date().toISOString(),
+    current_task_id: currentTaskId || null,
+    updated_at: new Date().toISOString()
+  };
+
+  try {
+    await supabaseRequest(`ntd_devices?id=eq.${encodeURIComponent(cleanDid)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+  } catch (err) {
+    console.warn('[Supabase] Lỗi gửi heartbeat:', err.message);
+  }
+}
+
+/**
+ * Lấy danh sách thiết bị của một người dùng, tự động tính trạng thái Online/Offline
+ * Nếu last_heartbeat > 60 giây -> coi như offline
+ */
+export async function supabaseListDevices(ownerUsername) {
+  if (!ownerUsername) return [];
+  const cleanOwner = String(ownerUsername).trim().toLowerCase();
+  try {
+    const list = await supabaseRequest(`ntd_devices?owner_username=eq.${encodeURIComponent(cleanOwner)}&order=last_heartbeat.desc`);
+    if (!Array.isArray(list)) return [];
+
+    const now = Date.now();
+    return list.map(dev => {
+      const hbTime = dev.last_heartbeat ? new Date(dev.last_heartbeat).getTime() : 0;
+      const diffSec = Math.round((now - hbTime) / 1000);
+      const isOnline = diffSec <= 60; // Dưới 60 giây là Online
+      return {
+        ...dev,
+        isOnline,
+        computedStatus: isOnline ? (dev.status === 'running' ? 'running' : 'idle') : 'offline',
+        secondsSinceHeartbeat: diffSec
+      };
+    });
+  } catch (err) {
+    console.warn('[Supabase] Lỗi lấy danh sách thiết bị:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Cập nhật tên hoặc cấu hình thiết bị
+ */
+export async function supabaseUpdateDevice(deviceId, updates = {}) {
+  if (!deviceId) return false;
+  const cleanDid = String(deviceId).trim().toLowerCase();
+  try {
+    await supabaseRequest(`ntd_devices?id=eq.${encodeURIComponent(cleanDid)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() })
+    });
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Lỗi cập nhật thiết bị:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Tạo một tác vụ điều khiển từ xa (Remote Task) mới
+ */
+export async function supabaseCreateRemoteTask({
+  ownerUsername,
+  deviceId = 'auto',
+  taskType,
+  payload = {},
+  scheduledAt = null
+}) {
+  if (!ownerUsername || !taskType) {
+    throw new Error('ownerUsername và taskType là bắt buộc để tạo remote task.');
+  }
+
+  const cleanOwner = String(ownerUsername).trim().toLowerCase();
+  const cleanDid = String(deviceId || 'auto').trim().toLowerCase();
+  const now = new Date().toISOString();
+
+  const taskRow = {
+    owner_username: cleanOwner,
+    device_id: cleanDid,
+    task_type: String(taskType).trim(),
+    payload: typeof payload === 'object' && payload !== null ? payload : {},
+    scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : now,
+    status: 'pending',
+    progress: {
+      current: 0,
+      total: 0,
+      percent: 0,
+      status_text: 'Đang chờ máy tính tiếp nhận...'
+    },
+    created_at: now,
+    updated_at: now
+  };
+
+  const res = await supabaseRequest(`ntd_remote_tasks`, {
+    method: 'POST',
+    headers: { 'Prefer': 'return=representation' },
+    body: JSON.stringify(taskRow)
+  });
+
+  return Array.isArray(res) ? res[0] : res;
+}
+
+/**
+ * Tiếp nhận tác vụ nguyên tử (Atomic Claim) qua RPC PostgreSQL
+ */
+export async function supabaseClaimRemoteTask(deviceId, taskId = null, ownerUsername = null) {
+  if (!deviceId) return { ok: false, error: 'Thiếu deviceId' };
+  const cleanDid = String(deviceId).trim().toLowerCase();
+  const cleanOwner = ownerUsername ? String(ownerUsername).trim().toLowerCase() : null;
+
+  try {
+    const res = await supabaseRequest(`rpc/claim_remote_task`, {
+      method: 'POST',
+      body: JSON.stringify({
+        p_device_id: cleanDid,
+        p_task_id: taskId || null,
+        p_owner_username: cleanOwner
+      })
+    });
+    return res;
+  } catch (err) {
+    // Fallback: nếu RPC chưa được tạo trong DB, truy vấn trực tiếp
+    console.warn('[Supabase] RPC claim_remote_task không khả dụng, sử dụng fallback REST:', err.message);
+    try {
+      let query = `ntd_remote_tasks?status=eq.pending&order=created_at.asc&limit=1`;
+      if (taskId) {
+        query = `ntd_remote_tasks?id=eq.${encodeURIComponent(taskId)}&status=eq.pending`;
+      } else {
+        query += `&or=(device_id.eq.${encodeURIComponent(cleanDid)},device_id.eq.auto,device_id.eq.)`;
+        if (cleanOwner) query += `&owner_username=eq.${encodeURIComponent(cleanOwner)}`;
+      }
+      const pendingTasks = await supabaseRequest(query);
+      if (!Array.isArray(pendingTasks) || pendingTasks.length === 0) {
+        return { ok: false, message: 'No pending task available' };
+      }
+      const task = pendingTasks[0];
+      const now = new Date().toISOString();
+      const updated = await supabaseRequest(`ntd_remote_tasks?id=eq.${encodeURIComponent(task.id)}&status=eq.pending`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          status: 'running',
+          device_id: cleanDid,
+          started_at: now,
+          updated_at: now
+        })
+      });
+      if (Array.isArray(updated) && updated.length > 0) {
+        await supabaseSendHeartbeat(cleanDid, 'running', task.id);
+        return { ok: true, task: updated[0] };
+      }
+      return { ok: false, message: 'Task already claimed by another worker' };
+    } catch (fallbackErr) {
+      return { ok: false, error: fallbackErr.message };
+    }
+  }
+}
+
+/**
+ * Lấy chi tiết tác vụ từ xa theo Task ID
+ */
+export async function supabaseGetRemoteTask(taskId) {
+  if (!taskId) return null;
+  try {
+    const res = await supabaseRequest(`ntd_remote_tasks?id=eq.${encodeURIComponent(taskId)}&select=*`);
+    return Array.isArray(res) && res.length > 0 ? res[0] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Lấy danh sách tác vụ từ xa của người dùng
+ */
+export async function supabaseListRemoteTasks(ownerUsername, options = {}) {
+  if (!ownerUsername) return [];
+  const cleanOwner = String(ownerUsername).trim().toLowerCase();
+  const limit = options.limit || 20;
+  let query = `ntd_remote_tasks?owner_username=eq.${encodeURIComponent(cleanOwner)}&order=created_at.desc&limit=${limit}`;
+  if (options.deviceId) {
+    query += `&device_id=eq.${encodeURIComponent(options.deviceId)}`;
+  }
+  if (options.status) {
+    query += `&status=eq.${encodeURIComponent(options.status)}`;
+  }
+  try {
+    const res = await supabaseRequest(query);
+    return Array.isArray(res) ? res : [];
+  } catch (err) {
+    console.warn('[Supabase] Lỗi lấy danh sách remote tasks:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Cập nhật tiến độ tác vụ
+ */
+export async function supabaseUpdateTaskProgress(taskId, {
+  progress = null,
+  status = null,
+  result = null,
+  errorMessage = null
+}) {
+  if (!taskId) return false;
+  const now = new Date().toISOString();
+  const patchData = { updated_at: now };
+
+  if (progress) patchData.progress = progress;
+  if (status) {
+    patchData.status = status;
+    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+      patchData.finished_at = now;
+    }
+  }
+  if (result) patchData.result = result;
+  if (errorMessage !== null && errorMessage !== undefined) patchData.error_message = errorMessage;
+
+  try {
+    await supabaseRequest(`ntd_remote_tasks?id=eq.${encodeURIComponent(taskId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patchData)
+    });
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Lỗi cập nhật task progress:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Hủy tác vụ từ xa
+ */
+export async function supabaseCancelRemoteTask(taskId, reason = 'Người dùng hủy từ xa') {
+  return await supabaseUpdateTaskProgress(taskId, {
+    status: 'cancelled',
+    errorMessage: reason
+  });
+}
+
+/**
+ * Gửi lệnh điều khiển tức thì tới thiết bị (Tạm dừng, Tiếp tục, Dừng hẳn...)
+ */
+export async function supabaseSendRemoteCommand(deviceId, commandType, payload = {}, ownerUsername) {
+  return await supabaseCreateRemoteTask({
+    ownerUsername,
+    deviceId,
+    taskType: commandType, // 'pause_task', 'resume_task', 'stop_task', 'stop_all'
+    payload
+  });
+}
+
+/**
+ * Kiểm tra các lệnh điều khiển khẩn cấp đang chờ cho tác vụ hoặc thiết bị
+ */
+export async function supabaseFetchPendingCommands(deviceId, targetTaskId = null) {
+  if (!deviceId) return [];
+  const cleanDid = String(deviceId).trim().toLowerCase();
+  try {
+    let query = `ntd_remote_tasks?status=eq.pending&task_type=in.(pause_task,resume_task,stop_task,stop_all)&device_id=in.(${encodeURIComponent(cleanDid)},auto)&order=created_at.asc&limit=5`;
+    const res = await supabaseRequest(query);
+    if (!Array.isArray(res) || res.length === 0) return [];
+
+    // Nếu có targetTaskId, lọc các lệnh khớp targetTaskId hoặc lệnh toàn cục (stop_all)
+    if (targetTaskId) {
+      return res.filter(cmd => {
+        if (cmd.task_type === 'stop_all') return true;
+        const cmdTarget = cmd.payload?.target_task_id;
+        return !cmdTarget || cmdTarget === targetTaskId;
+      });
+    }
+    return res;
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Thêm một bản ghi nhật ký (Task Log) vào bảng ntd_task_logs
+ */
+export async function supabaseAppendTaskLog({
+  taskId,
+  ownerUsername,
+  deviceId = '',
+  message,
+  details = {},
+  logLevel = 'info'
+}) {
+  if (!taskId || !message) return false;
+  try {
+    await supabaseRequest(`ntd_task_logs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        task_id: taskId,
+        owner_username: String(ownerUsername || '').trim().toLowerCase(),
+        device_id: String(deviceId || '').trim().toLowerCase(),
+        message: String(message).trim(),
+        details: typeof details === 'object' && details !== null ? details : {},
+        log_level: ['info', 'success', 'warning', 'error'].includes(logLevel) ? logLevel : 'info',
+        created_at: new Date().toISOString()
+      })
+    });
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Lỗi ghi task log:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Lấy danh sách nhật ký của tác vụ
+ */
+export async function supabaseGetTaskLogs(taskId, limit = 50) {
+  if (!taskId) return [];
+  try {
+    const res = await supabaseRequest(`ntd_task_logs?task_id=eq.${encodeURIComponent(taskId)}&order=created_at.asc&limit=${limit}`);
+    return Array.isArray(res) ? res : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 /**
  * Đoạn mã SQL chuẩn để người dùng copy và dán vào Supabase SQL Editor
  */
 export const SUPABASE_SETUP_SQL = `-- ====================================================================
--- NTD AGENCY - SUPABASE FULL DATABASE SCHEMA (RBAC + QUẢN LÝ DỮ LIỆU)
+-- NTD AGENCY - SUPABASE FULL DATABASE SCHEMA (RBAC + QUẢN LÝ DỮ LIỆU + REMOTE CONTROL)
 -- Chạy đoạn mã này trong: Supabase Dashboard -> SQL Editor -> Run
 -- ====================================================================
 
@@ -2611,15 +3008,124 @@ create table if not exists public.ntd_scanned_groups (
 create index if not exists idx_ntd_groups_owner_filter on public.ntd_scanned_groups (owner_username, approval_status, privacy);
 create index if not exists idx_ntd_groups_saved on public.ntd_scanned_groups (owner_username, in_saved_category);
 
--- 5. Bật Row Level Security (RLS) & cấp quyền Data API cho cả 4 bảng
+-- 5. Bảng ntd_devices (Quản lý các máy tính/thiết bị chạy Chrome Extension)
+create table if not exists public.ntd_devices (
+    id text primary key,
+    owner_username text not null,
+    device_name text not null default 'Máy tính NTD',
+    ext_version text not null default '1.0.0',
+    status text not null default 'idle' check (status in ('online', 'idle', 'running', 'offline')),
+    last_heartbeat timestamptz not null default now(),
+    current_task_id text,
+    capabilities jsonb not null default '["post_campaign","warmup","scan_groups","scan_maps"]'::jsonb,
+    system_info jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create index if not exists idx_ntd_devices_owner on public.ntd_devices (owner_username, last_heartbeat desc);
+
+-- 6. Bảng ntd_remote_tasks (Hàng đợi tác vụ điều khiển từ xa: Đăng bài, Nuôi nick, Quét data...)
+create table if not exists public.ntd_remote_tasks (
+    id uuid default gen_random_uuid() primary key,
+    owner_username text not null,
+    device_id text not null default 'auto',
+    task_type text not null,
+    payload jsonb not null default '{}'::jsonb,
+    scheduled_at timestamptz not null default now(),
+    started_at timestamptz,
+    finished_at timestamptz,
+    status text not null default 'pending' check (status in ('pending', 'running', 'paused', 'completed', 'failed', 'cancelled')),
+    progress jsonb not null default '{"current":0,"total":0,"percent":0,"status_text":"Chờ thiết bị nhận việc..."}'::jsonb,
+    result jsonb not null default '{}'::jsonb,
+    error_message text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create index if not exists idx_ntd_tasks_owner_status on public.ntd_remote_tasks (owner_username, status, created_at desc);
+create index if not exists idx_ntd_tasks_device on public.ntd_remote_tasks (device_id, status);
+
+-- 7. Bảng ntd_task_logs (Nhật ký thời gian thực chi tiết từng bước thực thi)
+create table if not exists public.ntd_task_logs (
+    id bigint generated always as identity primary key,
+    task_id uuid not null references public.ntd_remote_tasks(id) on delete cascade,
+    owner_username text not null,
+    device_id text not null default '',
+    message text not null,
+    details jsonb not null default '{}'::jsonb,
+    log_level text not null default 'info' check (log_level in ('info', 'success', 'warning', 'error')),
+    created_at timestamptz not null default now()
+);
+create index if not exists idx_ntd_logs_task on public.ntd_task_logs (task_id, created_at asc);
+
+-- 8. Hàm tiếp nhận tác vụ nguyên tử (Atomic Claim Task) chống trùng lặp tuyệt đối
+create or replace function public.claim_remote_task(
+    p_device_id text,
+    p_task_id uuid default null,
+    p_owner_username text default null
+)
+returns jsonb
+language plpgsql
+security definer
+as $$
+declare
+    v_task record;
+begin
+    if p_task_id is not null then
+        select * into v_task
+        from public.ntd_remote_tasks
+        where id = p_task_id
+          and status = 'pending'
+          and (device_id = p_device_id or device_id = '' or device_id = 'auto')
+        for update skip locked;
+    else
+        select * into v_task
+        from public.ntd_remote_tasks
+        where status = 'pending'
+          and (device_id = p_device_id or (device_id in ('', 'auto') and (p_owner_username is null or owner_username = p_owner_username)))
+          and (scheduled_at is null or scheduled_at <= now())
+        order by created_at asc
+        limit 1
+        for update skip locked;
+    end if;
+
+    if v_task.id is null then
+        return jsonb_build_object('ok', false, 'message', 'No pending task available');
+    end if;
+
+    update public.ntd_remote_tasks
+    set status = 'running',
+        device_id = p_device_id,
+        started_at = coalesce(started_at, now()),
+        updated_at = now()
+    where id = v_task.id;
+
+    update public.ntd_devices
+    set status = 'running',
+        current_task_id = v_task.id::text,
+        last_heartbeat = now(),
+        updated_at = now()
+    where id = p_device_id;
+
+    return jsonb_build_object(
+        'ok', true,
+        'task', row_to_json(v_task)
+    );
+end;
+$$;
+
+-- 9. Bật Row Level Security (RLS) & cấp quyền Data API cho toàn bộ các bảng
 alter table public.ntd_users enable row level security;
 alter table public.ntd_workspaces enable row level security;
 alter table public.ntd_scanned_phones enable row level security;
 alter table public.ntd_scanned_groups enable row level security;
+alter table public.ntd_devices enable row level security;
+alter table public.ntd_remote_tasks enable row level security;
+alter table public.ntd_task_logs enable row level security;
 
 grant usage on schema public to anon, authenticated;
-grant select, insert, update, delete on public.ntd_users, public.ntd_workspaces, public.ntd_scanned_phones, public.ntd_scanned_groups to anon, authenticated;
+grant select, insert, update, delete on public.ntd_users, public.ntd_workspaces, public.ntd_scanned_phones, public.ntd_scanned_groups, public.ntd_devices, public.ntd_remote_tasks, public.ntd_task_logs to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
+grant execute on function public.claim_remote_task(text, uuid, text) to anon, authenticated;
 
 -- Chính sách truy cập Data API
 drop policy if exists "ntd_users_select" on public.ntd_users;
@@ -2647,7 +3153,32 @@ create policy "ntd_scanned_phones_all" on public.ntd_scanned_phones for all to a
 drop policy if exists "ntd_scanned_groups_all" on public.ntd_scanned_groups;
 create policy "ntd_scanned_groups_all" on public.ntd_scanned_groups for all to anon, authenticated using (true) with check (true);
 
--- 6. Thêm tài khoản Quản trị viên (Admin) mặc định
+drop policy if exists "ntd_devices_all" on public.ntd_devices;
+create policy "ntd_devices_all" on public.ntd_devices for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "ntd_remote_tasks_all" on public.ntd_remote_tasks;
+create policy "ntd_remote_tasks_all" on public.ntd_remote_tasks for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "ntd_task_logs_all" on public.ntd_task_logs;
+create policy "ntd_task_logs_all" on public.ntd_task_logs for all to anon, authenticated using (true) with check (true);
+
+-- 10. Kích hoạt Supabase Realtime cho thiết bị và tác vụ từ xa
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'ntd_devices') then
+    alter publication supabase_realtime add table public.ntd_devices;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'ntd_remote_tasks') then
+    alter publication supabase_realtime add table public.ntd_remote_tasks;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'ntd_task_logs') then
+    alter publication supabase_realtime add table public.ntd_task_logs;
+  end if;
+exception when others then
+  null;
+end $$;
+
+-- 11. Thêm tài khoản Quản trị viên (Admin) mặc định
 insert into public.ntd_users (username, password, role, expiry_date, note)
 values
     ('admin', '123456', 'admin', '2030-12-31', 'Tài khoản Quản trị tối cao'),
@@ -2656,8 +3187,7 @@ on conflict (username) do update
 set role = excluded.role,
     expiry_date = excluded.expiry_date;
 
--- 7. Tự động hóa đặt lại số liệu ngày mới (0h hàng ngày)
--- Hàm đặt lại BÀI HÔM NAY, QUÉT NHÓM, QUÉT MAPS về 0 cho các tài khoản chưa đăng nhập hôm nay
+-- 12. Tự động hóa đặt lại số liệu ngày mới (0h hàng ngày)
 create or replace function public.reset_daily_stats_if_new_day()
 returns jsonb
 language plpgsql
@@ -2667,7 +3197,6 @@ declare
     v_count integer;
     v_start_of_day_vn timestamptz;
 begin
-    -- 00:00:00 ngày hôm nay theo múi giờ Việt Nam (UTC+7)
     v_start_of_day_vn := date_trunc('day', timezone('Asia/Ho_Chi_Minh', now())) at time zone 'Asia/Ho_Chi_Minh';
 
     update public.ntd_users
@@ -2688,10 +3217,6 @@ end;
 $$;
 
 grant execute on function public.reset_daily_stats_if_new_day() to anon, authenticated;
-
--- Nếu dự án Supabase đã bật Extension pg_cron, bạn có thể tự động chạy hàm này vào đúng 00:00 mỗi đêm:
--- select cron.schedule('reset-daily-stats-midnight-vn', '0 17 * * *', 'select public.reset_daily_stats_if_new_day();');
-
--- Hoàn tất! Cả 4 bảng dữ liệu đã sẵn sàng hoạt động.
 `;
+
 
