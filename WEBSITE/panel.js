@@ -114,11 +114,30 @@ async function getCleanAccountsWithRateLimitCheck() {
     const { accounts = [] } = await chrome.storage.local.get('accounts');
     const rawAccounts = Array.isArray(accounts) ? accounts : [];
     const { changed, accounts: updatedAccounts } = checkAndReleaseRateLimitAccounts(rawAccounts);
-    if (changed) {
-      await chrome.storage.local.set({ accounts: updatedAccounts });
-      return updatedAccounts;
+    let finalAccounts = changed ? updatedAccounts : rawAccounts;
+
+    let groupFixed = false;
+    finalAccounts.forEach(a => {
+      if (a && a.rateLimitRestrictedUntil && Date.now() < a.rateLimitRestrictedUntil) {
+        if (a.accountGroup !== 'Acc nuôi') {
+          if (!a.previousAccountGroup) a.previousAccountGroup = a.accountGroup || '';
+          a.accountGroup = 'Acc nuôi';
+          groupFixed = true;
+        }
+      }
+    });
+
+    if (changed || groupFixed) {
+      await chrome.storage.local.set({ accounts: finalAccounts });
+      const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+      const cleanList = Array.isArray(accountGroupsList) ? [...accountGroupsList] : [];
+      if (!cleanList.includes('Acc nuôi')) {
+        cleanList.push('Acc nuôi');
+        await chrome.storage.local.set({ accountGroupsList: cleanList });
+      }
+      return finalAccounts;
     }
-    return rawAccounts;
+    return finalAccounts;
   } catch (_) {
     return [];
   }
@@ -3076,7 +3095,8 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator, existin
         ${isPausedMidway ? `<button type="button" class="prog-action-btn btn-start-one" data-id="${acc.id}" style="color:#64748b" title="Bắt đầu lại từ nhóm 1">Chạy lại từ đầu</button>` : ''}
         ${!isRunningOrWaiting && !isPausedMidway ? (
           isRestricted
-            ? `<button type="button" class="prog-action-btn disabled" disabled style="opacity:0.6;cursor:not-allowed;background:#f1f5f9;color:#94a3b8;border-color:#cbd5e1" title="Tài khoản đang bị cách ly Spam Rate Limit trong 3 ngày">🛑 Cách ly (${remText})</button>`
+            ? `<button type="button" class="prog-action-btn disabled" disabled style="opacity:0.6;cursor:not-allowed;background:#f1f5f9;color:#94a3b8;border-color:#cbd5e1" title="Tài khoản đang bị cách ly Spam Rate Limit trong 3 ngày">🛑 Cách ly (${remText})</button>
+               <a href="warmup.html?group=Acc+nuôi" class="prog-action-btn" style="background:#fffbeb;color:#b45309;border:1px solid #f59e0b;text-decoration:none;font-weight:700;display:inline-flex;align-items:center;gap:4px" title="Chuyển ngay sang trang Nuôi tài khoản để nuôi nick trong thời gian cách ly">🌱 Nuôi nick này ngay →</a>`
             : `<button type="button" class="prog-action-btn primary btn-start-one" data-id="${acc.id}">Chạy riêng</button>`
         ) : ''}
         ${todayPosted > 0 && acc.type !== 'fanpage' ? `<button type="button" class="prog-action-btn btn-reset-daily-one" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" style="color:#b45309;border-color:#f59e0b;background:#fffbeb" title="Đặt lại số bài đã đăng hôm nay về 0 nếu muốn đăng thêm">Đặt lại (${todayPosted})</button>` : ''}
@@ -3212,6 +3232,37 @@ async function _renderImpl() {
           await safeStorageSet({ scheduledPostJobs: extState.scheduledPostJobs });
         }
 
+        // Đồng bộ tài khoản và nhóm từ extension nếu extension có tài khoản cách ly / cập nhật
+        if (Array.isArray(extState.accounts) && extState.accounts.some(a => a.rateLimitRestricted || a.accountGroup === 'Acc nuôi')) {
+          const currentWebAccs = (await chrome.storage.local.get('accounts')).accounts || [];
+          let needUpdate = false;
+          extState.accounts.forEach(extAcc => {
+            if (extAcc.rateLimitRestricted || extAcc.accountGroup === 'Acc nuôi') {
+              const target = currentWebAccs.find(a => a.id === extAcc.id);
+              if (target && (target.accountGroup !== 'Acc nuôi' || !target.rateLimitRestricted)) {
+                if (!target.previousAccountGroup && target.accountGroup !== 'Acc nuôi') {
+                  target.previousAccountGroup = target.accountGroup || '';
+                }
+                target.accountGroup = 'Acc nuôi';
+                target.rateLimitRestricted = true;
+                target.rateLimitRestrictedAt = extAcc.rateLimitRestrictedAt || Date.now();
+                target.rateLimitRestrictedUntil = extAcc.rateLimitRestrictedUntil || (Date.now() + 3 * 24 * 60 * 60 * 1000);
+                target.rateLimitReason = extAcc.rateLimitReason || 'Facebook cảnh báo Spam Rate Limit';
+                needUpdate = true;
+              }
+            }
+          });
+          if (needUpdate) {
+            await safeStorageSet({ accounts: currentWebAccs });
+            const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+            const cleanGrps = Array.isArray(accountGroupsList) ? [...accountGroupsList] : [];
+            if (!cleanGrps.includes('Acc nuôi')) {
+              cleanGrps.push('Acc nuôi');
+              await safeStorageSet({ accountGroupsList: cleanGrps });
+            }
+          }
+        }
+
         const prevCampaignsStr = JSON.stringify(cachedCampaigns || {});
         const newCampaignsStr = JSON.stringify(extCampaigns);
         const prevCoordStr = JSON.stringify(cachedCoordinator || null);
@@ -3250,6 +3301,45 @@ async function _renderImpl() {
   cachedAccounts = accs;
   const cMap = hasExtState ? (extCampaigns || {}) : (campaigns || {});
   cachedCampaigns = cMap;
+
+  // Tự động kiểm tra nếu có campaign nào bị blocked do Spam Rate Limit thì cách ly và chuyển vào nhóm "Acc nuôi" ngay
+  let needStorageSync = false;
+  for (const [accId, camp] of Object.entries(cMap)) {
+    const hasBlocked = camp?.jobs?.some(j => j.status === 'blocked') || (camp?.breakNote && /spam rate limit|giới hạn tính năng/i.test(camp.breakNote));
+    if (hasBlocked) {
+      const target = accs.find(a => a.id === accId);
+      if (target && (!target.rateLimitRestricted || target.accountGroup !== 'Acc nuôi')) {
+        const now = Date.now();
+        if (target.accountGroup !== 'Acc nuôi') {
+          target.previousAccountGroup = target.accountGroup || '';
+        }
+        target.accountGroup = 'Acc nuôi';
+        target.rateLimitRestricted = true;
+        target.rateLimitRestrictedAt = target.rateLimitRestrictedAt || now;
+        target.rateLimitRestrictedUntil = target.rateLimitRestrictedUntil || (now + 3 * 24 * 60 * 60 * 1000);
+        target.rateLimitReason = 'Facebook cảnh báo Spam Rate Limit khi đăng bài';
+        needStorageSync = true;
+      }
+    }
+  }
+
+  if (needStorageSync) {
+    await chrome.storage.local.set({ accounts: accs });
+    const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+    const cleanGrps = Array.isArray(accountGroupsList) ? [...accountGroupsList] : [];
+    if (!cleanGrps.includes('Acc nuôi')) {
+      cleanGrps.push('Acc nuôi');
+      await chrome.storage.local.set({ accountGroupsList: cleanGrps });
+    }
+    if (isWebPlatform && window.chrome?.runtime?.sendToExtension) {
+      try {
+        await window.chrome.runtime.sendToExtension({
+          type: 'SYNC_DATA_TO_EXTENSION',
+          data: { accounts: accs, accountGroupsList: cleanGrps }
+        });
+      } catch (_) {}
+    }
+  }
   cachedCoordinator = hasExtState ? extCoordinator : (coordinator || null);
   const statsMap = hasExtState ? (extDailyStats || {}) : (dailyPostStats || {});
   cachedDailyPostStats = statsMap;
@@ -4851,10 +4941,25 @@ let _isSelfSyncingStorage = false;
 const debouncedRender = debounce(() => render().then(scheduleNextRender).catch(() => {}), 120);
 const debouncedRenderCategories = debounce(renderAccountCategoryAssignments, 200);
 
-chrome.runtime?.onMessage?.addListener((msg) => {
+chrome.runtime?.onMessage?.addListener(async (msg) => {
   if (msg?.type === 'ACCOUNT_RATE_LIMIT_RESTRICTED') {
-    renderSharedAccountsSelector().catch(() => {});
-    renderAccountCategoryAssignments().catch(() => {});
+    if (Array.isArray(msg.accounts)) {
+      await chrome.storage.local.set({ accounts: msg.accounts });
+      cachedAccounts = msg.accounts;
+    }
+    if (Array.isArray(msg.accountGroupsList)) {
+      await chrome.storage.local.set({ accountGroupsList: msg.accountGroupsList });
+    }
+    try {
+      const { getActiveSyncUsername, pushLocalChangesToSupabase } = await import('./supabase.js');
+      const username = await getActiveSyncUsername();
+      if (username && Array.isArray(msg.accounts)) {
+        await pushLocalChangesToSupabase(username, ['accounts'], { allowReduce: false, accounts: msg.accounts });
+      }
+    } catch (_) {}
+
+    await renderSharedAccountsSelector().catch(() => {});
+    await renderAccountCategoryAssignments().catch(() => {});
     debouncedRender();
     return;
   }

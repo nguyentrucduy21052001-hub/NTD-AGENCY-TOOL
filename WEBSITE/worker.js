@@ -5237,13 +5237,31 @@ async function isolateAccountForSpamRateLimit(accountId, reason = '') {
   const unlockDateStr = new Date(restrictedUntil).toLocaleString('vi-VN');
   broadcastWarmupLog(`🛑 Tài khoản "${acc.name}" gặp cảnh báo Spam Rate Limit! Đã tự động chuyển vào nhóm "Acc nuôi" và khóa quyền đăng bài trong 3 ngày (Đến: ${unlockDateStr}) để bảo vệ an toàn cho nick.`, '🛑');
 
+  const eventPayload = {
+    type: 'ACCOUNT_RATE_LIMIT_RESTRICTED',
+    accountId: acc.id,
+    accountName: acc.name,
+    restrictedUntil,
+    account: acc,
+    accounts: accList,
+    accountGroupsList: cleanGroups
+  };
+
   try {
-    chrome.runtime.sendMessage({
-      type: 'ACCOUNT_RATE_LIMIT_RESTRICTED',
-      accountId: acc.id,
-      accountName: acc.name,
-      restrictedUntil
-    }).catch(() => {});
+    if (chrome.tabs?.query) {
+      chrome.tabs.query({}, tabs => {
+        if (!Array.isArray(tabs)) return;
+        for (const t of tabs) {
+          if (t?.id && t.url && (t.url.includes('vercel.app') || t.url.includes('github.io') || t.url.includes('localhost') || t.url.includes('127.0.0.1') || t.url.startsWith('chrome-extension://'))) {
+            chrome.tabs.sendMessage(t.id, eventPayload).catch(() => {});
+          }
+        }
+      });
+    }
+  } catch (_) {}
+
+  try {
+    chrome.runtime.sendMessage(eventPayload).catch(() => {});
   } catch (_) {}
 }
 
@@ -8449,7 +8467,7 @@ function handleRuntimeMessage(m, sender, reply) {
 
         const allowed = ['preview', 'submitted', 'pending', 'sent_unverified', 'unknown', 'blocked', 'error', 'skipped'];
         let status = allowed.includes(m.status) ? m.status : 'unknown';
-        if ((status === 'error' || status === 'unknown') && /limit how often|protect the community from spam|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác|tạm thời bị chặn|tạm thời bị hạn chế/i.test(m.note || '')) {
+        if (m.rateLimited || ((status === 'error' || status === 'unknown') && /limit how often|protect the community from spam|giới hạn tần suất|bảo vệ cộng đồng khỏi thư rác|tạm thời bị chặn|tạm thời bị hạn chế|spam rate limit|rate limit|thao tác quá nhanh|going too fast|bị hạn chế|hạn chế tính năng/i.test(m.note || ''))) {
           status = 'blocked';
         }
         const isAuthExpired = Boolean(
@@ -8729,7 +8747,8 @@ chrome.runtime.onMessageExternal?.addListener((request, sender, sendResponse) =>
         const coordinator = (await chrome.storage.local.get('coordinator')).coordinator || null;
         const dailyPostStats = (await chrome.storage.local.get('dailyPostStats')).dailyPostStats || {};
         const scheduledPostJobs = await readScheduledJobs();
-        sendResponse({ ok: true, workerVersion: WORKER_VERSION, campaigns, coordinator, dailyPostStats, scheduledPostJobs });
+        const { accounts = [], accountGroupsList = [] } = await chrome.storage.local.get(['accounts', 'accountGroupsList']);
+        sendResponse({ ok: true, workerVersion: WORKER_VERSION, campaigns, coordinator, dailyPostStats, scheduledPostJobs, accounts, accountGroupsList });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }

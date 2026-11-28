@@ -201,11 +201,30 @@ async function loadAccounts() {
   const { accounts } = await chrome.storage.local.get('accounts');
   const rawAccounts = accounts || [];
   const { changed, accounts: updatedAccounts } = checkAndReleaseRateLimitAccounts(rawAccounts);
-  if (changed) {
-    await chrome.storage.local.set({ accounts: updatedAccounts });
-    return updatedAccounts;
+  let finalAccounts = changed ? updatedAccounts : rawAccounts;
+
+  let groupFixed = false;
+  finalAccounts.forEach(a => {
+    if (a && a.rateLimitRestrictedUntil && Date.now() < a.rateLimitRestrictedUntil) {
+      if (a.accountGroup !== 'Acc nuôi') {
+        if (!a.previousAccountGroup) a.previousAccountGroup = a.accountGroup || '';
+        a.accountGroup = 'Acc nuôi';
+        groupFixed = true;
+      }
+    }
+  });
+
+  if (changed || groupFixed) {
+    await chrome.storage.local.set({ accounts: finalAccounts });
+    const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+    const cleanList = Array.isArray(accountGroupsList) ? [...accountGroupsList] : [];
+    if (!cleanList.includes('Acc nuôi')) {
+      cleanList.push('Acc nuôi');
+      await chrome.storage.local.set({ accountGroupsList: cleanList });
+    }
+    return finalAccounts;
   }
-  return rawAccounts;
+  return finalAccounts;
 }
 let _saveAccountsCloudSyncTimer = null;
 async function saveAccounts(accounts) {
@@ -244,6 +263,9 @@ async function loadAccountGroupsList() {
   accounts.forEach(a => {
     const g = String(a.accountGroup || '').trim();
     if (g) set.add(g);
+    if (a && a.rateLimitRestrictedUntil && Date.now() < a.rateLimitRestrictedUntil) {
+      set.add('Acc nuôi');
+    }
   });
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
 }
@@ -2395,7 +2417,18 @@ if (autoReloginAllBtn) {
 }
 
 // Lắng nghe tiến trình đăng nhập thời gian thực và tự động cập nhật cookie từ worker
-chrome.runtime.onMessage.addListener(m => {
+chrome.runtime.onMessage.addListener(async m => {
+  if (m?.type === 'ACCOUNT_RATE_LIMIT_RESTRICTED') {
+    if (Array.isArray(m.accounts)) {
+      await chrome.storage.local.set({ accounts: m.accounts });
+    }
+    if (Array.isArray(m.accountGroupsList)) {
+      await chrome.storage.local.set({ accountGroupsList: m.accountGroupsList });
+    }
+    msg(`🛑 Tài khoản "${m.accountName}" bị cảnh báo Spam Rate Limit! Đã tự động đưa vào nhóm "Acc nuôi" để cách ly & nuôi dưỡng 3 ngày.`, 'warn');
+    await render();
+    return;
+  }
   if (m?.type === 'COOKIE_AUTO_SYNCED') {
     msg(`⚡ Đã tự động cập nhật cookie mới cho "${m.accountName}" (FB ID: ${m.fbId})!`, 'ok');
     render();

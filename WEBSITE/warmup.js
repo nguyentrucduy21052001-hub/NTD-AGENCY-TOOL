@@ -223,6 +223,9 @@ async function loadAccountGroupsList() {
   (accounts || []).forEach(a => {
     const g = String(a.accountGroup || '').trim();
     if (g) set.add(g);
+    if (a && a.rateLimitRestrictedUntil && Date.now() < a.rateLimitRestrictedUntil) {
+      set.add('Acc nuôi');
+    }
   });
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
 }
@@ -284,12 +287,31 @@ async function loadAccounts() {
   const { accounts } = await chrome.storage.local.get('accounts');
   const rawAccs = Array.isArray(accounts) ? accounts : [];
   const { changed, accounts: updatedAccounts } = checkAndReleaseRateLimitAccounts(rawAccs);
-  if (changed) {
-    await chrome.storage.local.set({ accounts: updatedAccounts });
+  let finalAccounts = changed ? updatedAccounts : rawAccs;
+
+  let groupFixed = false;
+  finalAccounts.forEach(a => {
+    if (a && a.rateLimitRestrictedUntil && Date.now() < a.rateLimitRestrictedUntil) {
+      if (a.accountGroup !== 'Acc nuôi') {
+        if (!a.previousAccountGroup) a.previousAccountGroup = a.accountGroup || '';
+        a.accountGroup = 'Acc nuôi';
+        groupFixed = true;
+      }
+    }
+  });
+
+  if (changed || groupFixed) {
+    await chrome.storage.local.set({ accounts: finalAccounts });
+    const { accountGroupsList = [] } = await chrome.storage.local.get('accountGroupsList');
+    const cleanList = Array.isArray(accountGroupsList) ? [...accountGroupsList] : [];
+    if (!cleanList.includes('Acc nuôi')) {
+      cleanList.push('Acc nuôi');
+      await chrome.storage.local.set({ accountGroupsList: cleanList });
+    }
   }
-  const allAccs = changed ? updatedAccounts : rawAccs;
+
   // Lọc chỉ lấy tài khoản cá nhân (loại trừ Fanpage)
-  personalAccounts = allAccs.filter(a => a.type !== 'fanpage');
+  personalAccounts = finalAccounts.filter(a => a.type !== 'fanpage');
   allAccountGroups = await loadAccountGroupsList();
 
   // Khởi tạo hoặc dọn dẹp danh sách tài khoản được chọn
@@ -339,9 +361,11 @@ function renderWarmupGroupPills() {
   `;
 
   allAccountGroups.forEach(g => {
+    const isAccNuoi = g === 'Acc nuôi';
+    const accNuoiStyle = isAccNuoi ? 'border-color:#f59e0b;color:#b45309;background:rgba(245,158,11,0.12);font-weight:700' : '';
     pillsHtml += `
-      <button type="button" class="acc-group-pill ${currentWarmupGroupFilter === g ? 'active' : ''}" data-group="${escapeHtml(g)}">
-        📁 ${escapeHtml(g)} <span class="pill-count">${groupCountsMap[g] || 0}</span>
+      <button type="button" class="acc-group-pill ${currentWarmupGroupFilter === g ? 'active' : ''}" data-group="${escapeHtml(g)}" style="${accNuoiStyle}">
+        ${isAccNuoi ? '🌱' : '📁'} ${escapeHtml(g)} <span class="pill-count" style="${isAccNuoi ? 'background:#f59e0b;color:#fff' : ''}">${groupCountsMap[g] || 0}</span>
       </button>
     `;
   });
@@ -3252,6 +3276,11 @@ async function handleWarmupCheckpointDetected(m) {
 
 // ── 10. Khởi động trang Web ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedGroup = urlParams.get('group');
+  if (requestedGroup) {
+    currentWarmupGroupFilter = requestedGroup;
+  }
   await loadConfig();
   await loadAccounts();
   await renderReportTable();
@@ -3304,8 +3333,19 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // Lắng nghe log thời gian thực & sự kiện từ Tiện ích mở rộng / Background Worker
-chrome.runtime.onMessage.addListener(m => {
+chrome.runtime.onMessage.addListener(async m => {
   if (!m) return;
+
+  if (m.type === 'ACCOUNT_RATE_LIMIT_RESTRICTED') {
+    if (Array.isArray(m.accounts)) {
+      await chrome.storage.local.set({ accounts: m.accounts });
+    }
+    if (Array.isArray(m.accountGroupsList)) {
+      await chrome.storage.local.set({ accountGroupsList: m.accountGroupsList });
+    }
+    await loadAccounts();
+    return;
+  }
 
   if (m.type === 'WARMUP_LOG_EVENT' && m.text) {
     appendLog(m.text);
