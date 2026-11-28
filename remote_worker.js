@@ -303,6 +303,13 @@ async function startExecutingRemoteTask(task, identity) {
         await executeScanMapsTask(task, payload, identity);
         break;
       }
+      case 'pause_task':
+      case 'resume_task':
+      case 'stop_task':
+      case 'stop_all': {
+        await executeRemoteCommand(task);
+        break;
+      }
       default: {
         throw new Error(`Loại tác vụ không được hỗ trợ: ${task.task_type}`);
       }

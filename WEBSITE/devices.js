@@ -68,8 +68,8 @@ async function refreshData() {
     renderDevicesTable(devices);
     renderTasksTable(tasks);
 
-    // Lấy log từ task đang chạy gần nhất nếu có
-    const runningTask = tasks.find(t => t.status === 'running' || t.status === 'pending');
+    // Lấy log từ task đang chạy gần nhất nếu có (ưu tiên task đang running)
+    const runningTask = tasks.find(t => t.status === 'running') || tasks.find(t => t.status === 'pending') || tasks[0];
     if (runningTask) {
       const logs = await supabaseGetTaskLogs(runningTask.id, 25);
       renderLiveLogs(logs, runningTask);

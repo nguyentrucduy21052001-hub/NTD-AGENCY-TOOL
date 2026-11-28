@@ -2311,7 +2311,7 @@ async function tick(accountId) {
     }
     if (!tab) {
       const { panelWindowId } = await chrome.storage.local.get('panelWindowId');
-      const tabOpts = { url: j.url, active: false };
+      const tabOpts = { url: j.url, active: true };
       if (panelWindowId) {
         try {
           const win = await chrome.windows.get(panelWindowId);
@@ -2319,6 +2319,9 @@ async function tick(accountId) {
         } catch (_) {}
       }
       tab = await chrome.tabs.create(tabOpts);
+      if (tab?.windowId) {
+        chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+      }
     }
     try {
       await chrome.tabs.update(tab.id, { autoDiscardable: false });
