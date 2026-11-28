@@ -96,6 +96,20 @@ async function loadConfig() {
   if (cfg.reels !== undefined) $('chkReels').checked = cfg.reels;
   if (cfg.notif !== undefined) $('chkNotif').checked = cfg.notif;
 
+  // Cấu hình Đồng ý kết bạn & Gửi lời mời kết bạn
+  if (cfg.acceptFriend !== undefined && $('chkAcceptFriend')) {
+    $('chkAcceptFriend').checked = Boolean(cfg.acceptFriend);
+  }
+  if (cfg.maxAcceptFriends && $('selectMaxAcceptFriends')) {
+    $('selectMaxAcceptFriends').value = cfg.maxAcceptFriends;
+  }
+  if (cfg.addFriend !== undefined && $('chkAddFriend')) {
+    $('chkAddFriend').checked = Boolean(cfg.addFriend);
+  }
+  if (cfg.maxAddFriends && $('selectMaxAddFriends')) {
+    $('selectMaxAddFriends').value = cfg.maxAddFriends;
+  }
+
   // Cấu hình đăng bài lên Trang cá nhân (Timeline)
   if (cfg.personalPost !== undefined && $('chkPersonalPost')) {
     $('chkPersonalPost').checked = Boolean(cfg.personalPost);
@@ -183,6 +197,10 @@ async function saveCurrentConfig() {
     maxLikes: parseInt($('selectMaxLikes')?.value || '5'),
     reels: $('chkReels')?.checked !== false,
     notif: $('chkNotif')?.checked !== false,
+    acceptFriend: Boolean($('chkAcceptFriend')?.checked),
+    maxAcceptFriends: parseInt($('selectMaxAcceptFriends')?.value || '5'),
+    addFriend: Boolean($('chkAddFriend')?.checked),
+    maxAddFriends: parseInt($('selectMaxAddFriends')?.value || '3'),
     personalPost: Boolean($('chkPersonalPost')?.checked),
     postCondition: $('selectPostCondition')?.value || 'always',
     postContentSource: $('selectPostContentSource')?.value || 'random_all',
@@ -645,7 +663,11 @@ function onAccountCompleted(index) {
     like: $('chkLike').checked,
     maxLikes: parseInt($('selectMaxLikes').value || '5'),
     reels: $('chkReels').checked,
-    notif: $('chkNotif').checked
+    notif: $('chkNotif').checked,
+    acceptFriend: Boolean($('chkAcceptFriend')?.checked),
+    maxAcceptFriends: parseInt($('selectMaxAcceptFriends')?.value || '5'),
+    addFriend: Boolean($('chkAddFriend')?.checked),
+    maxAddFriends: parseInt($('selectMaxAddFriends')?.value || '3')
   };
   const stats = generateDefaultAccountStats(warmupState.durationSec, cfg);
   saveDetailedReport(stats, currentAcc);
@@ -671,6 +693,10 @@ function generateDefaultAccountStats(durationSec, cfg) {
   const maxLikes = parseInt(cfg?.maxLikes || '5');
   const isReels = Boolean(cfg?.reels);
   const isNotif = Boolean(cfg?.notif);
+  const isAcceptFriend = Boolean(cfg?.acceptFriend);
+  const maxAcceptFriends = parseInt(cfg?.maxAcceptFriends || '5');
+  const isAddFriend = Boolean(cfg?.addFriend);
+  const maxAddFriends = parseInt(cfg?.maxAddFriends || '3');
 
   const feedSec = Math.round(durationSec * (isReels ? 0.5 : 0.85));
   const reelsSec = isReels ? Math.round(durationSec * 0.4) : 0;
@@ -686,7 +712,9 @@ function generateDefaultAccountStats(durationSec, cfg) {
     reelsLiked: isReels ? Math.max(1, Math.round(reelsSec / 25)) : 0,
     reelsSec: reelsSec,
     notifsChecked: isNotif ? 1 : 0,
-    notifSec: notifSec
+    notifSec: notifSec,
+    friendsAccepted: isAcceptFriend ? Math.max(1, Math.min(maxAcceptFriends, 3)) : 0,
+    friendsAdded: isAddFriend ? Math.max(1, Math.min(maxAddFriends, 2)) : 0
   };
 }
 
@@ -932,6 +960,15 @@ function formatDetailedActions(stats) {
   if (stats.notifsChecked > 0 || stats.notifSec > 0) {
     items.push(`🔔 Kiểm tra <b>Thông báo</b> (${stats.notifSec || 12}s)`);
   }
+  if (stats.friendsAccepted > 0) {
+    items.push(`🤝 Đã đồng ý kết bạn: <b>${stats.friendsAccepted} người</b>`);
+  }
+  if (stats.friendsAdded > 0) {
+    items.push(`👥 Đã gửi lời mời kết bạn: <b>${stats.friendsAdded} người</b>`);
+  }
+  if (stats.personalPostDone) {
+    items.push(`📝 Đã đăng 1 bài viết lên Trang cá nhân (Timeline)`);
+  }
   if (items.length === 0) {
     return 'Tương tác mô phỏng người thật';
   }
@@ -1054,6 +1091,10 @@ $('chkLike')?.addEventListener('change', saveCurrentConfig);
 $('selectMaxLikes')?.addEventListener('change', saveCurrentConfig);
 $('chkReels')?.addEventListener('change', saveCurrentConfig);
 $('chkNotif')?.addEventListener('change', saveCurrentConfig);
+$('chkAcceptFriend')?.addEventListener('change', saveCurrentConfig);
+$('selectMaxAcceptFriends')?.addEventListener('change', saveCurrentConfig);
+$('chkAddFriend')?.addEventListener('change', saveCurrentConfig);
+$('selectMaxAddFriends')?.addEventListener('change', saveCurrentConfig);
 
 $('btnStartWarmup')?.addEventListener('click', startWarmup);
 $('btnStopWarmup')?.addEventListener('click', togglePauseWarmup);

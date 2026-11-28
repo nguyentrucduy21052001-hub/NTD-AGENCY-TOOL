@@ -1145,6 +1145,46 @@
               <span class="badge badge-waiting">Khuyên dùng</span>
             </label>
 
+            <!-- Hành động 5: Tự động đồng ý kết bạn -->
+            <label class="action-item" for="chkAcceptFriend">
+              <div class="action-item-left">
+                <input type="checkbox" id="chkAcceptFriend" checked>
+                <div>
+                  <div class="action-item-label">Tự động đồng ý lời mời kết bạn (Friend Requests)</div>
+                  <div style="font-size:11px;color:var(--text-muted)">Xác nhận các lời mời kết bạn gửi đến nick tăng tệp bạn bè</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
+                <span style="font-size:12px;color:var(--text-muted)">Tối đa:</span>
+                <select id="selectMaxAcceptFriends" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-weight:700;font-size:12px">
+                  <option value="2">2 người</option>
+                  <option value="5" selected>5 người</option>
+                  <option value="10">10 người</option>
+                  <option value="20">20 người</option>
+                </select>
+              </div>
+            </label>
+
+            <!-- Hành động 6: Tự động gửi lời mời kết bạn theo gợi ý -->
+            <label class="action-item" for="chkAddFriend">
+              <div class="action-item-left">
+                <input type="checkbox" id="chkAddFriend">
+                <div>
+                  <div class="action-item-label">Tự động gửi lời mời kết bạn theo gợi ý (Friend Suggestions)</div>
+                  <div style="font-size:11px;color:var(--text-muted)">Gửi kết bạn từ danh sách gợi ý "Những người bạn có thể biết"</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px" onclick="event.stopPropagation()">
+                <span style="font-size:12px;color:var(--text-muted)">Tối đa:</span>
+                <select id="selectMaxAddFriends" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-weight:700;font-size:12px">
+                  <option value="2">2 người</option>
+                  <option value="3" selected>3 người</option>
+                  <option value="5">5 người</option>
+                  <option value="8">8 người</option>
+                </select>
+              </div>
+            </label>
+
             <!-- Hành động 5: Đăng bài viết lên Trang cá nhân (Timeline) -->
             <label class="action-item" for="chkPersonalPost" style="flex-direction:column;align-items:stretch;gap:10px">
               <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
@@ -1927,7 +1967,7 @@
   </div>
 </main>
 
-<script type="module" src="warmup.js?v=20261127_1655"></script>
+<script type="module" src="warmup.js?v=20261128_0945"></script>
 <script type="module" src="sidebar.js?v=20261127_0825"></script>
 </body>
 </html>

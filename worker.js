@@ -3900,6 +3900,10 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
   const enableNotif = config?.notif !== false;
 
   const { warmupConfig: savedWConfig = {} } = await chrome.storage.local.get('warmupConfig');
+  const enableAcceptFriend = Boolean(config?.acceptFriend ?? savedWConfig.acceptFriend ?? false);
+  const maxAcceptFriends = parseInt(config?.maxAcceptFriends || savedWConfig.maxAcceptFriends || '5');
+  const enableAddFriend = Boolean(config?.addFriend ?? savedWConfig.addFriend ?? false);
+  const maxAddFriends = parseInt(config?.maxAddFriends || savedWConfig.maxAddFriends || '3');
   const enablePersonalPost = Boolean(config?.personalPost ?? config?.enablePersonalPost ?? savedWConfig.personalPost);
   const postContentSource = config?.postContentSource ?? savedWConfig.postContentSource ?? 'random_all';
   const postCondition = config?.postCondition ?? savedWConfig.postCondition ?? 'always';
@@ -4165,7 +4169,11 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
           enableNotif,
           enablePersonalPost: Boolean(accountPostText),
           personalPostText: accountPostText,
-          personalPostPicture: accountPostPicture
+          personalPostPicture: accountPostPicture,
+          enableAcceptFriend,
+          maxAcceptFriends,
+          enableAddFriend,
+          maxAddFriends
         };
 
         // Gửi lệnh khởi động chu trình tương tác và nhận phản hồi đồng bộ tức thì
@@ -4258,6 +4266,12 @@ async function runWarmupLoop(accountIds, config, directAccounts = []) {
         }
         if (enableNotif) {
           actionsList.push(`<div class="report-action-line">• 🔔 Kiểm tra Thông báo (~15s)</div>`);
+        }
+        if (enableAcceptFriend) {
+          actionsList.push(`<div class="report-action-line">• 🤝 Đồng ý kết bạn (tối đa <b>${maxAcceptFriends} người</b>)</div>`);
+        }
+        if (enableAddFriend) {
+          actionsList.push(`<div class="report-action-line">• 👥 Gửi lời mời kết bạn (tối đa <b>${maxAddFriends} người</b>)</div>`);
         }
         if (accountPostText) {
           actionsList.push(`<div class="report-action-line">• 📝 Đăng bài lên Trang cá nhân ("${accountPostText.slice(0, 40)}...")</div>`);

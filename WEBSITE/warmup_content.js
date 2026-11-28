@@ -568,6 +568,172 @@
     }
   }
 
+  // ── Helper điều hướng SPA an toàn trên Facebook ─────────────────────────────
+  function navigateToFacebookSpa(path) {
+    try {
+      let link = document.querySelector(`a[href^="${path}"], a[href*="${path}"]`);
+      if (!link) {
+        link = document.createElement('a');
+        link.href = path;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        triggerHumanClick(link);
+        setTimeout(() => { try { link.remove(); } catch (_) {} }, 1000);
+      } else {
+        triggerHumanClick(link);
+      }
+    } catch (_) {}
+  }
+
+  // ── 7.1. Tự động đồng ý / chấp nhận lời mời kết bạn (Friend Requests) ─────────
+  async function runAcceptFriendRequests(maxCount, stats) {
+    if (isCancelled || maxCount <= 0) return;
+    sendLog(`🤝 Bắt đầu kiểm tra và đồng ý lời mời kết bạn (Tối đa ${maxCount} người)...`, '🤝');
+
+    try {
+      // 1. Chuyển sang mục Lời mời kết bạn nếu chưa ở đó
+      if (!window.location.pathname.includes('/friends')) {
+        const friendsLink = document.querySelector(`
+          a[href*="/friends/requests"],
+          a[href*="/friends"],
+          a[aria-label*="Bạn bè" i],
+          a[aria-label*="Friends" i]
+        `);
+        if (friendsLink) {
+          triggerHumanClick(friendsLink);
+          await delay(3000);
+        } else {
+          navigateToFacebookSpa('/friends/requests');
+          await delay(3000);
+        }
+      }
+
+      // Nếu đang ở /friends nhưng chưa ở /friends/requests, thử tìm nút / link lời mời
+      if (!window.location.pathname.includes('/friends/requests')) {
+        const reqLink = document.querySelector('a[href*="/friends/requests"]');
+        if (reqLink) {
+          triggerHumanClick(reqLink);
+          await delay(2500);
+        }
+      }
+
+      let acceptedCount = 0;
+      for (let attempt = 0; attempt < maxCount && !isCancelled; attempt++) {
+        // Tìm các nút Xác nhận / Chấp nhận lời mời
+        const confirmBtns = Array.from(document.querySelectorAll(`[role="button"], button`)).filter(el => {
+          if (!el || el.offsetParent === null) return false;
+          const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+          const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+
+          const isConfirm = text === 'xác nhận' || text === 'chấp nhận' || text === 'confirm' || text === 'accept';
+          const isConfirmAria = aria.includes('xác nhận') || aria.includes('chấp nhận') || aria.includes('confirm') || aria.includes('accept');
+          const isDelete = text.includes('xóa') || text.includes('gỡ') || text.includes('delete') || text.includes('remove');
+
+          return (isConfirm || isConfirmAria) && !isDelete;
+        });
+
+        if (confirmBtns.length === 0) {
+          if (attempt === 0) {
+            sendLog('ℹ️ Hiện không có lời mời kết bạn nào đang chờ duyệt.', 'ℹ️');
+          }
+          break;
+        }
+
+        const btn = confirmBtns[0];
+        const card = btn.closest('[role="listitem"], [data-virtualized="false"], div[class*="x1yztbdb"]') || btn.parentElement;
+        const nameEl = card ? card.querySelector('span, a[role="link"]') : null;
+        const friendName = nameEl ? (nameEl.innerText || '').trim() : 'Người dùng Facebook';
+
+        triggerHumanClick(btn);
+        acceptedCount++;
+        stats.friendsAccepted = (stats.friendsAccepted || 0) + 1;
+        sendLog(`🤝 Đã đồng ý kết bạn với "${friendName.slice(0, 30)}" (${acceptedCount}/${maxCount}).`, '✅');
+
+        await delay(3000 + Math.random() * 2500);
+      }
+      if (acceptedCount > 0) {
+        sendLog(`🎉 Hoàn tất đồng ý ${acceptedCount} lời mời kết bạn mới!`, '🎉');
+      }
+    } catch (err) {
+      sendLog(`Lỗi khi đồng ý kết bạn: ${err.message}`, '⚠️');
+    }
+  }
+
+  // ── 7.2. Tự động gửi lời mời kết bạn theo gợi ý (Friend Suggestions) ───────────
+  async function runSendFriendRequests(maxCount, stats) {
+    if (isCancelled || maxCount <= 0) return;
+    sendLog(`👥 Bắt đầu tìm gợi ý và gửi lời mời kết bạn (Tối đa ${maxCount} người)...`, '👥');
+
+    try {
+      // 1. Chuyển sang mục Gợi ý kết bạn nếu chưa ở đó
+      if (!window.location.pathname.includes('/friends/suggestions')) {
+        const suggLink = document.querySelector(`
+          a[href*="/friends/suggestions"],
+          a[href*="/friends"]
+        `);
+        if (suggLink) {
+          triggerHumanClick(suggLink);
+          await delay(3000);
+        } else {
+          navigateToFacebookSpa('/friends/suggestions');
+          await delay(3000);
+        }
+      }
+
+      // Thử tìm link con suggestions nếu đang ở /friends
+      if (!window.location.pathname.includes('/friends/suggestions')) {
+        const subSuggLink = document.querySelector('a[href*="/friends/suggestions"]');
+        if (subSuggLink) {
+          triggerHumanClick(subSuggLink);
+          await delay(2500);
+        }
+      }
+
+      let addedCount = 0;
+      for (let attempt = 0; attempt < maxCount && !isCancelled; attempt++) {
+        // Cuộn nhẹ để nạp thêm các thẻ gợi ý kết bạn
+        await humanScrollBy(250);
+        await delay(1200);
+
+        const addBtns = Array.from(document.querySelectorAll(`[role="button"], button`)).filter(el => {
+          if (!el || el.offsetParent === null) return false;
+          const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+          const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+
+          const isAdd = text === 'thêm bạn bè' || text === 'thêm bạn' || text === 'add friend';
+          const isAddAria = aria.includes('thêm bạn bè') || aria.includes('thêm bạn') || aria.includes('add friend');
+          const isCancel = text.includes('hủy') || text.includes('cancel') || text.includes('bạn bè') || text.includes('gỡ') || text.includes('remove');
+
+          return (isAdd || isAddAria) && !isCancel;
+        });
+
+        if (addBtns.length === 0) {
+          if (attempt === 0) {
+            sendLog('ℹ️ Không tìm thấy gợi ý kết bạn mới trên giao diện.', 'ℹ️');
+          }
+          break;
+        }
+
+        const btn = addBtns[0];
+        const card = btn.closest('[role="listitem"], [data-virtualized="false"], div[class*="x1yztbdb"]') || btn.parentElement;
+        const nameEl = card ? card.querySelector('span, a[role="link"]') : null;
+        const friendName = nameEl ? (nameEl.innerText || '').trim() : 'Gợi ý kết bạn';
+
+        triggerHumanClick(btn);
+        addedCount++;
+        stats.friendsAdded = (stats.friendsAdded || 0) + 1;
+        sendLog(`👥 Đã gửi lời mời kết bạn tới "${friendName.slice(0, 30)}" (${addedCount}/${maxCount}).`, '🚀');
+
+        await delay(4000 + Math.random() * 3000);
+      }
+      if (addedCount > 0) {
+        sendLog(`🎉 Hoàn tất gửi ${addedCount} lời mời kết bạn mới an toàn!`, '🎉');
+      }
+    } catch (err) {
+      sendLog(`Lỗi khi gửi kết bạn: ${err.message}`, '⚠️');
+    }
+  }
+
   // ── Helper điền văn bản vào bộ soạn Lexical của Facebook (ISOLATED fallback) ─
   async function fillFacebookEditor(el, text) {
     if (!el || !text) return false;
@@ -976,7 +1142,9 @@
           notifsChecked: 0,
           notifSec: 0,
           personalPostDone: false,
-          personalPostText: ''
+          personalPostText: '',
+          friendsAccepted: 0,
+          friendsAdded: 0
         };
 
         try {
@@ -1013,6 +1181,33 @@
               await runPersonalTimelinePost(cfg.personalPostText, stats, cfg.personalPostPicture);
             } catch (pErr) {
               sendLog(`⚠️ Lỗi khi đăng bài cá nhân: ${pErr.message}`, '⚠️');
+            }
+          }
+
+          // Bước 1.1: Tự động đồng ý lời mời kết bạn nếu được bật
+          if (cfg.enableAcceptFriend && !isCancelled) {
+            try {
+              await runAcceptFriendRequests(parseInt(cfg.maxAcceptFriends || '5'), stats);
+            } catch (aErr) {
+              sendLog(`⚠️ Lỗi khi đồng ý kết bạn: ${aErr.message}`, '⚠️');
+            }
+          }
+
+          // Bước 1.2: Tự động gửi lời mời kết bạn theo gợi ý nếu được bật
+          if (cfg.enableAddFriend && !isCancelled) {
+            try {
+              await runSendFriendRequests(parseInt(cfg.maxAddFriends || '3'), stats);
+            } catch (sErr) {
+              sendLog(`⚠️ Lỗi khi gửi kết bạn: ${sErr.message}`, '⚠️');
+            }
+          }
+
+          // Quay lại Trang chủ / Bảng tin nếu vừa điều hướng sang Bạn bè
+          if ((cfg.enableAcceptFriend || cfg.enableAddFriend) && !isCancelled) {
+            const homeLink = document.querySelector('a[href="/"], a[aria-label*="Trang chủ" i], a[aria-label*="Home" i], a[aria-label*="Facebook" i]');
+            if (homeLink) {
+              triggerHumanClick(homeLink);
+              await delay(2500);
             }
           }
 
