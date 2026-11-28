@@ -84,6 +84,8 @@ if (!activeLicense) {
     activeKey = 'manage';
   } else if (currentPath.includes('dashboard')) {
     activeKey = 'dashboard';
+  } else if (currentPath.includes('device')) {
+    activeKey = 'devices';
   } else if (currentPath.includes('panel') || currentPath === '/' || currentPath === '') {
     activeKey = 'panel';
   }
@@ -93,6 +95,7 @@ if (!activeLicense) {
   const urlPanel = chrome.runtime?.getURL ? chrome.runtime.getURL('panel.html') : 'panel.html';
   const urlGroups = chrome.runtime?.getURL ? chrome.runtime.getURL('groups.html') : 'groups.html';
   const urlAccounts = chrome.runtime?.getURL ? chrome.runtime.getURL('accounts.html') : 'accounts.html';
+  const urlDevices = chrome.runtime?.getURL ? chrome.runtime.getURL('devices.html') : 'devices.html';
   const urlWarmup = chrome.runtime?.getURL ? chrome.runtime.getURL('warmup.html') : 'warmup.html';
   const urlFanpages = chrome.runtime?.getURL ? chrome.runtime.getURL('fanpages.html') : 'fanpages.html';
   const urlMaps = chrome.runtime?.getURL ? chrome.runtime.getURL('maps.html') : 'maps.html';
@@ -167,6 +170,21 @@ if (!activeLicense) {
           <span class="ntd-sb-item-title">Quản lý tài khoản</span>
         </div>
         <span class="ntd-sb-item-badge" id="sbBadgeAccounts" style="display:none">0</span>
+      </a>
+
+      <!-- Mục: Quản lý thiết bị máy tính (Remote Control) -->
+      <a href="${urlDevices}" data-page="devices.html" class="ntd-sb-item ${activeKey === 'devices' ? 'active' : ''}" id="sbItemDevices" data-tooltip="Quản lý thiết bị máy tính &amp; Điều khiển từ xa">
+        <div class="ntd-sb-item-icon" style="color:#38bdf8">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        </div>
+        <div class="ntd-sb-item-content">
+          <span class="ntd-sb-item-title">Quản lý thiết bị</span>
+        </div>
+        <span class="ntd-sb-item-badge" id="sbBadgeDevices" style="display:inline-flex;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3)">Remote</span>
       </a>
 
       <!-- Mục 3: Nuôi tài khoản Facebook -->

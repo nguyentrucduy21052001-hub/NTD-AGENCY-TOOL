@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="NTD Agency">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <title>Quản lý thiết bị &amp; Điều khiển từ xa – NTD Agency</title>
+  <script src="web_adapter.js?v=20261125_1700"></script>
+  <script>
+    (function () {
+      var t = localStorage.getItem('ntd_theme') || 'dark';
+      var isDark = t === 'dark' || (!localStorage.getItem('ntd_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (isDark) {
+        document.documentElement.classList.add('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#070b14';
+        document.documentElement.style.colorScheme = 'dark';
+      } else {
+        document.documentElement.classList.remove('ntd-dark-theme');
+        document.documentElement.style.backgroundColor = '#f3f5fa';
+        document.documentElement.style.colorScheme = 'light';
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <style>
+    .dev-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .dev-kpi-card {
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 16px 20px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+    .dev-kpi-val {
+      font-size: 26px;
+      font-weight: 900;
+      color: #38bdf8;
+      margin-top: 4px;
+    }
+    .dev-kpi-lbl {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+    .dev-table-wrap {
+      background: #0f172a;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    }
+    .dev-table-hdr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.02);
+    }
+    .dev-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+    .dev-table th {
+      background: #090d16;
+      color: #94a3b8;
+      font-weight: 700;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .dev-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      color: #f8fafc;
+    }
+    .dev-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11.5px;
+      font-weight: 800;
+    }
+    .status-pill.online {
+      background: rgba(16,185,129,0.15);
+      color: #34d399;
+      border: 1px solid rgba(16,185,129,0.3);
+    }
+    .status-pill.running {
+      background: rgba(59,130,246,0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59,130,246,0.3);
+    }
+    .status-pill.offline {
+      background: rgba(148,163,184,0.15);
+      color: #94a3b8;
+      border: 1px solid rgba(148,163,184,0.3);
+    }
+    .btn-act {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all .2s;
+    }
+    .btn-act:hover {
+      background: #334155;
+    }
+    .btn-act.danger {
+      border-color: rgba(239,68,68,0.4);
+      background: rgba(239,68,68,0.15);
+      color: #f87171;
+    }
+    .btn-act.danger:hover {
+      background: rgba(239,68,68,0.25);
+    }
+  </style>
+</head>
+
+<body class="ntd-dark-theme has-sidebar">
+  <main style="max-width:1200px;margin:28px auto;padding:0 20px">
+    <!-- Top Header -->
+    <header style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="font-size:26px;display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;background:rgba(56,189,248,0.15);color:#38bdf8">📡</span>
+        <div>
+          <h1 style="margin:0;font-size:22px;font-weight:900;color:#f8fafc">Quản lý Thiết bị &amp; Điều khiển từ xa</h1>
+          <p style="margin:4px 0 0;font-size:13px;color:#94a3b8">Quản lý các máy tính thực thi, gửi và giám sát các tác vụ tự động hóa Facebook từ iPhone hoặc bất kỳ đâu.</p>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px">
+        <a href="panel.html" class="btn-act" style="background:#2563eb;color:#ffffff;border-color:#2563eb;text-decoration:none">
+          ▶ Đi tới Đăng bài
+        </a>
+        <button type="button" id="btnRefreshAll" class="btn-act">
+          🔄 Làm mới dữ liệu
+        </button>
+      </div>
+    </header>
+
+    <!-- KPI Stats Grid -->
+    <div class="dev-kpi-grid">
+      <div class="dev-kpi-card">
+        <div class="dev-kpi-lbl">TỔNG MÁY TÍNH KẾT NỐI</div>
+        <div class="dev-kpi-val" id="kpiTotalDevices">0</div>
+      </div>
+      <div class="dev-kpi-card">
+        <div class="dev-kpi-lbl">MÁY TÍNH ĐANG ONLINE</div>
+        <div class="dev-kpi-val" style="color:#10b981" id="kpiOnlineDevices">0</div>
+      </div>
+      <div class="dev-kpi-card">
+        <div class="dev-kpi-lbl">MÁY TÍNH ĐANG CHẠY TÁC VỤ</div>
+        <div class="dev-kpi-val" style="color:#f59e0b" id="kpiRunningDevices">0</div>
+      </div>
+      <div class="dev-kpi-card">
+        <div class="dev-kpi-lbl">TÁC VỤ HOÀN THÀNH</div>
+        <div class="dev-kpi-val" style="color:#a855f7" id="kpiCompletedTasks">0</div>
+      </div>
+    </div>
+
+    <!-- Section 1: Danh sách máy tính kết nối -->
+    <div class="dev-table-wrap">
+      <div class="dev-table-hdr">
+        <div>
+          <h2 style="margin:0;font-size:16px;font-weight:800;color:#f8fafc">Danh sách Máy tính thực thi (Desktop Extension Workers)</h2>
+          <div style="font-size:12px;color:#94a3b8;margin-top:2px">Các máy tính đã cài Chrome Extension và đăng nhập tài khoản của bạn.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button type="button" id="btnStopAllGlobal" class="btn-act danger">
+            ⏹ Dừng toàn bộ máy tính
+          </button>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="dev-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tên máy tính</th>
+              <th>Mã máy (Device ID)</th>
+              <th>Extension</th>
+              <th>Trạng thái</th>
+              <th>Nhịp tim (Heartbeat)</th>
+              <th>Tác vụ hiện tại</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody">
+            <tr>
+              <td colspan="8" style="text-align:center;padding:30px;color:#64748b">
+                ⏳ Đang tải danh sách máy tính từ Supabase...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Section 2: Hàng đợi tác vụ từ xa (Remote Tasks) -->
+    <div class="dev-table-wrap">
+      <div class="dev-table-hdr">
+        <div>
+          <h2 style="margin:0;font-size:16px;font-weight:800;color:#f8fafc">Hàng đợi Tác vụ Điều khiển từ xa (Remote Tasks)</h2>
+          <div style="font-size:12px;color:#94a3b8;margin-top:2px">Các tác vụ Đăng bài, Nuôi nick, Quét nhóm được gửi từ điện thoại/web.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="activeTasksCount" style="font-size:12px;color:#38bdf8;font-weight:700">0 tác vụ</span>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="dev-table">
+          <thead>
+            <tr>
+              <th>Task ID</th>
+              <th>Loại tác vụ</th>
+              <th>Máy thực thi</th>
+              <th>Tiến độ</th>
+              <th>Trạng thái</th>
+              <th>Gửi lúc</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="tasksTableBody">
+            <tr>
+              <td colspan="7" style="text-align:center;padding:30px;color:#64748b">
+                Chưa có tác vụ nào trong hàng đợi.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Section 3: Live Terminal Logs -->
+    <div class="dev-table-wrap" style="margin-bottom:40px">
+      <div class="dev-table-hdr">
+        <div>
+          <h2 style="margin:0;font-size:16px;font-weight:800;color:#f8fafc">Nhật ký thực thi trực tiếp từ xa (Live Logs Console)</h2>
+          <div style="font-size:12px;color:#94a3b8;margin-top:2px">Theo dõi kết quả thực thi từng bước gửi về từ máy tính theo thời gian thực.</div>
+        </div>
+        <button type="button" id="btnClearLogsView" class="btn-act" style="font-size:11.5px">
+          Dọn màn hình log
+        </button>
+      </div>
+
+      <div id="liveLogsContainer" style="background:#030712;padding:16px 20px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.6;color:#10b981;max-height:220px;overflow-y:auto">
+        <div style="color:#64748b;font-style:italic">Chờ nhật ký thực thi từ máy tính...</div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="sidebar.js?v=20261125_1700"></script>
+  <script type="module" src="devices.js"></script>
+</body>
+</html>
