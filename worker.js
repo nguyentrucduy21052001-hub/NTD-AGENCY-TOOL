@@ -5148,11 +5148,111 @@ try {
   chrome.alarms.create('rinRetry', { periodInMinutes: 1 });
 } catch (_) {}
 
+// ── QUẢN LÝ CÁCH LY TÀI KHOẢN KHI BỊ SPAM RATE LIMIT (3 NGÀY) ──────────────────
+/**
+ * Tự động kiểm tra và mở khóa cho các tài khoản đã hết hạn 3 ngày cách ly Spam Rate Limit.
+ * Tự động đưa tài khoản ra khỏi nhóm "Acc nuôi" và trả về nhóm ban đầu, cho phép đăng bài lại.
+ * @param {Array} accounts
+ * @returns {{ changed: boolean, accounts: Array, releasedAccounts: Array }}
+ */
+function checkAndReleaseRateLimitAccounts(accounts) {
+  if (!Array.isArray(accounts)) return { changed: false, accounts: [], releasedAccounts: [] };
+
+  const now = Date.now();
+  let changed = false;
+  const releasedAccounts = [];
+
+  const updatedAccounts = accounts.map(acc => {
+    if (acc && acc.rateLimitRestrictedUntil) {
+      if (now >= acc.rateLimitRestrictedUntil) {
+        changed = true;
+        const previousGrp = acc.previousAccountGroup || '';
+        const oldGroup = acc.accountGroup;
+
+        const restoredAcc = {
+          ...acc,
+          rateLimitRestricted: false,
+          accountGroup: (oldGroup === 'Acc nuôi') ? previousGrp : oldGroup
+        };
+        delete restoredAcc.rateLimitRestrictedUntil;
+        delete restoredAcc.rateLimitRestrictedAt;
+        delete restoredAcc.rateLimitReason;
+        delete restoredAcc.previousAccountGroup;
+
+        releasedAccounts.push(restoredAcc);
+        return restoredAcc;
+      }
+    }
+    return acc;
+  });
+
+  return { changed, accounts: updatedAccounts, releasedAccounts };
+}
+
+async function autoReleaseRateLimitAccountsInStorage() {
+  try {
+    const { accounts = [] } = await chrome.storage.local.get('accounts');
+    const { changed, accounts: updatedAccounts, releasedAccounts } = checkAndReleaseRateLimitAccounts(accounts);
+    if (changed) {
+      await chrome.storage.local.set({ accounts: updatedAccounts });
+      if (releasedAccounts.length > 0) {
+        const names = releasedAccounts.map(a => `"${a.name}"`).join(', ');
+        broadcastWarmupLog(`🎉 Đã tự động hết hạn 3 ngày cách ly Spam Rate Limit cho nick: ${names}. Nick đã được chuyển ra khỏi nhóm "Acc nuôi" và có thể tiếp tục đăng bài!`, '🎉');
+      }
+    }
+  } catch (_) {}
+}
+
+async function isolateAccountForSpamRateLimit(accountId, reason = '') {
+  const { accounts = [], accountGroupsList = [] } = await chrome.storage.local.get(['accounts', 'accountGroupsList']);
+  const accList = Array.isArray(accounts) ? [...accounts] : [];
+  const accIdx = accList.findIndex(a => a.id === accountId);
+  if (accIdx === -1) return;
+
+  const acc = { ...accList[accIdx] };
+  const now = Date.now();
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000; // 3 ngày cách ly = 72 giờ
+  const restrictedUntil = now + threeDaysMs;
+
+  // Lưu lại nhóm ban đầu trước khi bị cách ly nếu chưa lưu
+  if (acc.accountGroup !== 'Acc nuôi') {
+    acc.previousAccountGroup = acc.accountGroup || '';
+  }
+  acc.accountGroup = 'Acc nuôi';
+  acc.rateLimitRestricted = true;
+  acc.rateLimitRestrictedAt = now;
+  acc.rateLimitRestrictedUntil = restrictedUntil;
+  acc.rateLimitReason = reason || 'Facebook cảnh báo Spam Rate Limit khi đăng bài';
+
+  accList[accIdx] = acc;
+  await chrome.storage.local.set({ accounts: accList });
+
+  // Đảm bảo nhóm "Acc nuôi" tồn tại trong danh mục nhóm
+  const cleanGroups = Array.isArray(accountGroupsList) ? [...accountGroupsList] : [];
+  if (!cleanGroups.includes('Acc nuôi')) {
+    cleanGroups.push('Acc nuôi');
+    await chrome.storage.local.set({ accountGroupsList: cleanGroups });
+  }
+
+  const unlockDateStr = new Date(restrictedUntil).toLocaleString('vi-VN');
+  broadcastWarmupLog(`🛑 Tài khoản "${acc.name}" gặp cảnh báo Spam Rate Limit! Đã tự động chuyển vào nhóm "Acc nuôi" và khóa quyền đăng bài trong 3 ngày (Đến: ${unlockDateStr}) để bảo vệ an toàn cho nick.`, '🛑');
+
+  try {
+    chrome.runtime.sendMessage({
+      type: 'ACCOUNT_RATE_LIMIT_RESTRICTED',
+      accountId: acc.id,
+      accountName: acc.name,
+      restrictedUntil
+    }).catch(() => {});
+  } catch (_) {}
+}
+
 // ── Global alarm: tick all running campaigns ──────────────────────────────────
 chrome.alarms.onAlarm.addListener(async a => {
   if (a.name === 'auto_cookie_sync') {
     autoSyncFacebookCookies().catch(() => {});
     checkCurrentLicense(true).catch(() => {});
+    autoReleaseRateLimitAccountsInStorage().catch(() => {});
     return;
   }
 
@@ -5317,6 +5417,7 @@ chrome.tabs.onRemoved.addListener(id => {
 // ── On startup: pause all running campaigns & setup alarms ────────────────────
 if (chrome.runtime?.onStartup?.addListener) {
   chrome.runtime.onStartup.addListener(() => {
+    autoReleaseRateLimitAccountsInStorage().catch(() => {});
     try { chrome.alarms.create('rinRetry', { periodInMinutes: 1 }); } catch (_) {}
     readCampaigns().then(async campaigns => {
       let changed = false;
@@ -8493,9 +8594,16 @@ function handleRuntimeMessage(m, sender, reply) {
 
           c.state = 'stopped';
           c.active = null;
-          c.breakNote = '🛑 ĐÃ DỪNG HẲN: Facebook giới hạn tính năng (Spam Rate Limit). Đã tự động đóng tab và dừng nick để bảo vệ tài khoản!';
+          c.breakNote = '🛑 ĐÃ DỪNG HẲN: Facebook giới hạn tính năng (Spam Rate Limit). Đã tự động chuyển vào nhóm "Acc nuôi" và khóa đăng bài 3 ngày để bảo vệ tài khoản!';
           try { await chrome.alarms.clear('tick_' + accountId); } catch (_) {}
           await saveCampaigns(campaigns);
+
+          // 🛑 TỰ ĐỘNG CHUYỂN TÀI KHOẢN VÀO NHÓM "Acc nuôi" VÀ KHÓA ĐĂNG BÀI TRONG 3 NGÀY
+          try {
+            await isolateAccountForSpamRateLimit(accountId, m.note);
+          } catch (isoErr) {
+            console.error('[RateLimit] Lỗi cách ly tài khoản:', isoErr);
+          }
 
           if (closeTabId) {
             await safeRemoveFbTab(closeTabId);

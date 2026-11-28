@@ -143,10 +143,69 @@ $('tabCookie').onclick = () => {
   $('panePass').classList.remove('show');
 };
 
+// ── Quản lý cách ly tài khoản khi bị Spam Rate Limit (3 ngày) ──────────────────
+function checkAndReleaseRateLimitAccounts(accounts) {
+  if (!Array.isArray(accounts)) return { changed: false, accounts: [], releasedAccounts: [] };
+
+  const now = Date.now();
+  let changed = false;
+  const releasedAccounts = [];
+
+  const updatedAccounts = accounts.map(acc => {
+    if (acc && acc.rateLimitRestrictedUntil) {
+      if (now >= acc.rateLimitRestrictedUntil) {
+        changed = true;
+        const previousGrp = acc.previousAccountGroup || '';
+        const oldGroup = acc.accountGroup;
+
+        const restoredAcc = {
+          ...acc,
+          rateLimitRestricted: false,
+          accountGroup: (oldGroup === 'Acc nuôi') ? previousGrp : oldGroup
+        };
+        delete restoredAcc.rateLimitRestrictedUntil;
+        delete restoredAcc.rateLimitRestrictedAt;
+        delete restoredAcc.rateLimitReason;
+        delete restoredAcc.previousAccountGroup;
+
+        releasedAccounts.push(restoredAcc);
+        return restoredAcc;
+      }
+    }
+    return acc;
+  });
+
+  return { changed, accounts: updatedAccounts, releasedAccounts };
+}
+
+function getRateLimitRemainingText(restrictedUntil) {
+  if (!restrictedUntil) return '';
+  const diffMs = restrictedUntil - Date.now();
+  if (diffMs <= 0) return '0 giờ';
+  const totalHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days > 0) {
+    return hours > 0 ? `${days} ngày ${hours} giờ` : `${days} ngày`;
+  }
+  return `${hours} giờ`;
+}
+
+function isAccountRateLimited(acc) {
+  if (!acc) return false;
+  return Boolean(acc.rateLimitRestrictedUntil && Date.now() < acc.rateLimitRestrictedUntil);
+}
+
 // ── Load / Save accounts ──────────────────────────────────────────────────────
 async function loadAccounts() {
   const { accounts } = await chrome.storage.local.get('accounts');
-  return accounts || [];
+  const rawAccounts = accounts || [];
+  const { changed, accounts: updatedAccounts } = checkAndReleaseRateLimitAccounts(rawAccounts);
+  if (changed) {
+    await chrome.storage.local.set({ accounts: updatedAccounts });
+    return updatedAccounts;
+  }
+  return rawAccounts;
 }
 let _saveAccountsCloudSyncTimer = null;
 async function saveAccounts(accounts) {
@@ -1583,6 +1642,12 @@ async function render() {
     let statusBadge = `<span class="badge badge-ok" title="Đang tự động đồng bộ cookie theo thời gian thực">Cookie OK · Tự động đồng bộ</span>`;
     if (!cUser) statusBadge = `<span class="badge badge-warn">Cookies lỗi</span>`;
     if (isRunning) statusBadge += `<span class="badge badge-run">Đang chạy</span>`;
+
+    const isRestricted = isAccountRateLimited(acc);
+    const remText = isRestricted ? getRateLimitRemainingText(acc.rateLimitRestrictedUntil) : '';
+    if (isRestricted) {
+      statusBadge += ` <span class="badge" style="background:#fee2e2;color:#dc2626;border:1px solid #fecaca;font-weight:700" title="Tài khoản gặp cảnh báo Spam Rate Limit, đang cách ly 3 ngày trong nhóm 'Acc nuôi'. Hết 3 ngày sẽ tự động mở khóa.">⏳ Cách ly 3 ngày (còn ${remText})</span>`;
+    }
 
     if (acc.addedVia === 'via' || (acc.password && acc.twoFactor)) {
       statusBadge += ` <span class="badge" style="background:#fff4ed;color:#ea580c;border:1px solid #fdba74">VIA (Pass+2FA)</span>`;

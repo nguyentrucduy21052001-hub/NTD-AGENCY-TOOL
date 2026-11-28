@@ -56,6 +56,74 @@ let schedSlotPostChoiceMap = {};
 let schedFilter = 'all';
 let _webSchedTicking = false;
 
+// ── Quản lý cách ly tài khoản khi bị Spam Rate Limit (3 ngày) ──────────────────
+function checkAndReleaseRateLimitAccounts(accounts) {
+  if (!Array.isArray(accounts)) return { changed: false, accounts: [], releasedAccounts: [] };
+
+  const now = Date.now();
+  let changed = false;
+  const releasedAccounts = [];
+
+  const updatedAccounts = accounts.map(acc => {
+    if (acc && acc.rateLimitRestrictedUntil) {
+      if (now >= acc.rateLimitRestrictedUntil) {
+        changed = true;
+        const previousGrp = acc.previousAccountGroup || '';
+        const oldGroup = acc.accountGroup;
+
+        const restoredAcc = {
+          ...acc,
+          rateLimitRestricted: false,
+          accountGroup: (oldGroup === 'Acc nuôi') ? previousGrp : oldGroup
+        };
+        delete restoredAcc.rateLimitRestrictedUntil;
+        delete restoredAcc.rateLimitRestrictedAt;
+        delete restoredAcc.rateLimitReason;
+        delete restoredAcc.previousAccountGroup;
+
+        releasedAccounts.push(restoredAcc);
+        return restoredAcc;
+      }
+    }
+    return acc;
+  });
+
+  return { changed, accounts: updatedAccounts, releasedAccounts };
+}
+
+function getRateLimitRemainingText(restrictedUntil) {
+  if (!restrictedUntil) return '';
+  const diffMs = restrictedUntil - Date.now();
+  if (diffMs <= 0) return '0 giờ';
+  const totalHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days > 0) {
+    return hours > 0 ? `${days} ngày ${hours} giờ` : `${days} ngày`;
+  }
+  return `${hours} giờ`;
+}
+
+function isAccountRateLimited(acc) {
+  if (!acc) return false;
+  return Boolean(acc.rateLimitRestrictedUntil && Date.now() < acc.rateLimitRestrictedUntil);
+}
+
+async function getCleanAccountsWithRateLimitCheck() {
+  try {
+    const { accounts = [] } = await chrome.storage.local.get('accounts');
+    const rawAccounts = Array.isArray(accounts) ? accounts : [];
+    const { changed, accounts: updatedAccounts } = checkAndReleaseRateLimitAccounts(rawAccounts);
+    if (changed) {
+      await chrome.storage.local.set({ accounts: updatedAccounts });
+      return updatedAccounts;
+    }
+    return rawAccounts;
+  } catch (_) {
+    return [];
+  }
+}
+
 // ── State for Shared Groups Account Selector ──────────────────────────────────
 let sharedSelectedAccIds = new Set();
 let sharedAccountType = 'all'; // 'all' | 'personal' | 'fanpage'
@@ -1681,8 +1749,8 @@ async function renderAccountCategoryAssignments() {
   const container = $('accountCategoryAssignList');
   if (!container) return;
 
-  const { accounts, groupCategories, campaigns } = await chrome.storage.local.get(['accounts', 'groupCategories', 'campaigns']);
-  const accs = accounts || [];
+  const accs = await getCleanAccountsWithRateLimitCheck();
+  const { groupCategories, campaigns } = await chrome.storage.local.get(['groupCategories', 'campaigns']);
   loadedCategories = groupCategories || [];
 
   updateMasterKpiMetrics(accs, campaigns || {});
@@ -1817,41 +1885,52 @@ async function renderAccountCategoryAssignments() {
   }
 
   const renderAccItem = (acc) => {
+    const isRestricted = isAccountRateLimited(acc);
+    const remText = isRestricted ? getRateLimitRemainingText(acc.rateLimitRestrictedUntil) : '';
     let selectedCatIds = accountCategoryMap[acc.id] || [];
     if (!Array.isArray(selectedCatIds)) selectedCatIds = [];
+    if (isRestricted) selectedCatIds = []; // Bị cách ly thì không chọn danh mục
 
     const initialSet = calcAccountGroups(selectedCatIds);
-    const isChecked = initialSet.size > 0;
-    const isExpanded = expandedCategoryAccs.has(acc.id);
+    const isChecked = !isRestricted && initialSet.size > 0;
+    const isExpanded = !isRestricted && expandedCategoryAccs.has(acc.id);
 
     const selCats = loadedCategories.filter(c => selectedCatIds.includes(c.id));
-    const catSummaryText = selCats.length > 0 
-      ? selCats.map(c => c.name).join(', ')
-      : 'Chưa chọn danh mục nhóm';
+    const catSummaryText = isRestricted
+      ? `🛑 Bị Facebook giới hạn Spam Rate Limit · Cách ly 3 ngày trong "Acc nuôi" (Còn ${remText})`
+      : (selCats.length > 0 ? selCats.map(c => c.name).join(', ') : 'Chưa chọn danh mục nhóm');
 
     const item = document.createElement('div');
-    item.className = `cfg-acc-item ${isExpanded ? 'expanded' : ''}`;
+    item.className = `cfg-acc-item ${isExpanded ? 'expanded' : ''} ${isRestricted ? 'restricted-quarantine' : ''}`;
+    if (isRestricted) {
+      item.style.opacity = '0.78';
+      item.style.borderColor = '#fca5a5';
+      item.style.background = '#fef2f2';
+    }
     item.dataset.id = acc.id;
 
     item.innerHTML = `
       <div class="cfg-acc-row" data-id="${acc.id}">
         <div class="cfg-acc-left">
           <div class="cfg-acc-check-icon ${isChecked ? 'checked' : ''}" id="cfgCheckIcon_${acc.id}">
-            ${isChecked ? '✓' : ''}
+            ${isChecked ? '✓' : (isRestricted ? '🛑' : '')}
           </div>
           <div class="cfg-acc-info">
             <div class="cfg-acc-name">
               <span>${acc.name}</span>
+              ${isRestricted ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#fee2e2;color:#dc2626;font-weight:700;border:1px solid #fecaca;margin-left:6px">⏳ Cách ly (${remText})</span>` : ''}
             </div>
             <div class="cfg-acc-sub" id="cfgAccSub_${acc.id}">
-              <b>${initialSet.size} nhóm</b> · <span>${catSummaryText}</span>
+              ${isRestricted ? `<b style="color:#dc2626">${catSummaryText}</b>` : `<b>${initialSet.size} nhóm</b> · <span>${catSummaryText}</span>`}
               ${acc.type === 'fanpage' ? ' · <span class="cfg-fp-limit-text" style="color:#ef4444;font-weight:600">Tối đa 5 bài/ngày</span>' : ''}
             </div>
           </div>
         </div>
         <div class="cfg-acc-post-pick" id="cfgAccPostPick_${acc.id}"></div>
         <div class="cfg-acc-right">
-          <span class="cfg-badge ${isChecked ? 'active' : ''}" id="cfgBadge_${acc.id}">${initialSet.size} nhóm</span>
+          <span class="cfg-badge ${isChecked ? 'active' : ''}" id="cfgBadge_${acc.id}" style="${isRestricted ? 'background:#fee2e2;color:#dc2626;border-color:#fca5a5' : ''}">
+            ${isRestricted ? 'Cách ly 3 ngày' : `${initialSet.size} nhóm`}
+          </span>
           <span class="cfg-chevron">›</span>
         </div>
       </div>
@@ -1884,6 +1963,10 @@ async function renderAccountCategoryAssignments() {
     const rowEl = item.querySelector('.cfg-acc-row');
     const drawerEl = item.querySelector('.cfg-acc-drawer');
     rowEl.onclick = () => {
+      if (isRestricted) {
+        alert(`⚠️ Tài khoản "${acc.name}" đang bị Facebook giới hạn tính năng (Spam Rate Limit) và đang được cách ly trong nhóm "Acc nuôi" trong 3 ngày.\n\n• Thời gian cách ly còn lại: ${remText}\n• Sau 3 ngày nick sẽ tự động mở khóa và có thể đăng bài trở lại.`);
+        return;
+      }
       const willExpand = !expandedCategoryAccs.has(acc.id);
       if (willExpand) {
         expandedCategoryAccs.add(acc.id);
@@ -2138,7 +2221,7 @@ async function renderSharedAccountsSelector() {
   const container = $('sharedAccountList');
   if (!container) return;
 
-  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const accounts = await getCleanAccountsWithRateLimitCheck();
   await updateAccountGroupFilterDropdowns(accounts);
   
   if (!sharedAccountsInitialized) {
@@ -2146,9 +2229,16 @@ async function renderSharedAccountsSelector() {
     if (saved?.sharedSelectedAccounts && Array.isArray(saved.sharedSelectedAccounts)) {
       sharedSelectedAccIds = new Set(saved.sharedSelectedAccounts);
     } else {
-      sharedSelectedAccIds = new Set(accounts.map(a => a.id));
+      sharedSelectedAccIds = new Set(accounts.filter(a => !isAccountRateLimited(a)).map(a => a.id));
     }
   }
+
+  // Đảm bảo không tài khoản nào đang bị cách ly mà vẫn được chọn
+  accounts.forEach(a => {
+    if (isAccountRateLimited(a)) {
+      sharedSelectedAccIds.delete(a.id);
+    }
+  });
 
   const personalAccs = accounts.filter(a => a.type !== 'fanpage');
   const fanpageAccs = accounts.filter(a => a.type === 'fanpage');
@@ -2199,15 +2289,24 @@ async function renderSharedAccountsSelector() {
   const frag = document.createDocumentFragment();
 
   filtered.forEach(acc => {
-    const isSelected = sharedSelectedAccIds.has(acc.id);
+    const isRestricted = isAccountRateLimited(acc);
+    const remText = isRestricted ? getRateLimitRemainingText(acc.rateLimitRestrictedUntil) : '';
+    const isSelected = !isRestricted && sharedSelectedAccIds.has(acc.id);
     const isFanpage = acc.type === 'fanpage';
 
     const card = document.createElement('div');
-    card.className = `shared-acc-card ${isSelected ? 'selected' : ''}`;
+    card.className = `shared-acc-card ${isSelected ? 'selected' : ''} ${isRestricted ? 'restricted-quarantine' : ''}`;
+    if (isRestricted) {
+      card.style.opacity = '0.78';
+      card.style.borderColor = '#fca5a5';
+      card.style.background = '#fef2f2';
+    }
     card.dataset.accId = acc.id;
 
     let groupDistributionText = '';
-    if (!isSelected) {
+    if (isRestricted) {
+      groupDistributionText = `<span style="color:#dc2626;font-size:11px;font-weight:700">🛑 Đang cách ly Spam Rate Limit (${remText})</span>`;
+    } else if (!isSelected) {
       groupDistributionText = '<span style="color:#94a3b8;font-size:11px">Không chạy</span>';
     } else if (totalGroups === 0) {
       groupDistributionText = '<span style="color:#94a3b8;font-size:11px">Chưa nhập link nhóm</span>';
@@ -2224,19 +2323,20 @@ async function renderSharedAccountsSelector() {
 
     card.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-        <input type="checkbox" class="shared-acc-cb" ${isSelected ? 'checked' : ''} style="cursor:pointer;accent-color:#0f172a;width:15px;height:15px;flex-shrink:0">
+        <input type="checkbox" class="shared-acc-cb" ${isSelected ? 'checked' : ''} ${isRestricted ? 'disabled' : ''} style="cursor:${isRestricted ? 'not-allowed' : 'pointer'};accent-color:#0f172a;width:15px;height:15px;flex-shrink:0">
         <span style="font-size:14px;flex-shrink:0">${isFanpage ? '🚩' : '👤'}</span>
         <div style="display:flex;flex-direction:column;min-width:0;flex:1">
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12.5px;font-weight:700;color:var(--text, #0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${acc.name}</span>
             <span class="cfg-acc-type-pill ${isFanpage ? 'fanpage' : 'personal'}" style="font-size:10px;padding:1px 5px;border-radius:4px">${isFanpage ? 'Fanpage' : 'Cá nhân'}</span>
             ${acc.accountGroup ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#e0f2fe;color:#0369a1;font-weight:700;border:1px solid #bae6fd" title="Nhóm: ${acc.accountGroup}">📁 ${acc.accountGroup}</span>` : ''}
+            ${isRestricted ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:#fee2e2;color:#dc2626;font-weight:700;border:1px solid #fecaca" title="Bị cảnh báo Spam Rate Limit, cách ly 3 ngày trong Acc nuôi">⏳ Cách ly ${remText}</span>` : ''}
           </div>
           <div class="shared-group-dist" style="margin-top:1px">${groupDistributionText}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-        <button type="button" class="shared-post-btn" data-acc-id="${acc.id}" title="Bấm để đổi bài viết gán cho tài khoản này (Bài 1, Bài 2, Bài 3)">
+        <button type="button" class="shared-post-btn" data-acc-id="${acc.id}" title="Bấm để đổi bài viết gán cho tài khoản này (Bài 1, Bài 2, Bài 3)" ${isRestricted ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>
           Bài ${curPostIdx + 1}
         </button>
       </div>
@@ -2244,6 +2344,10 @@ async function renderSharedAccountsSelector() {
 
     const cb = card.querySelector('.shared-acc-cb');
     const toggleSelect = (e) => {
+      if (isRestricted) {
+        alert(`⚠️ Tài khoản "${acc.name}" đang bị Facebook giới hạn tính năng (Spam Rate Limit) và bị cách ly trong nhóm "Acc nuôi".\n\n• Thời gian cách ly còn lại: ${remText}\n• Không thể chọn tài khoản này để đăng bài trong 3 ngày để bảo vệ an toàn cho nick.`);
+        return;
+      }
       if (e.target.closest('.shared-post-btn')) return;
       if (e.target !== cb) cb.checked = !cb.checked;
       if (cb.checked) {
@@ -2262,6 +2366,7 @@ async function renderSharedAccountsSelector() {
     const postBtn = card.querySelector('.shared-post-btn');
     if (postBtn) {
       postBtn.addEventListener('click', (e) => {
+        if (isRestricted) return;
         e.stopPropagation();
         const currentVal = (accountPostMap && accountPostMap[acc.id] !== undefined)
           ? Number(accountPostMap[acc.id])
@@ -2280,17 +2385,19 @@ async function renderSharedAccountsSelector() {
 }
 
 $('sharedSelectAllBtn')?.addEventListener('click', async () => {
-  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const accounts = await getCleanAccountsWithRateLimitCheck();
   let targetPool = accounts;
   if (sharedAccountType === 'personal') targetPool = accounts.filter(a => a.type !== 'fanpage');
   else if (sharedAccountType === 'fanpage') targetPool = accounts.filter(a => a.type === 'fanpage');
-  targetPool.forEach(a => sharedSelectedAccIds.add(a.id));
+  targetPool.forEach(a => {
+    if (!isAccountRateLimited(a)) sharedSelectedAccIds.add(a.id);
+  });
   await renderSharedAccountsSelector();
   debouncedSaveDraft();
 });
 
 $('sharedDeselectAllBtn')?.addEventListener('click', async () => {
-  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const accounts = await getCleanAccountsWithRateLimitCheck();
   let targetPool = accounts;
   if (sharedAccountType === 'personal') targetPool = accounts.filter(a => a.type !== 'fanpage');
   else if (sharedAccountType === 'fanpage') targetPool = accounts.filter(a => a.type === 'fanpage');
@@ -2302,7 +2409,7 @@ $('sharedDeselectAllBtn')?.addEventListener('click', async () => {
 // Thao tác nhanh theo Nhóm tài khoản (Section 2 Pane 2)
 $('btnSelectOnlyThisGroup')?.addEventListener('click', async () => {
   const selectedGroup = $('sharedAccountGroupFilter')?.value || 'all';
-  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const accounts = await getCleanAccountsWithRateLimitCheck();
   let matchingAccs = [];
   if (selectedGroup === 'all') {
     matchingAccs = accounts;
@@ -2312,8 +2419,11 @@ $('btnSelectOnlyThisGroup')?.addEventListener('click', async () => {
     matchingAccs = accounts.filter(a => a.accountGroup === selectedGroup);
   }
 
+  // Loại trừ tài khoản đang bị cách ly
+  matchingAccs = matchingAccs.filter(a => !isAccountRateLimited(a));
+
   if (matchingAccs.length === 0) {
-    msg('Không có tài khoản nào thuộc nhóm này.', 'err');
+    msg('Không có tài khoản khả dụng nào thuộc nhóm này (hoặc nick đang bị cách ly 3 ngày).', 'err');
     return;
   }
 
@@ -2328,16 +2438,18 @@ $('btnSelectOnlyThisGroup')?.addEventListener('click', async () => {
 
 $('btnAddThisGroupSelection')?.addEventListener('click', async () => {
   const selectedGroup = $('sharedAccountGroupFilter')?.value || 'all';
-  const { accounts = [] } = await chrome.storage.local.get('accounts');
+  const accounts = await getCleanAccountsWithRateLimitCheck();
   let matchingAccs = [];
   if (selectedGroup === 'all') matchingAccs = accounts;
   else if (selectedGroup === 'unassigned') matchingAccs = accounts.filter(a => !a.accountGroup || !a.accountGroup.trim());
   else matchingAccs = accounts.filter(a => a.accountGroup === selectedGroup);
 
-  matchingAccs.forEach(a => sharedSelectedAccIds.add(a.id));
+  matchingAccs.forEach(a => {
+    if (!isAccountRateLimited(a)) sharedSelectedAccIds.add(a.id);
+  });
   await renderSharedAccountsSelector();
   debouncedSaveDraft();
-  msg(`➕ Đã thêm ${matchingAccs.length} tài khoản nhóm này vào danh sách chạy.`);
+  msg(`➕ Đã thêm các tài khoản khả dụng của nhóm này vào danh sách chạy.`);
 });
 
 $('btnRemoveThisGroupSelection')?.addEventListener('click', async () => {
@@ -2442,11 +2554,11 @@ if (startAllEl) {
         return;
       }
       const curDraft = draft();
-      const {accounts} = await chrome.storage.local.get('accounts');
+      const accounts = await getCleanAccountsWithRateLimitCheck();
       if (!accounts?.length) throw Error('Chưa có tài khoản nào. Hãy thêm tài khoản trước.');
 
       // Kiểm tra danh sách tài khoản có nhóm để đăng bài
-      const activePostingAccs = accounts.filter(a => {
+      const rawActivePostingAccs = accounts.filter(a => {
         if (curDraft.groupSourceMode === 'categories') {
           return !!(curDraft.accountGroups?.[a.id]?.trim());
         } else {
@@ -2454,6 +2566,18 @@ if (startAllEl) {
           return isSelected && !!(a.groups?.trim() || curDraft.links?.trim());
         }
       });
+
+      // Kiểm tra tài khoản bị cách ly Spam Rate Limit trong "Acc nuôi"
+      const restrictedActiveAccs = rawActivePostingAccs.filter(a => isAccountRateLimited(a));
+      const activePostingAccs = rawActivePostingAccs.filter(a => !isAccountRateLimited(a));
+
+      if (restrictedActiveAccs.length > 0) {
+        const restrictedNames = restrictedActiveAccs.map(a => `• "${a.name}" (Cách ly còn: ${getRateLimitRemainingText(a.rateLimitRestrictedUntil)})`).join('\n');
+        if (activePostingAccs.length === 0) {
+          throw new Error(`⛔ Không thể đăng bài!\n\nTất cả tài khoản được chọn đang bị cách ly 3 ngày trong nhóm "Acc nuôi" do cảnh báo Spam Rate Limit:\n${restrictedNames}\n\nVui lòng chờ hết 3 ngày cách ly hoặc sử dụng tài khoản khác.`);
+        }
+        alert(`⚠️ Chú ý: Các tài khoản sau đang bị cách ly Spam Rate Limit trong "Acc nuôi" và sẽ tự động được BỎ QUA:\n${restrictedNames}\n\nHệ thống sẽ chỉ chạy cho ${activePostingAccs.length} tài khoản bình thường còn lại.`);
+      }
 
       if (!activePostingAccs.length) {
         if (curDraft.groupSourceMode === 'categories') {
@@ -2802,6 +2926,8 @@ function attachDrawerWheelProtection(drawer) {
 function buildProgCardElement(itemData, statsMap, todayStr, coordinator, existingDrawersMap = null) {
   const { acc, c, total, isPausedMidway, isRunning, isWaiting, isDone, hasErrorJob, isStoppedWithError } = itemData;
   const isRunningOrWaiting = isRunning || isWaiting;
+  const isRestricted = isAccountRateLimited(acc);
+  const remText = isRestricted ? getRateLimitRemainingText(acc.rateLimitRestrictedUntil) : '';
 
   const configuredUrls = getAccountConfiguredGroupUrls(acc);
   const done = c?.jobs?.filter(j => !['queued', 'working'].includes(j.status)).length || 0;
@@ -2915,6 +3041,7 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator, existin
         <div class="prog-acc-title">
           <span class="prog-acc-name">${acc.name}</span>
           ${isFanpage ? `<span class="prog-post-badge" style="background:#fee2e2;color:#dc2626;border:1px solid #fecaca;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px">Fanpage</span>` : ''}
+          ${isRestricted ? `<span class="prog-post-badge" style="background:#fee2e2;color:#dc2626;border:1px solid #fecaca;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px" title="Bị cảnh báo Spam Rate Limit, cách ly 3 ngày trong nhóm Acc nuôi">🛑 Cách ly 3 ngày (${remText})</span>` : ''}
           <span class="prog-post-badge" style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px">
             ${c?.postTitle || `Bài ${(accountPostMap[acc.id] ?? 0) + 1}`}
           </span>
@@ -2947,7 +3074,11 @@ function buildProgCardElement(itemData, statsMap, todayStr, coordinator, existin
         ${isRunningOrWaiting ? `<button type="button" class="prog-action-btn btn-pause-one" data-id="${acc.id}" style="background:#fef3c7;color:#b45309;border-color:#f59e0b">Tạm dừng</button>` : ''}
         ${isPausedMidway || isRunningOrWaiting ? `<button type="button" class="prog-action-btn btn-next" data-id="${acc.id}" title="Bỏ qua nhóm hiện tại và chuyển sang nhóm tiếp theo">Bỏ qua</button>` : ''}
         ${isPausedMidway ? `<button type="button" class="prog-action-btn btn-start-one" data-id="${acc.id}" style="color:#64748b" title="Bắt đầu lại từ nhóm 1">Chạy lại từ đầu</button>` : ''}
-        ${!isRunningOrWaiting && !isPausedMidway ? `<button type="button" class="prog-action-btn primary btn-start-one" data-id="${acc.id}">Chạy riêng</button>` : ''}
+        ${!isRunningOrWaiting && !isPausedMidway ? (
+          isRestricted
+            ? `<button type="button" class="prog-action-btn disabled" disabled style="opacity:0.6;cursor:not-allowed;background:#f1f5f9;color:#94a3b8;border-color:#cbd5e1" title="Tài khoản đang bị cách ly Spam Rate Limit trong 3 ngày">🛑 Cách ly (${remText})</button>`
+            : `<button type="button" class="prog-action-btn primary btn-start-one" data-id="${acc.id}">Chạy riêng</button>`
+        ) : ''}
         ${todayPosted > 0 && acc.type !== 'fanpage' ? `<button type="button" class="prog-action-btn btn-reset-daily-one" data-id="${acc.id}" data-name="${acc.name.replace(/"/g, '&quot;')}" style="color:#b45309;border-color:#f59e0b;background:#fffbeb" title="Đặt lại số bài đã đăng hôm nay về 0 nếu muốn đăng thêm">Đặt lại (${todayPosted})</button>` : ''}
         ${isRunningOrWaiting || isPausedMidway ? `<button type="button" class="prog-action-btn danger btn-stop-one" data-id="${acc.id}">Dừng hẳn</button>` : ''}
       </div>
@@ -3114,8 +3245,8 @@ async function _renderImpl() {
     } catch (_) {}
   }
 
-  const {accounts, campaigns, coordinator, dailyPostStats} = await chrome.storage.local.get(['accounts', 'campaigns', 'coordinator', 'dailyPostStats']);
-  const accs = accounts || [];
+  const accs = await getCleanAccountsWithRateLimitCheck();
+  const {campaigns, coordinator, dailyPostStats} = await chrome.storage.local.get(['campaigns', 'coordinator', 'dailyPostStats']);
   cachedAccounts = accs;
   const cMap = hasExtState ? (extCampaigns || {}) : (campaigns || {});
   cachedCampaigns = cMap;
@@ -3405,8 +3536,15 @@ async function _renderImpl() {
           return;
         }
         const accountId = btn.dataset.id;
-        const {accounts, campaigns} = await chrome.storage.local.get(['accounts', 'campaigns']);
+        const accounts = await getCleanAccountsWithRateLimitCheck();
+        const {campaigns} = await chrome.storage.local.get('campaigns');
         const acc = accounts?.find(a => a.id === accountId);
+        if (isAccountRateLimited(acc)) {
+          const rem = getRateLimitRemainingText(acc.rateLimitRestrictedUntil);
+          const unlockDate = new Date(acc.rateLimitRestrictedUntil).toLocaleString('vi-VN');
+          alert(`⛔ Tài khoản "${acc?.name}" đang bị Facebook giới hạn Spam Rate Limit!\n\n• Trạng thái: Đang cách ly trong nhóm "Acc nuôi" (3 ngày)\n• Thời gian còn lại: ${rem}\n• Tự động mở khóa lúc: ${unlockDate}\n\nTrong thời gian này bạn không thể dùng tài khoản này để đăng bài.`);
+          return;
+        }
         const curCamp = campaigns?.[accountId];
 
         // Nếu tài khoản đang tạm dừng dở dang, hỏi xác nhận để không bị mất tiến độ
@@ -4714,6 +4852,12 @@ const debouncedRender = debounce(() => render().then(scheduleNextRender).catch((
 const debouncedRenderCategories = debounce(renderAccountCategoryAssignments, 200);
 
 chrome.runtime?.onMessage?.addListener((msg) => {
+  if (msg?.type === 'ACCOUNT_RATE_LIMIT_RESTRICTED') {
+    renderSharedAccountsSelector().catch(() => {});
+    renderAccountCategoryAssignments().catch(() => {});
+    debouncedRender();
+    return;
+  }
   if (msg?.type === 'CAMPAIGN_UPDATED' || msg?.type === 'COOKIE_AUTO_SYNCED') {
     debouncedRender();
   }

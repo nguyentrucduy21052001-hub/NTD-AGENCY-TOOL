@@ -227,9 +227,67 @@ async function loadAccountGroupsList() {
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
 }
 
+// ── Quản lý cách ly tài khoản khi bị Spam Rate Limit (3 ngày) ──────────────────
+function checkAndReleaseRateLimitAccounts(accounts) {
+  if (!Array.isArray(accounts)) return { changed: false, accounts: [], releasedAccounts: [] };
+
+  const now = Date.now();
+  let changed = false;
+  const releasedAccounts = [];
+
+  const updatedAccounts = accounts.map(acc => {
+    if (acc && acc.rateLimitRestrictedUntil) {
+      if (now >= acc.rateLimitRestrictedUntil) {
+        changed = true;
+        const previousGrp = acc.previousAccountGroup || '';
+        const oldGroup = acc.accountGroup;
+
+        const restoredAcc = {
+          ...acc,
+          rateLimitRestricted: false,
+          accountGroup: (oldGroup === 'Acc nuôi') ? previousGrp : oldGroup
+        };
+        delete restoredAcc.rateLimitRestrictedUntil;
+        delete restoredAcc.rateLimitRestrictedAt;
+        delete restoredAcc.rateLimitReason;
+        delete restoredAcc.previousAccountGroup;
+
+        releasedAccounts.push(restoredAcc);
+        return restoredAcc;
+      }
+    }
+    return acc;
+  });
+
+  return { changed, accounts: updatedAccounts, releasedAccounts };
+}
+
+function getRateLimitRemainingText(restrictedUntil) {
+  if (!restrictedUntil) return '';
+  const diffMs = restrictedUntil - Date.now();
+  if (diffMs <= 0) return '0 giờ';
+  const totalHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days > 0) {
+    return hours > 0 ? `${days} ngày ${hours} giờ` : `${days} ngày`;
+  }
+  return `${hours} giờ`;
+}
+
+function isAccountRateLimited(acc) {
+  if (!acc) return false;
+  return Boolean(acc.rateLimitRestrictedUntil && Date.now() < acc.rateLimitRestrictedUntil);
+}
+
 async function loadAccounts() {
   const { accounts } = await chrome.storage.local.get('accounts');
-  const allAccs = Array.isArray(accounts) ? accounts : [];
+  const rawAccs = Array.isArray(accounts) ? accounts : [];
+  const { changed, accounts: updatedAccounts } = checkAndReleaseRateLimitAccounts(rawAccs);
+  if (changed) {
+    await chrome.storage.local.set({ accounts: updatedAccounts });
+  }
+  const allAccs = changed ? updatedAccounts : rawAccs;
   // Lọc chỉ lấy tài khoản cá nhân (loại trừ Fanpage)
   personalAccounts = allAccs.filter(a => a.type !== 'fanpage');
   allAccountGroups = await loadAccountGroupsList();
@@ -348,6 +406,8 @@ function renderAccountTable() {
   let html = '';
   filteredAccounts.forEach((acc) => {
     const isChecked = selectedAccountIds.has(acc.id);
+    const isRestricted = isAccountRateLimited(acc);
+    const remText = isRestricted ? getRateLimitRemainingText(acc.rateLimitRestrictedUntil) : '';
     const avatarLetter = (acc.name || 'FB')[0].toUpperCase();
     const uidDisplay = acc.fbId || acc.username || acc.id || 'N/A';
     const lastWarmup = acc.lastWarmupAt
@@ -359,6 +419,10 @@ function renderAccountTable() {
       ? `<span class="badge" style="background:rgba(237,107,34,0.12);color:var(--accent);border:1px solid rgba(237,107,34,0.3);font-size:11px;font-weight:700">📁 ${escapeHtml(groupName)}</span>`
       : `<span style="color:var(--text-muted);font-style:italic;font-size:11px">Chưa phân nhóm</span>`;
 
+    const quarantineBadge = isRestricted
+      ? ` <span class="badge" style="background:#fee2e2;color:#dc2626;border:1px solid #fecaca;font-size:10px;font-weight:700;margin-left:4px" title="Đang cách ly 3 ngày do Spam Rate Limit. Nuôi nick để tăng độ Trust và hồi phục tài khoản!">🌱 Nuôi dưỡng (còn ${remText})</span>`
+      : '';
+
     html += `
       <tr id="rowAcc_${acc.id}">
         <td style="text-align:center">
@@ -368,7 +432,7 @@ function renderAccountTable() {
           <div class="acc-user-cell">
             <div class="acc-avatar">${avatarLetter}</div>
             <div>
-              <b style="color:var(--text)">${escapeHtml(acc.name || 'Tài khoản')}</b>
+              <b style="color:var(--text)">${escapeHtml(acc.name || 'Tài khoản')}</b>${quarantineBadge}
               <div style="font-size:11px;color:var(--text-muted)">ID: ${escapeHtml(acc.id)}</div>
             </div>
           </div>
